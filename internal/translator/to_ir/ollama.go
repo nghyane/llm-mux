@@ -15,8 +15,8 @@ import (
 // ParseOllamaRequest parses incoming Ollama API request into unified format.
 // Supports both /api/chat and /api/generate endpoints.
 func ParseOllamaRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, err
 	}
 
 	root := gjson.ParseBytes(rawJSON)
@@ -74,8 +74,8 @@ func ParseOllamaRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 // ParseOllamaResponse parses non-streaming Ollama API response.
 // Supports both /api/chat and /api/generate response formats.
 func ParseOllamaResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil, err
 	}
 
 	root := gjson.ParseBytes(rawJSON)
@@ -103,8 +103,11 @@ func ParseOllamaResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
 func ParseOllamaChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 	// Ollama uses newline-delimited JSON (not SSE)
 	rawJSON = []byte(strings.TrimSpace(string(rawJSON)))
-	if len(rawJSON) == 0 || !gjson.ValidBytes(rawJSON) {
+	if len(rawJSON) == 0 {
 		return nil, nil
+	}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil // Ignore invalid chunks in streaming
 	}
 
 	root := gjson.ParseBytes(rawJSON)
@@ -260,7 +263,7 @@ func parseOllamaMessages(msgs []gjson.Result) []ir.Message {
 			} // Fallback
 			if id != "" {
 				msg.Content = append(msg.Content, ir.ContentPart{
-					Type: ir.ContentTypeToolResult,
+					Type:       ir.ContentTypeToolResult,
 					ToolResult: &ir.ToolResultPart{ToolCallID: id, Result: ir.SanitizeText(content)},
 				})
 			}

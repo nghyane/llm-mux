@@ -48,43 +48,49 @@ const (
 
 type UnifiedEvent struct {
 	Type              EventType
-	Content           string            
-	Reasoning         string            
-	ReasoningSummary  string            
-	ThoughtSignature  string            
-	ToolCall          *ToolCall         
-	ToolCallIndex     int               
-	Image             *ImagePart        
+	Content           string
+	Reasoning         string
+	ReasoningSummary  string
+	ThoughtSignature  string
+	ToolCall          *ToolCall
+	ToolCallIndex     int
+	Image             *ImagePart
 	CodeExecution     *CodeExecutionPart
 	GroundingMetadata *GroundingMetadata
-	Error             error             
-	Usage             *Usage            
-	FinishReason      FinishReason       // Why generation stopped (for EventTypeFinish)
-	Refusal           string             // Refusal message (if model refuses to answer)
-	Logprobs          any        // Log probabilities (if requested)
-	ContentFilter     any        // Content filter results
-	SystemFingerprint string             // System fingerprint
+	Error             error
+	Usage             *Usage
+	FinishReason      FinishReason // Why generation stopped (for EventTypeFinish)
+	Refusal           string       // Refusal message (if model refuses to answer)
+	Logprobs          any          // Log probabilities (if requested)
+	ContentFilter     any          // Content filter results
+	SystemFingerprint string       // System fingerprint
 }
 
 type Usage struct {
-	PromptTokens       int
-	CompletionTokens   int
-	TotalTokens        int
-	ThoughtsTokenCount int // Reasoning/thinking token count (for completion_tokens_details)
-	CachedTokens       int // Cached input tokens (Responses API prompt caching)
-	AudioTokens        int // Audio input tokens
+	PromptTokens             int
+	CompletionTokens         int
+	TotalTokens              int
+	ThoughtsTokenCount       int // Reasoning/thinking token count (for completion_tokens_details)
+	CachedTokens             int // Cached input tokens (Responses API prompt caching)
+	AudioTokens              int // Audio input tokens
 	AcceptedPredictionTokens int // Accepted prediction tokens
 	RejectedPredictionTokens int // Rejected prediction tokens
 }
 
-// ResponseMeta contains metadata from upstream response for passthrough.
+// OpenAIMeta contains metadata from upstream response for passthrough.
 // Used to preserve original response fields like responseId, createTime, finishReason.
-type ResponseMeta struct {
-	ResponseID         string     
-	CreateTime         int64       // Unix timestamp from upstream (parsed from createTime)
-	NativeFinishReason string     
-	Logprobs           any // Log probabilities from response (OpenAI format)
+// This is the unified metadata type used across all providers.
+type OpenAIMeta struct {
+	ResponseID         string
+	CreateTime         int64
+	NativeFinishReason string
+	ThoughtsTokenCount int
+	Logprobs           any
 }
+
+// ResponseMeta is an alias for OpenAIMeta for backward compatibility.
+// Deprecated: Use OpenAIMeta directly instead.
+type ResponseMeta = OpenAIMeta
 
 // CandidateResult holds the result of a single candidate/choice from the model.
 // Used when candidateCount/n > 1 to return multiple alternatives.
@@ -92,7 +98,7 @@ type CandidateResult struct {
 	Index        int          // Candidate index (0-based)
 	Messages     []Message    // Messages from this candidate
 	FinishReason FinishReason // Why this candidate stopped
-	Logprobs     any  // Log probabilities for this candidate (OpenAI format)
+	Logprobs     any          // Log probabilities for this candidate (OpenAI format)
 }
 
 // ToolCall represents a request from the model to execute a tool.
@@ -117,23 +123,23 @@ const (
 type ContentType string
 
 const (
-	ContentTypeText          ContentType = "text"
-	ContentTypeReasoning     ContentType = "reasoning"     
-	ContentTypeImage         ContentType = "image"
-	ContentTypeFile          ContentType = "file"          
-	ContentTypeToolResult    ContentType = "tool_result"
+	ContentTypeText           ContentType = "text"
+	ContentTypeReasoning      ContentType = "reasoning"
+	ContentTypeImage          ContentType = "image"
+	ContentTypeFile           ContentType = "file"
+	ContentTypeToolResult     ContentType = "tool_result"
 	ContentTypeExecutableCode ContentType = "executable_code"
-	ContentTypeCodeResult    ContentType = "code_result"     
+	ContentTypeCodeResult     ContentType = "code_result"
 )
 
 // ContentPart represents a discrete part of a message (e.g., a block of text, an image).
 type ContentPart struct {
 	Type             ContentType
-	Text             string         
-	Reasoning        string         
-	ThoughtSignature string         
-	Image            *ImagePart     
-	File             *FilePart      
+	Text             string
+	Reasoning        string
+	ThoughtSignature string
+	Image            *ImagePart
+	File             *FilePart
 	ToolResult       *ToolResultPart
 	CodeExecution    *CodeExecutionPart
 }
@@ -154,9 +160,9 @@ type FilePart struct {
 
 type ToolResultPart struct {
 	ToolCallID string
-	Result     string      
+	Result     string
 	Images     []*ImagePart
-	Files      []*FilePart 
+	Files      []*FilePart
 }
 
 // CodeExecutionPart represents Gemini code execution content.
@@ -215,9 +221,9 @@ type UnifiedChatRequest struct {
 	StopSequences    []string
 	FrequencyPenalty *float64
 	PresencePenalty  *float64
-	Logprobs         *bool   
-	TopLogprobs      *int    
-	CandidateCount   *int    
+	Logprobs         *bool
+	TopLogprobs      *int
+	CandidateCount   *int
 	Thinking         *ThinkingConfig
 	SafetySettings   []SafetySetting // Safety/content filtering settings
 	ImageConfig      *ImageConfig    // Image generation configuration
@@ -225,8 +231,8 @@ type UnifiedChatRequest struct {
 	Metadata         map[string]any  // Additional provider-specific metadata
 
 	// Responses API specific fields
-	Instructions       string         // System instructions (Responses API)
-	PreviousResponseID string        
+	Instructions       string // System instructions (Responses API)
+	PreviousResponseID string
 	PromptID           string         // Prompt template ID (Responses API)
 	PromptVersion      string         // Prompt template version (Responses API)
 	PromptVariables    map[string]any // Variables for prompt template (Responses API)
@@ -234,21 +240,21 @@ type UnifiedChatRequest struct {
 	Store              *bool          // Whether to store the response (Responses API)
 	ParallelToolCalls  *bool          // Whether to allow parallel tool calls (Responses API)
 	ToolChoice         string         // Tool choice mode (Responses API)
-	ResponseSchema     map[string]any       
+	ResponseSchema     map[string]any
 	FunctionCalling    *FunctionCallingConfig // Function calling configuration
 }
 
 // FunctionCallingConfig controls function calling behavior.
 type FunctionCallingConfig struct {
-	Mode                       string   // "AUTO", "ANY", "NONE"
-	AllowedFunctionNames       []string // Whitelist of functions
+	Mode                        string   // "AUTO", "ANY", "NONE"
+	AllowedFunctionNames        []string // Whitelist of functions
 	StreamFunctionCallArguments bool     // Enable streaming of arguments (Gemini 3+)
 }
 
 // ThinkingConfig controls the reasoning capabilities of the model.
 type ThinkingConfig struct {
 	IncludeThoughts bool
-	Budget          int   
+	Budget          int
 	Summary         string // Reasoning summary mode: "auto", "concise", "detailed" (Responses API)
 	Effort          string // Reasoning effort: "none", "low", "medium", "high" (Responses API)
 }

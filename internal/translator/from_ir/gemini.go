@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tidwall/gjson"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
@@ -118,7 +118,7 @@ func (p *GeminiProvider) applyGenerationConfig(root map[string]any, req *ir.Unif
 					budget = util.NormalizeThinkingBudget(req.Model, budget)
 				}
 				genConfig["thinkingConfig"] = map[string]any{
-					"thinkingBudget": budget,
+					"thinkingBudget":  budget,
 					"includeThoughts": true,
 				}
 			}
@@ -202,8 +202,10 @@ func (p *GeminiProvider) applyMessages(root map[string]any, req *ir.UnifiedChatR
 			}
 
 		case ir.RoleUser:
-			var parts []any
-			for _, part := range msg.Content {
+			// Pre-allocate parts slice
+			parts := make([]any, 0, len(msg.Content))
+			for i := range msg.Content {
+				part := &msg.Content[i]
 				switch part.Type {
 				case ir.ContentTypeText:
 					parts = append(parts, map[string]any{"text": part.Text})
@@ -227,10 +229,12 @@ func (p *GeminiProvider) applyMessages(root map[string]any, req *ir.UnifiedChatR
 
 		case ir.RoleAssistant:
 			if len(msg.ToolCalls) > 0 {
-				var parts []any
-				var toolCallIDs []string
+				// Pre-allocate slices
+				parts := make([]any, 0, len(msg.ToolCalls))
+				toolCallIDs := make([]string, 0, len(msg.ToolCalls))
 
-				for i, tc := range msg.ToolCalls {
+				for i := range msg.ToolCalls {
+					tc := &msg.ToolCalls[i]
 					argsJSON := ir.ValidateAndNormalizeJSON(tc.Args)
 					fcMap := map[string]any{
 						"name": tc.Name,
@@ -375,8 +379,10 @@ func (p *GeminiProvider) applyMessages(root map[string]any, req *ir.UnifiedChatR
 					})
 				}
 			} else {
-				var parts []any
-				for _, part := range msg.Content {
+				// Pre-allocate parts slice
+				parts := make([]any, 0, len(msg.Content))
+				for i := range msg.Content {
+					part := &msg.Content[i]
 					switch part.Type {
 					case ir.ContentTypeReasoning:
 						p := map[string]any{

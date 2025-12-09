@@ -2,13 +2,14 @@ package ir
 
 import "encoding/json"
 
-// toClaudeToolID converts tool call ID to Claude format (toolu_...).
+// ToClaudeToolID converts tool call ID to Claude format (toolu_...).
 // Optimized: avoids allocation if already in correct format.
-func toClaudeToolID(id string) string {
-	if len(id) > 6 && id[0] == 't' && id[1] == 'o' && id[2] == 'o' && id[3] == 'l' && id[4] == 'u' && id[5] == '_' {
-		return id // Already Claude format
+// Exported so it can be used by from_ir/claude.go
+func ToClaudeToolID(id string) string {
+	if len(id) > 5 && id[:6] == "toolu_" {
+		return id // Already Claude format - fast path
 	}
-	if len(id) > 5 && id[0] == 'c' && id[1] == 'a' && id[2] == 'l' && id[3] == 'l' && id[4] == '_' {
+	if len(id) > 4 && id[:5] == "call_" {
 		return "toolu_" + id[5:] // Replace call_ with toolu_
 	}
 	return "toolu_" + id
@@ -97,34 +98,39 @@ func (b *ResponseBuilder) BuildOpenAIToolCalls() []any {
 	return result
 }
 
-// BuildClaudeContentParts builds Claude-format content parts array
+// BuildClaudeContentParts builds Claude-format content parts array.
 func (b *ResponseBuilder) BuildClaudeContentParts() []any {
 	msg := b.GetLastMessage()
 	if msg == nil {
 		return []any{}
 	}
 
-	var parts []any
+	// Pre-allocate with estimated capacity
+	capacity := len(msg.Content) + len(msg.ToolCalls)
+	parts := make([]any, 0, capacity)
 
 	// Add reasoning/thinking content first
-	for _, part := range msg.Content {
+	for i := range msg.Content {
+		part := &msg.Content[i]
 		if part.Type == ContentTypeReasoning && part.Reasoning != "" {
 			parts = append(parts, map[string]any{"type": "thinking", "thinking": part.Reasoning})
 		}
 	}
 
 	// Add text content
-	for _, part := range msg.Content {
+	for i := range msg.Content {
+		part := &msg.Content[i]
 		if part.Type == ContentTypeText && part.Text != "" {
 			parts = append(parts, map[string]any{"type": "text", "text": part.Text})
 		}
 	}
 
 	// Add tool calls
-	for _, tc := range msg.ToolCalls {
+	for i := range msg.ToolCalls {
+		tc := &msg.ToolCalls[i]
 		toolUse := map[string]any{
 			"type":  "tool_use",
-			"id":    toClaudeToolID(tc.ID),
+			"id":    ToClaudeToolID(tc.ID),
 			"name":  tc.Name,
 			"input": map[string]any{},
 		}
@@ -141,16 +147,20 @@ func (b *ResponseBuilder) BuildClaudeContentParts() []any {
 }
 
 // BuildGeminiContentParts builds Gemini-format content parts array
+// Pre-allocates slice capacity based on message content to reduce allocations.
 func (b *ResponseBuilder) BuildGeminiContentParts() []any {
 	msg := b.GetLastMessage()
 	if msg == nil {
 		return []any{}
 	}
 
-	var parts []any
+	// Pre-allocate with estimated capacity
+	capacity := len(msg.Content) + len(msg.ToolCalls)
+	parts := make([]any, 0, capacity)
 
 	// Process all content parts in order to preserve original sequence
-	for _, part := range msg.Content {
+	for i := range msg.Content {
+		part := &msg.Content[i]
 		switch part.Type {
 		case ContentTypeReasoning:
 			if part.Reasoning != "" {
@@ -199,7 +209,8 @@ func (b *ResponseBuilder) BuildGeminiContentParts() []any {
 	}
 
 	// Add tool calls as functionCall parts
-	for _, tc := range msg.ToolCalls {
+	for i := range msg.ToolCalls {
+		tc := &msg.ToolCalls[i]
 		parts = append(parts, map[string]any{
 			"functionCall": map[string]any{
 				"name": tc.Name,

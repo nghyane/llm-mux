@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -110,17 +111,18 @@ func ParseClaudeContentBlock(block gjson.Result, msg *Message) {
 }
 
 // ExtractSSEData strips "data: " prefix from SSE line.
+// Optimized to avoid string conversions where possible.
 func ExtractSSEData(raw []byte) []byte {
-	if len(raw) > 0 && raw[0] == 'd' {
-		s := string(raw)
-		if strings.HasPrefix(s, "data: ") {
-			return []byte(strings.TrimSpace(s[6:]))
+	// Fast path: check for "data: " or "data:" prefix
+	if len(raw) > 6 && raw[0] == 'd' && raw[1] == 'a' && raw[2] == 't' && raw[3] == 'a' {
+		if raw[4] == ':' && raw[5] == ' ' {
+			return bytes.TrimSpace(raw[6:])
 		}
-		if strings.HasPrefix(s, "data:") {
-			return []byte(strings.TrimSpace(s[5:]))
+		if raw[4] == ':' {
+			return bytes.TrimSpace(raw[5:])
 		}
 	}
-	return []byte(strings.TrimSpace(string(raw)))
+	return bytes.TrimSpace(raw)
 }
 
 // ParseClaudeStreamDelta parses Claude content_block_delta into IR events.

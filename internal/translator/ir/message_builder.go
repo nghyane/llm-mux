@@ -10,42 +10,140 @@ import (
 
 // CombineTextAndReasoning extracts both text and reasoning in a single pass.
 func CombineTextAndReasoning(msg Message) (text, reasoning string) {
-	var textParts, reasoningParts []string
+	// Fast path: count parts first to avoid allocations for single-part messages
+	textCount, reasoningCount := 0, 0
+	var singleText, singleReasoning string
 	for _, part := range msg.Content {
 		switch part.Type {
 		case ContentTypeText:
 			if part.Text != "" {
-				textParts = append(textParts, part.Text)
+				textCount++
+				singleText = part.Text
 			}
 		case ContentTypeReasoning:
 			if part.Reasoning != "" {
-				reasoningParts = append(reasoningParts, part.Reasoning)
+				reasoningCount++
+				singleReasoning = part.Reasoning
 			}
 		}
 	}
-	return strings.Join(textParts, ""), strings.Join(reasoningParts, "")
+
+	// Fast path: single part, no allocation needed
+	if textCount <= 1 && reasoningCount <= 1 {
+		if textCount == 1 {
+			text = singleText
+		}
+		if reasoningCount == 1 {
+			reasoning = singleReasoning
+		}
+		return
+	}
+
+	// Slow path: multiple parts, use builders
+	var textBuilder, reasoningBuilder strings.Builder
+	if textCount > 1 {
+		textBuilder.Grow(textCount * 256) // Estimate 256 bytes per part
+	}
+	if reasoningCount > 1 {
+		reasoningBuilder.Grow(reasoningCount * 512)
+	}
+
+	for _, part := range msg.Content {
+		switch part.Type {
+		case ContentTypeText:
+			if part.Text != "" {
+				if textCount > 1 {
+					textBuilder.WriteString(part.Text)
+				}
+			}
+		case ContentTypeReasoning:
+			if part.Reasoning != "" {
+				if reasoningCount > 1 {
+					reasoningBuilder.WriteString(part.Reasoning)
+				}
+			}
+		}
+	}
+
+	if textCount > 1 {
+		text = textBuilder.String()
+	} else if textCount == 1 {
+		text = singleText
+	}
+	if reasoningCount > 1 {
+		reasoning = reasoningBuilder.String()
+	} else if reasoningCount == 1 {
+		reasoning = singleReasoning
+	}
+	return
 }
 
 // CombineTextParts combines all text content parts from a message.
+// Optimized to avoid allocations for single-part messages.
 func CombineTextParts(msg Message) string {
-	var parts []string
+	// Fast path: count parts first
+	count := 0
+	var single string
 	for _, part := range msg.Content {
 		if part.Type == ContentTypeText && part.Text != "" {
-			parts = append(parts, part.Text)
+			count++
+			single = part.Text
+			if count > 1 {
+				break // Need builder anyway
+			}
 		}
 	}
-	return strings.Join(parts, "")
+
+	if count == 0 {
+		return ""
+	}
+	if count == 1 {
+		return single
+	}
+
+	// Multiple parts: use builder
+	var b strings.Builder
+	b.Grow(count * 256)
+	for _, part := range msg.Content {
+		if part.Type == ContentTypeText && part.Text != "" {
+			b.WriteString(part.Text)
+		}
+	}
+	return b.String()
 }
 
 // CombineReasoningParts combines all reasoning content parts from a message.
+// Optimized to avoid allocations for single-part messages.
 func CombineReasoningParts(msg Message) string {
-	var parts []string
+	// Fast path: count parts first
+	count := 0
+	var single string
 	for _, part := range msg.Content {
 		if part.Type == ContentTypeReasoning && part.Reasoning != "" {
-			parts = append(parts, part.Reasoning)
+			count++
+			single = part.Reasoning
+			if count > 1 {
+				break
+			}
 		}
 	}
-	return strings.Join(parts, "")
+
+	if count == 0 {
+		return ""
+	}
+	if count == 1 {
+		return single
+	}
+
+	// Multiple parts: use builder
+	var b strings.Builder
+	b.Grow(count * 512)
+	for _, part := range msg.Content {
+		if part.Type == ContentTypeReasoning && part.Reasoning != "" {
+			b.WriteString(part.Reasoning)
+		}
+	}
+	return b.String()
 }
 
 // BuildToolCallMap creates a map of tool call ID to function name.

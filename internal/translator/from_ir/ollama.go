@@ -1,4 +1,3 @@
-// Package from_ir converts unified request format to provider-specific formats.
 package from_ir
 
 import (
@@ -11,8 +10,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 )
-
-// Request Conversion (Unified → Ollama API)
 
 // ToOllamaRequest converts unified request to Ollama API JSON format.
 // Use when sending request TO Ollama API (e.g., client sent OpenAI format, proxy to Ollama).
@@ -262,8 +259,6 @@ func buildOllamaToolMessage(msg ir.Message) map[string]any {
 	return nil
 }
 
-// Response Conversion (Unified → Ollama Response)
-
 // ToOllamaChatResponse converts messages to Ollama /api/chat response.
 // Use when sending response TO client in Ollama chat format (non-streaming).
 func ToOllamaChatResponse(messages []ir.Message, usage *ir.Usage, model string) ([]byte, error) {
@@ -348,8 +343,6 @@ func ToOllamaGenerateResponse(messages []ir.Message, usage *ir.Usage, model stri
 
 	return json.Marshal(response)
 }
-
-// Streaming Response Conversion (Events → Ollama Chunks)
 
 // ToOllamaChatChunk converts event to Ollama /api/chat streaming chunk.
 func ToOllamaChatChunk(event ir.UnifiedEvent, model string) ([]byte, error) {
@@ -466,8 +459,6 @@ func ToOllamaGenerateChunk(event ir.UnifiedEvent, model string) ([]byte, error) 
 	return append(jsonBytes, '\n'), nil
 }
 
-// OpenAI Response → Ollama Conversion
-
 // OpenAIToOllamaChat converts OpenAI response to Ollama chat format.
 // This is a convenience function that parses OpenAI response, then converts to Ollama.
 func OpenAIToOllamaChat(rawJSON []byte, model string) ([]byte, error) {
@@ -512,8 +503,6 @@ func OpenAIChunkToOllamaGenerate(rawJSON []byte, model string) ([]byte, error) {
 	return ToOllamaGenerateChunk(events[0], model)
 }
 
-// Utility Functions
-
 func mapFinishReasonToOllama(reason ir.FinishReason) string {
 	switch reason {
 	case ir.FinishReasonStop:
@@ -526,8 +515,6 @@ func mapFinishReasonToOllama(reason ir.FinishReason) string {
 		return "stop"
 	}
 }
-
-// Model Configuration (for /api/show endpoint)
 
 // ToOllamaShowResponse generates an Ollama show response for a given model name.
 // Looks up model info from registry, falls back to sensible defaults.

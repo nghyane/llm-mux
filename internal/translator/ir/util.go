@@ -2,6 +2,7 @@ package ir
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -13,6 +14,27 @@ import (
 
 func BytesToString(b []byte) string {
 	return string(b)
+}
+
+// ErrInvalidJSON is returned when JSON parsing fails.
+var ErrInvalidJSON = &json.UnmarshalTypeError{Value: "invalid json"}
+
+// ExtractThoughtSignature extracts thought signature from a gjson.Result.
+// Handles both camelCase and snake_case field names.
+func ExtractThoughtSignature(part gjson.Result) string {
+	if ts := part.Get("thoughtSignature").String(); ts != "" {
+		return ts
+	}
+	return part.Get("thought_signature").String()
+}
+
+// ValidateJSON checks if the provided bytes are valid JSON.
+// Returns ErrInvalidJSON if validation fails.
+func ValidateJSON(rawJSON []byte) error {
+	if !gjson.ValidBytes(rawJSON) {
+		return ErrInvalidJSON
+	}
+	return nil
 }
 
 func UnwrapAntigravityEnvelope(rawJSON []byte) (gjson.Result, bool) {
@@ -28,14 +50,6 @@ var bytePool = sync.Pool{
 		b := make([]byte, 24) // OpenAI tool call ID length
 		return &b
 	},
-}
-
-type OpenAIMeta struct {
-	ResponseID         string
-	CreateTime         int64
-	NativeFinishReason string
-	ThoughtsTokenCount int
-	Logprobs           any
 }
 
 func EstimateTokenCount(text string) int {
@@ -150,12 +164,38 @@ func GenClaudeToolCallID() string {
 	return fmt.Sprintf("toolu_%s", generateAlphanumeric(20))
 }
 
+// GenerateUUID generates a UUID v4 string using pooled buffers to reduce allocations.
 func GenerateUUID() string {
-	b := make([]byte, 16)
+	bp := GetUUIDBuf()
+	b := *bp
+	defer PutUUIDBuf(bp)
+
 	_, _ = rand.Read(b)
 	b[6] = (b[6] & 0x0f) | 0x40 // Version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // Variant
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+
+	// Use a pre-sized buffer to avoid fmt.Sprintf allocations
+	buf := make([]byte, 36)
+	hexEncode(buf[0:8], b[0:4])
+	buf[8] = '-'
+	hexEncode(buf[9:13], b[4:6])
+	buf[13] = '-'
+	hexEncode(buf[14:18], b[6:8])
+	buf[18] = '-'
+	hexEncode(buf[19:23], b[8:10])
+	buf[23] = '-'
+	hexEncode(buf[24:36], b[10:16])
+	return string(buf)
+}
+
+const hexChars = "0123456789abcdef"
+
+// hexEncode encodes src bytes to dst as lowercase hex.
+func hexEncode(dst, src []byte) {
+	for i, v := range src {
+		dst[i*2] = hexChars[v>>4]
+		dst[i*2+1] = hexChars[v&0x0f]
+	}
 }
 
 func SanitizeText(s string) string {
@@ -445,15 +485,49 @@ func HasThoughtSignatureOnly(thoughtSig, thoughtSigSnake, text, functionCall, in
 	return !(exists(text) || exists(functionCall) || exists(inlineData) || exists(inlineDataSnake))
 }
 
+// schemaCache caches cleaned schemas to avoid repeated processing.
+// Uses sync.Map for concurrent access without locks on read path.
+var schemaCache sync.Map
+
+// schemaHasher computes a hash for schema caching.
+func schemaHasher(schema map[string]any) string {
+	// Simple hash based on type and properties keys
+	if schema == nil {
+		return ""
+	}
+	var b strings.Builder
+	if t, ok := schema["type"].(string); ok {
+		b.WriteString(t)
+	}
+	if props, ok := schema["properties"].(map[string]any); ok {
+		for k := range props {
+			b.WriteString(k)
+		}
+	}
+	return b.String()
+}
 
 func CleanJsonSchemaForClaude(schema map[string]any) map[string]any {
 	if schema == nil {
 		return nil
 	}
+
+	// Check cache first
+	cacheKey := schemaHasher(schema)
+	if cached, ok := schemaCache.Load(cacheKey); ok && cacheKey != "" {
+		return cached.(map[string]any)
+	}
+
 	schema = CleanJsonSchema(schema)
 	cleanSchemaForClaudeRecursive(schema)
 	schema["additionalProperties"] = false
 	schema["$schema"] = "http://json-schema.org/draft-07/schema#"
+
+	// Cache the result
+	if cacheKey != "" {
+		schemaCache.Store(cacheKey, schema)
+	}
+
 	return schema
 }
 

@@ -15,8 +15,8 @@ import (
 // Automatically detects format: Chat Completions API uses "messages", Responses API uses "input".
 // This allows the proxy to accept requests from any OpenAI-compatible client (Cursor, Cline, Codex CLI, etc.)
 func ParseOpenAIRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, err
 	}
 	root := gjson.ParseBytes(rawJSON)
 	req := &ir.UnifiedChatRequest{Model: root.Get("model").String()}
@@ -279,8 +279,8 @@ func parseResponsesContentPart(part gjson.Result) *ir.ContentPart {
 // ParseOpenAIResponse parses non-streaming response FROM OpenAI API into unified format.
 // Auto-detects format: Responses API has "output" array, Chat Completions has "choices" array.
 func ParseOpenAIResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil, err
 	}
 	root := gjson.ParseBytes(rawJSON)
 	usage := ir.ParseOpenAIUsage(root.Get("usage"))

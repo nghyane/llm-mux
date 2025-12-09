@@ -14,8 +14,8 @@ func ParseClaudeRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 	// URL format fix: remove "format":"uri" which causes issues with some backends
 	rawJSON = bytes.Replace(rawJSON, []byte(`"url":{"type":"string","format":"uri",`), []byte(`"url":{"type":"string",`), -1)
 
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, err
 	}
 
 	req := &ir.UnifiedChatRequest{}
@@ -142,7 +142,7 @@ func parseClaudeMessage(m gjson.Result) ir.Message {
 			case "image":
 				if source := block.Get("source"); source.Exists() && source.Get("type").String() == "base64" {
 					msg.Content = append(msg.Content, ir.ContentPart{
-						Type: ir.ContentTypeImage,
+						Type:  ir.ContentTypeImage,
 						Image: &ir.ImagePart{MimeType: source.Get("media_type").String(), Data: source.Get("data").String()},
 					})
 				}
@@ -171,7 +171,7 @@ func parseClaudeMessage(m gjson.Result) ir.Message {
 					resultStr = resultContent.Raw
 				}
 				msg.Content = append(msg.Content, ir.ContentPart{
-					Type: ir.ContentTypeToolResult,
+					Type:       ir.ContentTypeToolResult,
 					ToolResult: &ir.ToolResultPart{ToolCallID: block.Get("tool_use_id").String(), Result: resultStr},
 				})
 			}
@@ -182,8 +182,8 @@ func parseClaudeMessage(m gjson.Result) ir.Message {
 
 // ParseClaudeResponse converts a non-streaming Claude API response into unified format.
 func ParseClaudeResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil, err
 	}
 
 	parsed := gjson.ParseBytes(rawJSON)
@@ -214,8 +214,8 @@ func ParseClaudeChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
-	if !gjson.ValidBytes(data) {
-		return nil, nil
+	if ir.ValidateJSON(data) != nil {
+		return nil, nil // Ignore invalid chunks in streaming
 	}
 
 	parsed := gjson.ParseBytes(data)

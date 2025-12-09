@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
@@ -19,18 +20,7 @@ var (
 	claudeSession = ""
 )
 
-// toClaudeToolID converts an OpenAI-style tool call ID to Claude format.
-// OpenAI format: call_xxx... -> Claude format: toolu_xxx...
-// Optimized for performance: avoids allocations when already Claude format.
-func toClaudeToolID(id string) string {
-	if len(id) > 6 && id[0] == 't' && id[1] == 'o' && id[2] == 'o' && id[3] == 'l' && id[4] == 'u' && id[5] == '_' {
-		return id // Already Claude format - fast path, no allocation
-	}
-	if len(id) > 5 && id[0] == 'c' && id[1] == 'a' && id[2] == 'l' && id[3] == 'l' && id[4] == '_' {
-		return "toolu_" + id[5:] // Replace prefix - single allocation
-	}
-	return "toolu_" + id // Fallback
-}
+func toClaudeToolID(id string) string { return ir.ToClaudeToolID(id) }
 
 // ClaudeProvider handles conversion to Claude Messages API format.
 type ClaudeProvider struct{}
@@ -165,8 +155,8 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 
 // ParseResponse parses non-streaming Claude response into unified format.
 func (p *ClaudeProvider) ParseResponse(responseJSON []byte) ([]ir.Message, *ir.Usage, error) {
-	if !gjson.ValidBytes(responseJSON) {
-		return nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(responseJSON); err != nil {
+		return nil, nil, err
 	}
 	parsed := gjson.ParseBytes(responseJSON)
 	usage := ir.ParseClaudeUsage(parsed.Get("usage"))
@@ -195,8 +185,11 @@ func (p *ClaudeProvider) ParseStreamChunk(chunkJSON []byte) ([]ir.UnifiedEvent, 
 // ParseStreamChunkWithState parses streaming Claude SSE chunk with state tracking.
 func (p *ClaudeProvider) ParseStreamChunkWithState(chunkJSON []byte, state *ir.ClaudeStreamParserState) ([]ir.UnifiedEvent, error) {
 	data := ir.ExtractSSEData(chunkJSON)
-	if len(data) == 0 || !gjson.ValidBytes(data) {
+	if len(data) == 0 {
 		return nil, nil
+	}
+	if ir.ValidateJSON(data) != nil {
+		return nil, nil // Ignore invalid chunks in streaming
 	}
 
 	parsed := gjson.ParseBytes(data)
@@ -287,8 +280,15 @@ func ToClaudeResponse(messages []ir.Message, usage *ir.Usage, model, messageID s
 }
 
 func buildClaudeContentParts(msg ir.Message, includeToolCalls bool) []any {
-	var parts []any
-	for _, p := range msg.Content {
+	// Pre-allocate with estimated capacity
+	capacity := len(msg.Content)
+	if includeToolCalls {
+		capacity += len(msg.ToolCalls)
+	}
+	parts := make([]any, 0, capacity)
+
+	for i := range msg.Content {
+		p := &msg.Content[i]
 		switch p.Type {
 		case ir.ContentTypeReasoning:
 			if p.Reasoning != "" {
@@ -314,7 +314,8 @@ func buildClaudeContentParts(msg ir.Message, includeToolCalls bool) []any {
 		}
 	}
 	if includeToolCalls {
-		for _, tc := range msg.ToolCalls {
+		for i := range msg.ToolCalls {
+			tc := &msg.ToolCalls[i]
 			toolUse := map[string]any{"type": ir.ClaudeBlockToolUse, "id": toClaudeToolID(tc.ID), "name": tc.Name}
 			toolUse["input"] = ir.ParseToolCallArgs(tc.Args)
 			parts = append(parts, toolUse)
@@ -323,9 +324,41 @@ func buildClaudeContentParts(msg ir.Message, includeToolCalls bool) []any {
 	return parts
 }
 
+// sseBufferPool provides reusable buffers for SSE formatting.
+var sseBufferPool = sync.Pool{
+	New: func() any {
+		return make([]byte, 0, 512)
+	},
+}
+
 func formatSSE(eventType string, data any) string {
 	jsonData, _ := json.Marshal(data)
-	return fmt.Sprintf("event: %s\ndata: %s\n\n", eventType, string(jsonData))
+
+	// Calculate required size: "event: " + eventType + "\ndata: " + json + "\n\n"
+	size := 7 + len(eventType) + 7 + len(jsonData) + 2
+
+	// Get buffer from pool
+	bufPtr := sseBufferPool.Get().([]byte)
+	buf := bufPtr[:0]
+
+	// Grow if needed
+	if cap(buf) < size {
+		buf = make([]byte, 0, size)
+	}
+
+	// Build SSE message
+	buf = append(buf, "event: "...)
+	buf = append(buf, eventType...)
+	buf = append(buf, "\ndata: "...)
+	buf = append(buf, jsonData...)
+	buf = append(buf, "\n\n"...)
+
+	result := string(buf)
+
+	// Return buffer to pool
+	sseBufferPool.Put(buf[:0])
+
+	return result
 }
 
 func emitTextDelta(text string, state *ClaudeStreamState) string {

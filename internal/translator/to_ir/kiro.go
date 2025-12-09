@@ -1,7 +1,6 @@
 package to_ir
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/nghyane/llm-mux/internal/translator/ir"
@@ -10,8 +9,8 @@ import (
 
 // ParseKiroResponse converts a non-streaming Kiro API response to unified format.
 func ParseKiroResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil, err
 	}
 	parsed := gjson.ParseBytes(rawJSON)
 
@@ -61,8 +60,8 @@ func (s *KiroStreamState) ProcessChunk(rawJSON []byte) ([]ir.UnifiedEvent, error
 	if len(rawJSON) == 0 {
 		return nil, nil
 	}
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil
+	if ir.ValidateJSON(rawJSON) != nil {
+		return nil, nil // Ignore invalid chunks in streaming
 	}
 	parsed := gjson.ParseBytes(rawJSON)
 

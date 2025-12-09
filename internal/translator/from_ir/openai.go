@@ -486,12 +486,12 @@ func ToOpenAIChunkMeta(event ir.UnifiedEvent, model, messageID string, chunkInde
 		if event.ContentFilter != nil {
 			choice["content_filter_results"] = event.ContentFilter
 		}
-		
+
 		if event.Usage != nil {
 			usageMap := map[string]any{
 				"prompt_tokens": event.Usage.PromptTokens, "completion_tokens": event.Usage.CompletionTokens, "total_tokens": event.Usage.TotalTokens,
 			}
-			
+
 			promptDetails := map[string]any{}
 			if event.Usage.CachedTokens > 0 {
 				promptDetails["cached_tokens"] = event.Usage.CachedTokens
@@ -522,7 +522,7 @@ func ToOpenAIChunkMeta(event ir.UnifiedEvent, model, messageID string, chunkInde
 			if len(completionDetails) > 0 {
 				usageMap["completion_tokens_details"] = completionDetails
 			}
-			
+
 			chunk["usage"] = usageMap
 		}
 	case ir.EventTypeError:
@@ -530,7 +530,7 @@ func ToOpenAIChunkMeta(event ir.UnifiedEvent, model, messageID string, chunkInde
 	default:
 		return nil, nil
 	}
-	
+
 	// Add logprobs to non-finish events if present (though usually only on finish or token)
 	if event.Logprobs != nil && event.Type != ir.EventTypeFinish {
 		choice["logprobs"] = event.Logprobs
@@ -541,7 +541,12 @@ func ToOpenAIChunkMeta(event ir.UnifiedEvent, model, messageID string, chunkInde
 	if err != nil {
 		return nil, err
 	}
-	return []byte(fmt.Sprintf("data: %s\n\n", string(jsonBytes))), nil
+	// Use append instead of fmt.Sprintf to reduce allocations
+	result := make([]byte, 0, 6+len(jsonBytes)+2)
+	result = append(result, "data: "...)
+	result = append(result, jsonBytes...)
+	result = append(result, "\n\n"...)
+	return result, nil
 }
 
 func convertMessageToOpenAI(msg ir.Message) map[string]any {
@@ -561,8 +566,10 @@ func convertMessageToOpenAI(msg ir.Message) map[string]any {
 }
 
 func buildOpenAIUserMessage(msg ir.Message) map[string]any {
-	var parts []any
-	for _, part := range msg.Content {
+	// Pre-allocate with capacity
+	parts := make([]any, 0, len(msg.Content))
+	for i := range msg.Content {
+		part := &msg.Content[i]
 		switch part.Type {
 		case ir.ContentTypeText:
 			if part.Text != "" {
@@ -599,7 +606,8 @@ func buildOpenAIAssistantMessage(msg ir.Message) map[string]any {
 	}
 	if len(msg.ToolCalls) > 0 {
 		tcs := make([]any, len(msg.ToolCalls))
-		for i, tc := range msg.ToolCalls {
+		for i := range msg.ToolCalls {
+			tc := &msg.ToolCalls[i]
 			tcs[i] = map[string]any{
 				"id": tc.ID, "type": "function",
 				"function": map[string]any{"name": tc.Name, "arguments": tc.Args},

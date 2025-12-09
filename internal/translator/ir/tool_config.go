@@ -1,11 +1,3 @@
-// Package ir provides intermediate representation types for the translator system.
-//
-// This file contains configuration for tool call normalization.
-// These mappings help fix common model mistakes where parameter names
-// don't match the expected schema.
-//
-// TODO: In the future, this could be loaded from external config (YAML/JSON)
-// to allow customization without code changes.
 package ir
 
 // ParameterSynonyms maps parameter names to their synonyms.

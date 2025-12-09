@@ -19,8 +19,8 @@ var debugToolCalls = os.Getenv("DEBUG_TOOL_CALLS") == "1"
 // ParseGeminiRequest converts a raw Gemini API request JSON into unified format.
 // Handles both native Gemini format and Gemini CLI format (with "request" wrapper).
 func ParseGeminiRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, err
 	}
 
 	parsed := gjson.ParseBytes(rawJSON)
@@ -290,8 +290,8 @@ func ParseGeminiResponse(rawJSON []byte) (*ir.UnifiedChatRequest, []ir.Message, 
 // ParseGeminiResponseCandidates parses all candidates from Gemini response.
 // Use this when candidateCount > 1 to get multiple alternative responses.
 func ParseGeminiResponseCandidates(rawJSON []byte, schemaCtx *ir.ToolSchemaContext) ([]ir.CandidateResult, *ir.Usage, *ir.ResponseMeta, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil, nil, err
 	}
 
 	// Unwrap Antigravity envelope (zero-copy)
@@ -336,10 +336,7 @@ func parseGeminiCandidate(candidate gjson.Result, schemaCtx *ir.ToolSchemaContex
 
 	msg := &ir.Message{Role: ir.RoleAssistant}
 	for _, part := range parts {
-		ts := part.Get("thoughtSignature").String()
-		if ts == "" {
-			ts = part.Get("thought_signature").String()
-		}
+		ts := ir.ExtractThoughtSignature(part)
 
 		if text := part.Get("text"); text.Exists() && text.String() != "" {
 			if part.Get("thought").Bool() {
@@ -396,8 +393,8 @@ func ParseGeminiResponseMeta(rawJSON []byte) ([]ir.Message, *ir.Usage, *ir.Respo
 // ParseGeminiResponseMetaWithContext parses a non-streaming Gemini API response with schema context.
 // The schemaCtx parameter allows normalizing tool call parameters based on the original request schema.
 func ParseGeminiResponseMetaWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext) ([]ir.Message, *ir.Usage, *ir.ResponseMeta, error) {
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, nil, nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, nil, nil, err
 	}
 
 	// Unwrap Antigravity envelope (zero-copy)
@@ -418,10 +415,7 @@ func ParseGeminiResponseMetaWithContext(rawJSON []byte, schemaCtx *ir.ToolSchema
 	msg := ir.Message{Role: ir.RoleAssistant}
 	for _, part := range parts {
 		// Extract thought signature if present
-		ts := part.Get("thoughtSignature").String()
-		if ts == "" {
-			ts = part.Get("thought_signature").String()
-		}
+		ts := ir.ExtractThoughtSignature(part)
 
 		if text := part.Get("text"); text.Exists() && text.String() != "" {
 			if part.Get("thought").Bool() {
@@ -493,8 +487,8 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 	if string(rawJSON) == "[DONE]" {
 		return []ir.UnifiedEvent{{Type: ir.EventTypeFinish}}, nil
 	}
-	if !gjson.ValidBytes(rawJSON) {
-		return nil, &json.UnmarshalTypeError{Value: "invalid json"}
+	if err := ir.ValidateJSON(rawJSON); err != nil {
+		return nil, err
 	}
 
 	// Debug: log raw chunk for analysis
@@ -524,10 +518,7 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 		candidate := candidates[0]
 
 		for _, part := range candidate.Get("content.parts").Array() {
-			ts := part.Get("thoughtSignature").String()
-			if ts == "" {
-				ts = part.Get("thought_signature").String()
-			}
+			ts := ir.ExtractThoughtSignature(part)
 
 			if text := part.Get("text"); text.Exists() && text.String() != "" {
 				if part.Get("thought").Bool() {
