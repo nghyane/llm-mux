@@ -14,8 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/nghyane/llm-mux/main/install.sh | b
 llm-mux --login  # or --copilot-login, --antigravity-login, etc.
 
 # Call any model using your preferred API format
-curl http://localhost:8318/v1/chat/completions \
-  -H "Content-Type: application/json" \
+curl http://localhost:8318/v1/chat/completions -H "Content-Type: application/json" \
   -d '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
@@ -154,40 +153,26 @@ llm-mux supports multiple API formats. Use any format with any provider.
 
 **OpenAI format:**
 ```bash
-curl http://localhost:8318/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gemini-2.5-flash",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
+curl http://localhost:8318/v1/chat/completions -H "Content-Type: application/json" \
+  -d '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 **Gemini format:**
 ```bash
-curl http://localhost:8318/v1beta/models/gemini-2.5-flash:generateContent \
-  -H "Content-Type: application/json" \
-  -d '{
-    "contents": [{"parts": [{"text": "Hello"}]}]
-  }'
+curl http://localhost:8318/v1beta/models/gemini-2.5-flash:generateContent -H "Content-Type: application/json" \
+  -d '{"contents": [{"parts": [{"text": "Hello"}]}]}'
 ```
 
 **Ollama format:**
 ```bash
-curl http://localhost:8318/api/chat \
-  -d '{
-    "model": "gemini-2.5-flash",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
+curl http://localhost:8318/api/chat -H "Content-Type: application/json" \
+  -d '{"model": "gemini-2.5-flash", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 **Claude format:**
 ```bash
-curl http://localhost:8318/v1/messages \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-sonnet-4-5",
-    "messages": [{"role": "user", "content": "Hello"}]
-  }'
+curl http://localhost:8318/v1/messages -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-5", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ### List Available Models
