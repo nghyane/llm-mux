@@ -39,7 +39,7 @@ curl http://localhost:8318/v1/chat/completions \
 |----------|------|------------|
 | **Gemini CLI** | OAuth | gemini-2.5-pro, gemini-2.5-flash, gemini-3-pro-preview |
 | **AI Studio** | OAuth | gemini-2.5-pro, gemini-2.5-flash, gemini-3-pro-preview, gemini-*-image |
-| **Antigravity** | OAuth | gemini-3-pro (high/low), claude-sonnet-4-5, claude-opus-4-5-thinking, gpt-oss |
+| **Antigravity** | OAuth | gemini-2.5-flash, gemini-3-pro, claude-sonnet-4-5, claude-opus-4-5-thinking, gpt-oss |
 | **Claude** | OAuth | claude-sonnet-4-5, claude-opus-4-5 |
 | **OpenAI Codex** | OAuth | gpt-5.1, gpt-5.1-codex, gpt-5.1-codex-max |
 | **GitHub Copilot** | OAuth | gpt-4.1, gpt-4o, gpt-5-mini, gpt-5.1-codex-max |
