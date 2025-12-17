@@ -907,7 +907,6 @@ func geminiToAntigravity(modelName string, payload []byte, projectID string) []b
 
 		strJSON := string(template)
 		// Remove unsupported JSON Schema fields (based on Vertex AI OpenAPI 3.0 subset)
-		strJSON = util.DeleteKey(strJSON, "request.generationConfig.maxOutputTokens")
 		strJSON = util.DeleteKey(strJSON, "request.tools.#.functionDeclarations.#.parameters.$schema")
 		strJSON = util.DeleteKey(strJSON, "request.tools.#.functionDeclarations.#.parameters.$ref")
 		strJSON = util.DeleteKey(strJSON, "request.tools.#.functionDeclarations.#.parameters.$defs")
@@ -925,7 +924,7 @@ func geminiToAntigravity(modelName string, payload []byte, projectID string) []b
 		template = strJSON
 
 	} else {
-		template, _ = sjson.Delete(template, "request.generationConfig.maxOutputTokens")
+		// template, _ = sjson.Delete(template, "request.generationConfig.maxOutputTokens")
 	}
 
 	return []byte(template)
