@@ -275,6 +275,10 @@ func ToClaudeSSE(event ir.UnifiedEvent, model, messageID string, state *ClaudeSt
 		}
 		if state != nil {
 			state.FinishSent = true
+			// Debug: log state before finish
+			if !state.HasTextContent && !state.HasToolCalls {
+				// This will trigger empty text injection
+			}
 		}
 		emitFinishTo(result, event.Usage, state)
 	case ir.EventTypeError:
@@ -371,9 +375,9 @@ func buildClaudeContentParts(msg ir.Message, includeToolCalls bool) []any {
 	}
 
 	// Client requirement: Response must have text or tool calls, not just thinking
-	// If we only have thinking content (no text, no tool calls), add empty text block
+	// If we only have thinking content (no text, no tool calls), add text block with space
 	if hasThinking && !hasTextOrImage && len(msg.ToolCalls) == 0 {
-		parts = append(parts, map[string]any{"type": ir.ClaudeBlockText, "text": ""})
+		parts = append(parts, map[string]any{"type": ir.ClaudeBlockText, "text": " "})
 	}
 
 	return parts
@@ -528,11 +532,15 @@ func emitFinishTo(result *strings.Builder, usage *ir.Usage, state *ClaudeStreamS
 			state.TextBlockStarted = false
 			state.TextBlockIndex++
 		}
-		// Emit empty text block
+		// Emit text block with space (some clients reject truly empty text)
 		idx := state.TextBlockIndex
 		result.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{
 			"type": ir.ClaudeSSEContentBlockStart, "index": idx,
 			"content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""},
+		}))
+		result.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{
+			"type": ir.ClaudeSSEContentBlockDelta, "index": idx,
+			"delta": map[string]any{"type": "text_delta", "text": " "},
 		}))
 		result.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{
 			"type": ir.ClaudeSSEContentBlockStop, "index": idx,
