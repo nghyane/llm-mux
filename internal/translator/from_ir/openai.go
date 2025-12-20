@@ -360,14 +360,43 @@ func ToOpenAIChatCompletionCandidates(candidates []ir.CandidateResult, usage *ir
 		usageMap := map[string]any{
 			"prompt_tokens": usage.PromptTokens, "completion_tokens": usage.CompletionTokens, "total_tokens": usage.TotalTokens,
 		}
+		// Add prompt_tokens_details if available
+		if usage.PromptTokensDetails != nil {
+			promptDetails := map[string]any{}
+			if usage.PromptTokensDetails.CachedTokens > 0 {
+				promptDetails["cached_tokens"] = usage.PromptTokensDetails.CachedTokens
+			}
+			if usage.PromptTokensDetails.AudioTokens > 0 {
+				promptDetails["audio_tokens"] = usage.PromptTokensDetails.AudioTokens
+			}
+			if len(promptDetails) > 0 {
+				usageMap["prompt_tokens_details"] = promptDetails
+			}
+		}
+		// Add completion_tokens_details
 		var thoughtsTokens int32
 		if meta != nil && meta.ThoughtsTokenCount > 0 {
 			thoughtsTokens = meta.ThoughtsTokenCount
 		} else if usage.ThoughtsTokenCount > 0 {
 			thoughtsTokens = usage.ThoughtsTokenCount
 		}
+		completionDetails := map[string]any{}
 		if thoughtsTokens > 0 {
-			usageMap["completion_tokens_details"] = map[string]any{"reasoning_tokens": thoughtsTokens}
+			completionDetails["reasoning_tokens"] = thoughtsTokens
+		}
+		if usage.CompletionTokensDetails != nil {
+			if usage.CompletionTokensDetails.AudioTokens > 0 {
+				completionDetails["audio_tokens"] = usage.CompletionTokensDetails.AudioTokens
+			}
+			if usage.CompletionTokensDetails.AcceptedPredictionTokens > 0 {
+				completionDetails["accepted_prediction_tokens"] = usage.CompletionTokensDetails.AcceptedPredictionTokens
+			}
+			if usage.CompletionTokensDetails.RejectedPredictionTokens > 0 {
+				completionDetails["rejected_prediction_tokens"] = usage.CompletionTokensDetails.RejectedPredictionTokens
+			}
+		}
+		if len(completionDetails) > 0 {
+			usageMap["completion_tokens_details"] = completionDetails
 		}
 		response["usage"] = usageMap
 	}
@@ -824,8 +853,15 @@ func ToResponsesAPIResponse(messages []ir.Message, usage *ir.Usage, model string
 		responsesUsage := map[string]any{
 			"input_tokens": usageMap["prompt_tokens"], "output_tokens": usageMap["completion_tokens"], "total_tokens": usageMap["total_tokens"],
 		}
-		if usage != nil && usage.CachedTokens > 0 {
-			responsesUsage["input_tokens_details"] = map[string]any{"cached_tokens": usage.CachedTokens}
+		// Check PromptTokensDetails first, then fall back to flat CachedTokens
+		var cachedTokens int64
+		if usage != nil && usage.PromptTokensDetails != nil && usage.PromptTokensDetails.CachedTokens > 0 {
+			cachedTokens = usage.PromptTokensDetails.CachedTokens
+		} else if usage != nil && usage.CachedTokens > 0 {
+			cachedTokens = usage.CachedTokens
+		}
+		if cachedTokens > 0 {
+			responsesUsage["input_tokens_details"] = map[string]any{"cached_tokens": cachedTokens}
 		}
 		var thoughtsTokens int32
 		if meta != nil && meta.ThoughtsTokenCount > 0 {

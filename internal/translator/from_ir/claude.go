@@ -315,7 +315,14 @@ func ToClaudeResponse(messages []ir.Message, usage *ir.Usage, model, messageID s
 		response["stop_reason"] = ir.ClaudeStopToolUse
 	}
 	if usage != nil {
-		response["usage"] = map[string]any{"input_tokens": usage.PromptTokens, "output_tokens": usage.CompletionTokens}
+		usageMap := map[string]any{"input_tokens": usage.PromptTokens, "output_tokens": usage.CompletionTokens}
+		if usage.CacheCreationInputTokens > 0 {
+			usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+		}
+		if usage.CacheReadInputTokens > 0 {
+			usageMap["cache_read_input_tokens"] = usage.CacheReadInputTokens
+		}
+		response["usage"] = usageMap
 	}
 	return json.Marshal(response)
 }
@@ -585,7 +592,14 @@ func emitFinishTo(result *strings.Builder, usage *ir.Usage, state *ClaudeStreamS
 	}
 	delta := map[string]any{"type": ir.ClaudeSSEMessageDelta, "delta": map[string]any{"stop_reason": stopReason}}
 	if usage != nil {
-		delta["usage"] = map[string]any{"input_tokens": usage.PromptTokens, "output_tokens": usage.CompletionTokens}
+		usageMap := map[string]any{"input_tokens": usage.PromptTokens, "output_tokens": usage.CompletionTokens}
+		if usage.CacheCreationInputTokens > 0 {
+			usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
+		}
+		if usage.CacheReadInputTokens > 0 {
+			usageMap["cache_read_input_tokens"] = usage.CacheReadInputTokens
+		}
+		delta["usage"] = usageMap
 	}
 	result.WriteString(formatSSE(ir.ClaudeSSEMessageDelta, delta))
 	result.WriteString(formatSSE(ir.ClaudeSSEMessageStop, map[string]any{"type": ir.ClaudeSSEMessageStop}))

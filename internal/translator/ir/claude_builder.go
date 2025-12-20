@@ -64,19 +64,14 @@ func ParseClaudeUsage(usage gjson.Result) *Usage {
 		u.CacheReadInputTokens = v.Int()
 	}
 
-	// Parse prompt_tokens_details for Claude cache tokens
-	if cacheCreationTokens := usage.Get("cache_creation_input_tokens"); cacheCreationTokens.Exists() && cacheCreationTokens.Int() > 0 {
+	// Map cache tokens to PromptTokensDetails for OpenAI compatibility
+	// Use cache_read_input_tokens as the primary "cached" count (tokens read from cache)
+	// cache_creation_input_tokens represents tokens written to cache (not cached hits)
+	if u.CacheReadInputTokens > 0 {
 		if u.PromptTokensDetails == nil {
 			u.PromptTokensDetails = &PromptTokensDetails{}
 		}
-		u.PromptTokensDetails.CachedTokens = cacheCreationTokens.Int()
-	}
-	if cacheReadTokens := usage.Get("cache_read_input_tokens"); cacheReadTokens.Exists() && cacheReadTokens.Int() > 0 {
-		if u.PromptTokensDetails == nil {
-			u.PromptTokensDetails = &PromptTokensDetails{}
-		}
-		// Claude provides separate cache read tokens, include in details
-		u.PromptTokensDetails.CachedTokens = cacheReadTokens.Int()
+		u.PromptTokensDetails.CachedTokens = u.CacheReadInputTokens
 	}
 
 	return u

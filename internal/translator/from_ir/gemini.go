@@ -661,11 +661,18 @@ func ToGeminiResponseMeta(messages []ir.Message, usage *ir.Usage, model string, 
 	}
 
 	if usage != nil {
-		response["usageMetadata"] = map[string]any{
+		usageMetadata := map[string]any{
 			"promptTokenCount":     usage.PromptTokens,
 			"candidatesTokenCount": usage.CompletionTokens,
 			"totalTokenCount":      usage.TotalTokens,
 		}
+		if usage.ThoughtsTokenCount > 0 {
+			usageMetadata["thoughtsTokenCount"] = usage.ThoughtsTokenCount
+		}
+		if usage.PromptTokensDetails != nil && usage.PromptTokensDetails.CachedTokens > 0 {
+			usageMetadata["cachedContentTokenCount"] = usage.PromptTokensDetails.CachedTokens
+		}
+		response["usageMetadata"] = usageMetadata
 	}
 
 	return json.Marshal(response)
@@ -760,11 +767,18 @@ func ToGeminiChunk(event ir.UnifiedEvent, model string) ([]byte, error) {
 			candidate["groundingMetadata"] = buildGroundingMetadataMap(event.GroundingMetadata)
 		}
 		if event.Usage != nil {
-			chunk["usageMetadata"] = map[string]any{
+			usageMetadata := map[string]any{
 				"promptTokenCount":     event.Usage.PromptTokens,
 				"candidatesTokenCount": event.Usage.CompletionTokens,
 				"totalTokenCount":      event.Usage.TotalTokens,
 			}
+			if event.Usage.ThoughtsTokenCount > 0 {
+				usageMetadata["thoughtsTokenCount"] = event.Usage.ThoughtsTokenCount
+			}
+			if event.Usage.PromptTokensDetails != nil && event.Usage.PromptTokensDetails.CachedTokens > 0 {
+				usageMetadata["cachedContentTokenCount"] = event.Usage.PromptTokensDetails.CachedTokens
+			}
+			chunk["usageMetadata"] = usageMetadata
 		}
 
 	case ir.EventTypeError:

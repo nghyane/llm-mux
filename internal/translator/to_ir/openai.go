@@ -452,6 +452,12 @@ func ParseOpenAIChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 			if v := u.Get("completion_tokens_details.reasoning_tokens"); v.Exists() {
 				usage.ThoughtsTokenCount = int32(v.Int())
 			}
+			if v := u.Get("completion_tokens_details.audio_tokens"); v.Exists() {
+				if usage.CompletionTokensDetails == nil {
+					usage.CompletionTokensDetails = &ir.CompletionTokensDetails{}
+				}
+				usage.CompletionTokensDetails.AudioTokens = v.Int()
+			}
 			if v := u.Get("completion_tokens_details.accepted_prediction_tokens"); v.Exists() {
 				usage.AcceptedPredictionTokens = v.Int()
 			}
