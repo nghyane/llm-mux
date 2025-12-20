@@ -90,12 +90,20 @@ func ParseOpenAIUsage(u gjson.Result) *Usage {
 
 	if v := u.Get("input_tokens_details.cached_tokens"); v.Exists() {
 		usage.CachedTokens = v.Int()
+		if usage.PromptTokensDetails == nil {
+			usage.PromptTokensDetails = &PromptTokensDetails{}
+		}
+		usage.PromptTokensDetails.CachedTokens = v.Int()
 	} else if v := u.Get("prompt_tokens_details.cached_tokens"); v.Exists() {
 		usage.CachedTokens = v.Int()
 	}
 
 	if v := u.Get("output_tokens_details.reasoning_tokens"); v.Exists() {
 		usage.ThoughtsTokenCount = int32(v.Int())
+		if usage.CompletionTokensDetails == nil {
+			usage.CompletionTokensDetails = &CompletionTokensDetails{}
+		}
+		usage.CompletionTokensDetails.ReasoningTokens = v.Int()
 	} else if v := u.Get("completion_tokens_details.reasoning_tokens"); v.Exists() {
 		usage.ThoughtsTokenCount = int32(v.Int())
 	}
