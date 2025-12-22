@@ -119,7 +119,7 @@ llm-mux automatically maps your subscription access to these model identifiers.
 |:---|:---|
 | **Google** | `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3-pro-preview` |
 | **Anthropic** | `claude-sonnet-4-20250514`, `claude-opus-4-5-20251101`, `claude-3-5-sonnet` |
-| **GitHub** | `gpt-4o`, `gpt-4.1`, `gpt-5-mini`, `gpt-5.1-codex-max` |
+| **GitHub** | `gpt-4.1`, `gpt-4o`, `gpt-5`, `gpt-5-mini`, `gpt-5.1`, `gpt-5.2` |
 
 > **Note:** Run `curl http://localhost:8317/v1/models` to see the exact list available to your account.
 
