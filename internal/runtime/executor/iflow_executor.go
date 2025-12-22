@@ -382,29 +382,10 @@ func applyIFlowHeaders(r *http.Request, apiKey string, stream bool) {
 	}
 }
 
+// iflowCreds extracts credentials for iFlow API.
+// Delegates to the common ExtractCreds function with iFlow configuration.
 func iflowCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
-	if a == nil {
-		return "", ""
-	}
-	if a.Attributes != nil {
-		if v := strings.TrimSpace(a.Attributes["api_key"]); v != "" {
-			apiKey = v
-		}
-		if v := strings.TrimSpace(a.Attributes["base_url"]); v != "" {
-			baseURL = v
-		}
-	}
-	if apiKey == "" && a.Metadata != nil {
-		if v, ok := a.Metadata["api_key"].(string); ok {
-			apiKey = strings.TrimSpace(v)
-		}
-	}
-	if baseURL == "" && a.Metadata != nil {
-		if v, ok := a.Metadata["base_url"].(string); ok {
-			baseURL = strings.TrimSpace(v)
-		}
-	}
-	return apiKey, baseURL
+	return ExtractCreds(a, IFlowCredsConfig)
 }
 
 func ensureToolsArray(body []byte) []byte {

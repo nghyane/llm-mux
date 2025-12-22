@@ -442,26 +442,16 @@ func (e *GeminiExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (
 	return auth, nil
 }
 
+// geminiCreds extracts credentials for Gemini API.
+// Returns (apiKey, bearer) for compatibility with existing Gemini executor logic.
+// Delegates to the common ExtractCreds function with Gemini configuration.
 func geminiCreds(a *cliproxyauth.Auth) (apiKey, bearer string) {
-	if a == nil {
-		return "", ""
+	token, _ := ExtractCreds(a, GeminiCredsConfig)
+	// For Gemini, the extracted token becomes the bearer, and apiKey comes from attributes
+	if a != nil && a.Attributes != nil {
+		apiKey = a.Attributes["api_key"]
 	}
-	if a.Attributes != nil {
-		if v := a.Attributes["api_key"]; v != "" {
-			apiKey = v
-		}
-	}
-	if a.Metadata != nil {
-		// GeminiTokenStorage.Token is a map that may contain access_token
-		if v, ok := a.Metadata["access_token"].(string); ok && v != "" {
-			bearer = v
-		}
-		if token, ok := a.Metadata["token"].(map[string]any); ok && token != nil {
-			if v, ok2 := token["access_token"].(string); ok2 && v != "" {
-				bearer = v
-			}
-		}
-	}
+	bearer = token
 	return
 }
 

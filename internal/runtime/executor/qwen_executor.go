@@ -284,25 +284,8 @@ func applyQwenHeaders(r *http.Request, token string, stream bool) {
 	r.Header.Set("Accept", "application/json")
 }
 
+// qwenCreds extracts credentials for Qwen API.
+// Delegates to the common ExtractCreds function with Qwen configuration.
 func qwenCreds(a *cliproxyauth.Auth) (token, baseURL string) {
-	if a == nil {
-		return "", ""
-	}
-	if a.Attributes != nil {
-		if v := a.Attributes["api_key"]; v != "" {
-			token = v
-		}
-		if v := a.Attributes["base_url"]; v != "" {
-			baseURL = v
-		}
-	}
-	if token == "" && a.Metadata != nil {
-		if v, ok := a.Metadata["access_token"].(string); ok {
-			token = v
-		}
-		if v, ok := a.Metadata["resource_url"].(string); ok {
-			baseURL = fmt.Sprintf("https://%s/v1", v)
-		}
-	}
-	return
+	return ExtractCreds(a, QwenCredsConfig)
 }

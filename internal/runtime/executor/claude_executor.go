@@ -697,20 +697,10 @@ func applyClaudeHeaders(r *http.Request, auth *cliproxyauth.Auth, apiKey string,
 	util.ApplyCustomHeadersFromAttrs(r, attrs)
 }
 
+// claudeCreds extracts credentials for Claude API.
+// Delegates to the common ExtractCreds function with Claude configuration.
 func claudeCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
-	if a == nil {
-		return "", ""
-	}
-	if a.Attributes != nil {
-		apiKey = a.Attributes["api_key"]
-		baseURL = a.Attributes["base_url"]
-	}
-	if apiKey == "" && a.Metadata != nil {
-		if v, ok := a.Metadata["access_token"].(string); ok {
-			apiKey = v
-		}
-	}
-	return
+	return ExtractCreds(a, ClaudeCredsConfig)
 }
 
 func checkSystemInstructions(payload []byte) []byte {

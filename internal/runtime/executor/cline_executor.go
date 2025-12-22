@@ -255,27 +255,9 @@ func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 }
 
 // clineCredentials extracts access token and base URL from auth metadata.
+// Delegates to the common ExtractCreds function with Cline configuration.
 func clineCredentials(a *cliproxyauth.Auth) (token, baseURL string) {
-	if a == nil {
-		return "", ""
-	}
-	if a.Attributes != nil {
-		if v := a.Attributes["api_key"]; v != "" {
-			token = v
-		}
-		if v := a.Attributes["base_url"]; v != "" {
-			baseURL = v
-		}
-	}
-	if token == "" && a.Metadata != nil {
-		if v, ok := a.Metadata["access_token"].(string); ok {
-			token = v
-		}
-	}
-	if token != "" {
-		token = "workos:" + token
-	}
-	return token, baseURL
+	return ExtractCreds(a, ClineCredsConfig)
 }
 
 // applyClineHeaders applies necessary headers for Cline API requests.
