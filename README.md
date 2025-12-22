@@ -66,7 +66,7 @@ llm-mux --copilot-login
 ### 3. Verify
 Check if the server is running and models are available:
 ```bash
-curl http://localhost:8318/v1/models
+curl http://localhost:8317/v1/models
 ```
 
 ---
@@ -74,23 +74,23 @@ curl http://localhost:8318/v1/models
 ## 🛠 Integration Guide
 
 Point your tools to the local proxy. 
-**Base URL:** `http://localhost:8318/v1`  
+**Base URL:** `http://localhost:8317/v1`  
 **API Key:** `any-string` (unused, but required by some clients)
 
 ### Cursor
 1. Go to **Settings** > **Models**.
 2. Toggle "OpenAI API Base URL" to ON.
-3. Enter: `http://localhost:8318/v1`
+3. Enter: `http://localhost:8317/v1`
 
 ### VS Code (Cline / Roo Code)
 1. **API Provider:** OpenAI Compatible
-2. **Base URL:** `http://localhost:8318/v1`
+2. **Base URL:** `http://localhost:8317/v1`
 3. **Model ID:** `claude-sonnet-4-20250514` (or any available model)
 
 ### Aider / Claude Code
 ```bash
 # Using Claude Sonnet via llm-mux
-aider --openai-api-base http://localhost:8318/v1 --model claude-sonnet-4-20250514
+aider --openai-api-base http://localhost:8317/v1 --model claude-sonnet-4-20250514
 ```
 
 ### Python (OpenAI SDK)
@@ -98,7 +98,7 @@ aider --openai-api-base http://localhost:8318/v1 --model claude-sonnet-4-2025051
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:8318/v1",
+    base_url="http://localhost:8317/v1",
     api_key="unused"
 )
 
@@ -121,7 +121,7 @@ llm-mux automatically maps your subscription access to these model identifiers.
 | **Anthropic** | `claude-sonnet-4-20250514`, `claude-opus-4-5-20251101`, `claude-3-5-sonnet` |
 | **GitHub** | `gpt-4o`, `gpt-4.1`, `gpt-5-mini`, `gpt-5.1-codex-max` |
 
-> **Note:** Run `curl http://localhost:8318/v1/models` to see the exact list available to your account.
+> **Note:** Run `curl http://localhost:8317/v1/models` to see the exact list available to your account.
 
 ---
 
@@ -138,7 +138,7 @@ graph LR
         Ollama[Ollama Clients]
     end
 
-    Mux[llm-mux :8318]
+    Mux[llm-mux :8317]
     
     subgraph "Outbound Subscriptions"
         Gemini[Google Gemini]
@@ -189,7 +189,7 @@ The system will automatically rotate requests and handle failovers.
 
 If you prefer containerization:
 ```bash
-docker run -p 8318:8318 -v ~/.config/llm-mux:/root/.config/llm-mux nghyane/llm-mux
+docker run -p 8317:8317 -v ~/.config/llm-mux:/root/.config/llm-mux nghyane/llm-mux
 ```
 </details>
 
