@@ -3,6 +3,7 @@ cli-proxy-api
 cli-proxy-server
 /cliproxy
 llm-mux
+server
 *.exe
 
 # Logs
