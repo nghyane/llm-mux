@@ -339,6 +339,8 @@ func tokenizerForCodexModel(model string) (tokenizer.Codec, error) {
 		return tokenizer.ForModel(tokenizer.GPT5)
 	case strings.HasPrefix(sanitized, "gpt-4.1"):
 		return tokenizer.ForModel(tokenizer.GPT41)
+	case strings.HasPrefix(sanitized, "gpt-4o"):
+		return tokenizer.ForModel(tokenizer.GPT4o)
 	case strings.HasPrefix(sanitized, "gpt-4"):
 		return tokenizer.ForModel(tokenizer.GPT4)
 	case strings.HasPrefix(sanitized, "gpt-3.5"), strings.HasPrefix(sanitized, "gpt-3"):

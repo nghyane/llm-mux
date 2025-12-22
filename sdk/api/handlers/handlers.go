@@ -43,19 +43,9 @@ func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *coreauth.Manager, op
 
 func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) { h.Cfg = cfg }
 
-// Models returns all available models as maps.
+// Models returns all available models as maps from the global registry.
 func (h *BaseAPIHandler) Models() []map[string]any {
-	regModels := registry.GetGlobalRegistry().GetAllModels()
-	models := make([]map[string]any, len(regModels))
-	for i, m := range regModels {
-		models[i] = map[string]any{
-			"id":       m.ID,
-			"object":   m.Object,
-			"created":  m.Created,
-			"owned_by": m.OwnedBy,
-		}
-	}
-	return models
+	return registry.GetGlobalRegistry().GetAvailableModels("openai")
 }
 
 func (h *BaseAPIHandler) GetAlt(c *gin.Context) string {
