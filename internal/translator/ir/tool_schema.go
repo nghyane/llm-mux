@@ -1,64 +1,45 @@
 // Package ir provides intermediate representation types for the translator system.
-//
 // This file implements Tool Schema Context - a mechanism for context-aware
 // normalization of tool call parameters in model responses.
-//
 // # Problem
-//
 // Some AI models ignore the tool parameter schema provided in the request and
 // return parameters with different names. For example:
 //   - Client sends schema with "target_file" parameter
 //   - Model returns tool call with "path" or "file_path" instead
 //   - Client rejects the response: "missing required argument target_file"
-//
 // This causes tool call failures even though the model's intent was correct.
-//
 // # Solution
-//
 // Context-dependent normalization: we extract the expected parameter schema
 // from the original client request and use it to fix parameter names in the
 // model's response before sending back to the client.
-//
 // The normalization is:
 //   - Transparent: if parameters already match, no changes are made
 //   - Safe: only renames parameters if a clear match exists in the schema
 //   - Efficient: uses gjson for fast schema extraction without full JSON parsing
 //   - Recursive: handles nested objects and arrays at any depth
-//
 // # Current Usage
-//
 // Currently enabled only for the Antigravity provider, which exhibits this
 // parameter naming issue when proxying through Gemini CLI.
-//
 // # Potential Applications
-//
 // This mechanism can be enabled for any provider to achieve:
-//
 //  1. Client Compatibility: Different clients (Cursor, Copilot, Cline) may use
 //     different parameter naming conventions. This normalizer can bridge the gap
 //     between what a model returns and what a specific client expects.
-//
 //  2. Model Compatibility: Some models consistently use snake_case while others
 //     prefer camelCase. Instead of hardcoding mappings per model, this approach
 //     dynamically adapts based on the client's schema.
-//
 //  3. Provider Abstraction: When adding new providers, you don't need to worry
 //     about their parameter naming quirks - the normalizer handles mismatches
 //     automatically based on the original request schema.
-//
 //  4. Bidirectional Support: While currently used for response normalization,
 //     the same approach could normalize requests TO providers that expect
 //     different parameter names than what the client sends.
-//
 // To enable for other providers, use NewAntigravityStreamState() pattern in
 // the respective executor, or create a similar helper function.
-//
 // # Usage Example
-//
 //	// In executor, create context from original request:
 //	tools := gjson.GetBytes(originalRequest, "tools").Array()
 //	schemaCtx := ir.NewToolSchemaContextFromGJSON(tools)
-//
 //	// When parsing model response, normalize tool call args:
 //	normalizedArgs := schemaCtx.NormalizeToolCallArgs(toolName, argsJSON)
 package ir
@@ -154,7 +135,6 @@ func NewToolSchemaContextFromGJSON(toolsJSON []gjson.Result) *ToolSchemaContext 
 
 // NormalizeToolCallArgs fixes parameter names if the model made mistakes.
 // Only normalizes complete JSON arguments (not partial/streaming fragments).
-//
 // Strategy:
 //  1. If param exists in schema - keep as is
 //  2. If param doesn't exist, try to find a match:

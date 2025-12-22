@@ -4,6 +4,7 @@ package browser
 
 import (
 	"fmt"
+	"net/url"
 	"os/exec"
 	"runtime"
 
@@ -14,7 +15,6 @@ import (
 // OpenURL opens the specified URL in the default web browser.
 // It first attempts to use a platform-agnostic library and falls back to
 // platform-specific commands if that fails.
-//
 // Parameters:
 //   - url: The URL to open.
 //
@@ -40,47 +40,46 @@ func OpenURL(url string) error {
 // This serves as a fallback mechanism for OpenURL.
 //
 // Parameters:
-//   - url: The URL to open.
+//   - url: The URL to open in the browser
 //
 // Returns:
 //   - An error if the URL cannot be opened, otherwise nil.
-func openURLPlatformSpecific(url string) error {
+func openURLPlatformSpecific(urlStr string) error {
+	// Security: Validate URL to prevent command injection
+	if parsedURL, err := url.Parse(urlStr); err != nil || parsedURL.Scheme == "" {
+		return fmt.Errorf("invalid URL: %s", urlStr)
+	}
+
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
 	case "darwin": // macOS
-		cmd = exec.Command("open", url)
+		cmd = exec.Command("open", urlStr)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", urlStr)
 	case "linux":
 		// Try common Linux browsers in order of preference
 		browsers := []string{"xdg-open", "x-www-browser", "www-browser", "firefox", "chromium", "google-chrome"}
 		for _, browser := range browsers {
 			if _, err := exec.LookPath(browser); err == nil {
-				cmd = exec.Command(browser, url)
+				cmd = exec.Command(browser, urlStr)
 				break
 			}
 		}
 		if cmd == nil {
-			return fmt.Errorf("no suitable browser found on Linux system")
+			return fmt.Errorf("no suitable browser found on Linux")
 		}
-	default:
+	}
+	if cmd == nil {
 		return fmt.Errorf("unsupported operating system: %s", runtime.GOOS)
 	}
 
 	log.Debugf("Running command: %s %v", cmd.Path, cmd.Args[1:])
-	err := cmd.Start()
-	if err != nil {
-		return fmt.Errorf("failed to start browser command: %w", err)
-	}
-
-	log.Debug("Successfully opened URL using platform-specific command")
-	return nil
+	return cmd.Run()
 }
 
 // IsAvailable checks if the system has a command available to open a web browser.
 // It verifies the presence of necessary commands for the current operating system.
-//
 // Returns:
 //   - true if a browser can be opened, false otherwise.
 func IsAvailable() bool {
@@ -113,7 +112,6 @@ func IsAvailable() bool {
 
 // GetPlatformInfo returns a map containing details about the current platform's
 // browser opening capabilities, including the OS, architecture, and available commands.
-//
 // Returns:
 //   - A map with platform-specific browser support information.
 func GetPlatformInfo() map[string]any {

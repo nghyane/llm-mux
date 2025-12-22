@@ -32,14 +32,12 @@ type LoggerPlugin struct {
 }
 
 // NewLoggerPlugin constructs a new logger plugin instance.
-//
 // Returns:
 //   - *LoggerPlugin: A new logger plugin instance wired to the shared statistics store.
 func NewLoggerPlugin() *LoggerPlugin { return &LoggerPlugin{stats: defaultRequestStatistics} }
 
 // HandleUsage implements coreusage.Plugin.
 // It updates the in-memory statistics store whenever a usage record is received.
-//
 // Parameters:
 //   - ctx: The context for the usage record
 //   - record: The usage record to aggregate

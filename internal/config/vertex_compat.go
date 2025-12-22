@@ -6,7 +6,6 @@ import "strings"
 // This supports third-party services that use Vertex AI-style endpoint paths
 // (/publishers/google/models/{model}:streamGenerateContent) but authenticate
 // with simple API keys instead of Google Cloud service account credentials.
-//
 // Example services: zenmux.ai and similar Vertex-compatible providers.
 type VertexCompatKey struct {
 	// APIKey is the authentication key for accessing the Vertex-compatible API.

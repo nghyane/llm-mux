@@ -343,7 +343,6 @@ func (e *ClineExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 
 // Refresh refreshes the Cline authentication tokens.
 func (e *ClineExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("cline executor: refresh called")
 	if auth == nil {
 		return nil, fmt.Errorf("cline executor: auth is nil")
 	}

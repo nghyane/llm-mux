@@ -25,7 +25,6 @@ type Context struct {
 // the API server without modifying its core routing logic. Implementations can
 // attach routes during Register and react to configuration updates via
 // OnConfigUpdated.
-//
 // This is the preferred interface for new modules. It uses Context for cleaner
 // dependency injection and supports idempotent registration.
 type RouteModuleV2 interface {
@@ -43,9 +42,7 @@ type RouteModuleV2 interface {
 }
 
 // RegisterModule registers a module using the V2 interface.
-//
 // Example usage:
-//
 //	ctx := modules.Context{
 //	    Engine:         engine,
 //	    BaseHandler:    baseHandler,

@@ -46,10 +46,8 @@ type ClineAuth struct {
 
 // NewClineAuth creates a new Cline authentication service.
 // It initializes the HTTP client with proxy settings from the configuration.
-//
 // Parameters:
 //   - cfg: The application configuration containing proxy settings
-//
 // Returns:
 //   - *ClineAuth: A new Cline authentication service instance
 func NewClineAuth(cfg *config.Config) *ClineAuth {
@@ -62,11 +60,9 @@ func NewClineAuth(cfg *config.Config) *ClineAuth {
 // RefreshTokens exchanges a refresh token for a new access token.
 // This method calls the Cline API to obtain a fresh JWT access token
 // using the provided refresh token.
-//
 // Parameters:
 //   - ctx: The context for the request
 //   - refreshToken: The refresh token to use for getting new access token
-//
 // Returns:
 //   - *ClineTokenData: The new token data with updated access token
 //   - error: An error if token refresh fails
@@ -145,12 +141,10 @@ func (c *ClineAuth) RefreshTokens(ctx context.Context, refreshToken string) (*Cl
 // RefreshTokensWithRetry refreshes tokens with automatic retry logic.
 // This method implements exponential backoff retry logic for token refresh operations,
 // providing resilience against temporary network or service issues.
-//
 // Parameters:
 //   - ctx: The context for the request
 //   - refreshToken: The refresh token to use
 //   - maxRetries: The maximum number of retry attempts
-//
 // Returns:
 //   - *ClineTokenData: The refreshed token data
 //   - error: An error if all retry attempts fail
@@ -163,10 +157,8 @@ func (c *ClineAuth) RefreshTokensWithRetry(ctx context.Context, refreshToken str
 // CreateTokenStorage creates a new ClineTokenStorage from token data.
 // This method converts the token data into a storage structure
 // suitable for persistence and later use.
-//
 // Parameters:
 //   - tokenData: The token data to store
-//
 // Returns:
 //   - *ClineTokenStorage: A new token storage instance
 func (c *ClineAuth) CreateTokenStorage(tokenData *ClineTokenData) *ClineTokenStorage {
@@ -182,7 +174,6 @@ func (c *ClineAuth) CreateTokenStorage(tokenData *ClineTokenData) *ClineTokenSto
 // UpdateTokenStorage updates an existing token storage with new token data.
 // This method refreshes the token storage with newly obtained access and refresh tokens,
 // updating timestamps and expiration information.
-//
 // Parameters:
 //   - storage: The existing token storage to update
 //   - tokenData: The new token data to apply
@@ -202,10 +193,8 @@ func (c *ClineAuth) UpdateTokenStorage(storage *ClineTokenStorage, tokenData *Cl
 // ShouldRefreshToken checks if the Cline access token needs to be refreshed.
 // JWT tokens from Cline API typically expire after ~10 minutes, so we refresh
 // them 5 minutes before expiration to ensure continuous availability.
-//
 // Parameters:
 //   - expireTime: The expiration timestamp in RFC3339 format
-//
 // Returns:
 //   - bool: true if refresh is needed, false otherwise
 //   - time.Duration: time until expiration

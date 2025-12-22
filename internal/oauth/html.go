@@ -1,5 +1,4 @@
 // Package oauth provides OAuth HTML response generation.
-//
 // This file provides the public API for generating OAuth callback HTML pages.
 // Templates are embedded and parsed once at startup for performance.
 // Fallback HTML is provided for error resilience.

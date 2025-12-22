@@ -51,10 +51,8 @@ type ClaudeAuth struct {
 
 // NewClaudeAuth creates a new Anthropic authentication service.
 // It initializes the HTTP client with proxy settings from the configuration.
-//
 // Parameters:
 //   - cfg: The application configuration containing proxy settings
-//
 // Returns:
 //   - *ClaudeAuth: A new Claude authentication service instance
 func NewClaudeAuth(cfg *config.Config) *ClaudeAuth {
@@ -66,11 +64,9 @@ func NewClaudeAuth(cfg *config.Config) *ClaudeAuth {
 // GenerateAuthURL creates the OAuth authorization URL with PKCE.
 // This method generates a secure authorization URL including PKCE challenge codes
 // for the OAuth2 flow with Anthropic's API.
-//
 // Parameters:
 //   - state: A random state parameter for CSRF protection
 //   - pkceCodes: The PKCE codes for secure code exchange
-//
 // Returns:
 //   - string: The complete authorization URL
 //   - string: The state parameter for verification
@@ -97,10 +93,8 @@ func (o *ClaudeAuth) GenerateAuthURL(state string, pkceCodes *PKCECodes) (string
 
 // parseCodeAndState extracts the authorization code and state from the callback response.
 // It handles the parsing of the code parameter which may contain additional fragments.
-//
 // Parameters:
 //   - code: The raw code parameter from the OAuth callback
-//
 // Returns:
 //   - parsedCode: The extracted authorization code
 //   - parsedState: The extracted state parameter if present
@@ -116,13 +110,11 @@ func (c *ClaudeAuth) parseCodeAndState(code string) (parsedCode, parsedState str
 // ExchangeCodeForTokens exchanges authorization code for access tokens.
 // This method implements the OAuth2 token exchange flow using PKCE for security.
 // It sends the authorization code along with PKCE verifier to get access and refresh tokens.
-//
 // Parameters:
 //   - ctx: The context for the request
 //   - code: The authorization code received from OAuth callback
 //   - state: The state parameter for verification
 //   - pkceCodes: The PKCE codes for secure verification
-//
 // Returns:
 //   - *ClaudeAuthBundle: The complete authentication bundle with tokens
 //   - error: An error if token exchange fails
@@ -202,11 +194,9 @@ func (o *ClaudeAuth) ExchangeCodeForTokens(ctx context.Context, code, state stri
 // RefreshTokens refreshes the access token using the refresh token.
 // This method exchanges a valid refresh token for a new access token,
 // extending the user's authenticated session.
-//
 // Parameters:
 //   - ctx: The context for the request
 //   - refreshToken: The refresh token to use for getting new access token
-//
 // Returns:
 //   - *ClaudeTokenData: The new token data with updated access token
 //   - error: An error if token refresh fails
@@ -268,10 +258,8 @@ func (o *ClaudeAuth) RefreshTokens(ctx context.Context, refreshToken string) (*C
 // CreateTokenStorage creates a new ClaudeTokenStorage from auth bundle and user info.
 // This method converts the authentication bundle into a token storage structure
 // suitable for persistence and later use.
-//
 // Parameters:
 //   - bundle: The authentication bundle containing token data
-//
 // Returns:
 //   - *ClaudeTokenStorage: A new token storage instance
 func (o *ClaudeAuth) CreateTokenStorage(bundle *ClaudeAuthBundle) *ClaudeTokenStorage {
@@ -289,12 +277,10 @@ func (o *ClaudeAuth) CreateTokenStorage(bundle *ClaudeAuthBundle) *ClaudeTokenSt
 // RefreshTokensWithRetry refreshes tokens with automatic retry logic.
 // This method implements exponential backoff retry logic for token refresh operations,
 // providing resilience against temporary network or service issues.
-//
 // Parameters:
 //   - ctx: The context for the request
 //   - refreshToken: The refresh token to use
 //   - maxRetries: The maximum number of retry attempts
-//
 // Returns:
 //   - *ClaudeTokenData: The refreshed token data
 //   - error: An error if all retry attempts fail
@@ -307,7 +293,6 @@ func (o *ClaudeAuth) RefreshTokensWithRetry(ctx context.Context, refreshToken st
 // UpdateTokenStorage updates an existing token storage with new token data.
 // This method refreshes the token storage with newly obtained access and refresh tokens,
 // updating timestamps and expiration information.
-//
 // Parameters:
 //   - storage: The existing token storage to update
 //   - tokenData: The new token data to apply

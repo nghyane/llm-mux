@@ -17,7 +17,6 @@ import (
 // GinLogrusLogger returns a Gin middleware handler that logs HTTP requests and responses
 // using logrus. It captures request details including method, path, status code, latency,
 // client IP, and any error messages, formatting them in a Gin-style log format.
-//
 // Returns:
 //   - gin.HandlerFunc: A middleware handler for request logging
 func GinLogrusLogger() gin.HandlerFunc {
@@ -63,7 +62,6 @@ func GinLogrusLogger() gin.HandlerFunc {
 // GinLogrusRecovery returns a Gin middleware handler that recovers from panics and logs
 // them using logrus. When a panic occurs, it captures the panic value, stack trace,
 // and request path, then returns a 500 Internal Server Error response to the client.
-//
 // Returns:
 //   - gin.HandlerFunc: A middleware handler for panic recovery
 func GinLogrusRecovery() gin.HandlerFunc {

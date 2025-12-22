@@ -43,7 +43,6 @@ func (e *projectSelectionRequiredError) Error() string {
 // DoLogin handles Google Gemini authentication using the shared authentication manager.
 // It initiates the OAuth flow for Google Gemini services, performs the legacy CLI user setup,
 // and saves the authentication tokens to the configured auth directory.
-//
 // Parameters:
 //   - cfg: The application configuration
 //   - projectID: Optional Google Cloud project ID for Gemini services
@@ -267,7 +266,7 @@ func performGeminiCLISetup(ctx context.Context, httpClient *http.Client, storage
 			return nil
 		}
 
-		log.Println("Onboarding in progress, waiting 5 seconds...")
+		log.Info("Onboarding in progress, waiting 5 seconds...")
 		time.Sleep(5 * time.Second)
 	}
 }

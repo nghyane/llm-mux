@@ -59,7 +59,7 @@ func (w *Watcher) doReloadConfigIfChanged() {
 		log.Debugf("config file content unchanged (hash match), skipping reload")
 		return
 	}
-	log.Printf("config file changed, reloading: %s\n", w.configPath)
+	log.Infof("config file changed, reloading: %s", w.configPath)
 	if w.reloadConfig() {
 		finalHash := newHash
 		if updatedData, errRead := os.ReadFile(w.configPath); errRead == nil && len(updatedData) > 0 {

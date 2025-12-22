@@ -174,7 +174,6 @@ func (m *AmpModule) registerManagementRoutes(engine *gin.Engine, baseHandler *ha
 
 // registerProviderAliases registers /api/provider/{provider}/... routes
 // These allow Amp CLI to route requests like:
-//
 //	/api/provider/openai/v1/chat/completions
 //	/api/provider/anthropic/v1/messages
 //	/api/provider/google/v1beta/models

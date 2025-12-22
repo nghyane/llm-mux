@@ -353,7 +353,7 @@ func (s *ObjectTokenStore) syncConfigFromBucket(ctx context.Context) error {
 		if errRead != nil {
 			return fmt.Errorf("object store: read config: %w", errRead)
 		}
-		if errWrite := os.WriteFile(s.configPath, normalizeLineEndingsBytes(data), 0o600); errWrite != nil {
+		if errWrite := os.WriteFile(s.configPath, []byte(normalizeLineEndings(string(data))), 0o600); errWrite != nil {
 			return fmt.Errorf("object store: write config: %w", errWrite)
 		}
 	case isObjectNotFound(err):
@@ -590,11 +590,6 @@ func (s *ObjectTokenStore) readAuthFile(path, baseDir string) (*cliproxyauth.Aut
 		NextRefreshAfter: time.Time{},
 	}
 	return auth, nil
-}
-
-func normalizeLineEndingsBytes(data []byte) []byte {
-	replaced := bytes.ReplaceAll(data, []byte{'\r', '\n'}, []byte{'\n'})
-	return bytes.ReplaceAll(replaced, []byte{'\r'}, []byte{'\n'})
 }
 
 func isObjectNotFound(err error) bool {

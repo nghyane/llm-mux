@@ -16,18 +16,15 @@ import (
 // It first queries the global model registry to retrieve the providers backing the supplied model name.
 // When the model has not been registered yet, it falls back to legacy string heuristics to infer
 // potential providers.
-//
 // Supported providers include (but are not limited to):
 //   - "gemini" for Google's Gemini family
 //   - "codex" for OpenAI GPT-compatible providers
 //   - "claude" for Anthropic models
 //   - "qwen" for Alibaba's Qwen models
 //   - "openai-compatibility" for external OpenAI-compatible providers
-//
 // Parameters:
 //   - modelName: The name of the model to identify providers for.
 //   - cfg: The application configuration containing OpenAI compatibility settings.
-//
 // Returns:
 //   - []string: All provider identifiers capable of serving the model, ordered by preference.
 func GetProviderName(modelName string) []string {
@@ -52,7 +49,6 @@ func GetProviderName(modelName string) []string {
 // NormalizeIncomingModelID is the main entry point for normalizing model IDs from client requests.
 // This should be called once at the beginning of request processing to ensure consistent
 // model ID handling throughout the system.
-//
 // Examples:
 //   - "[Gemini CLI] gemini-2.5-flash" -> "gemini-2.5-flash"
 //   - "[Antigravity] claude-3-sonnet" -> "claude-3-sonnet"
@@ -65,7 +61,6 @@ func NormalizeIncomingModelID(modelID string) string {
 
 // ExtractProviderFromPrefixedModelID extracts the provider type from a prefixed model ID.
 // Returns empty string if no prefix is present.
-//
 // Examples:
 //   - "[Gemini CLI] gemini-2.5-flash" -> "gemini-cli"
 //   - "[Antigravity] model" -> "antigravity"
@@ -78,10 +73,8 @@ func ExtractProviderFromPrefixedModelID(modelID string) string {
 
 // ResolveAutoModel resolves the "auto" model name to an actual available model.
 // It uses an empty handler type to get any available model from the registry.
-//
 // Parameters:
 //   - modelName: The model name to check (should be "auto")
-//
 // Returns:
 //   - string: The resolved model name, or the original if not "auto" or resolution fails
 func ResolveAutoModel(modelName string) string {
@@ -102,11 +95,9 @@ func ResolveAutoModel(modelName string) string {
 
 // IsOpenAICompatibilityAlias checks if the given model name is an alias
 // configured for OpenAI compatibility routing.
-//
 // Parameters:
 //   - modelName: The model name to check
 //   - cfg: The application configuration containing OpenAI compatibility settings
-//
 // Returns:
 //   - bool: True if the model name is an OpenAI compatibility alias, false otherwise
 func IsOpenAICompatibilityAlias(modelName string, cfg *config.Config) bool {
@@ -126,11 +117,9 @@ func IsOpenAICompatibilityAlias(modelName string, cfg *config.Config) bool {
 
 // GetOpenAICompatibilityConfig returns the OpenAI compatibility configuration
 // and model details for the given alias.
-//
 // Parameters:
 //   - alias: The model alias to find configuration for
 //   - cfg: The application configuration containing OpenAI compatibility settings
-//
 // Returns:
 //   - *config.OpenAICompatibility: The matching compatibility configuration, or nil if not found
 //   - *config.OpenAICompatibilityModel: The matching model configuration, or nil if not found
@@ -152,11 +141,9 @@ func GetOpenAICompatibilityConfig(alias string, cfg *config.Config) (*config.Ope
 // InArray checks if a string exists in a slice of strings.
 // It iterates through the slice and returns true if the target string is found,
 // otherwise it returns false.
-//
 // Parameters:
 //   - hystack: The slice of strings to search in
 //   - needle: The string to search for
-//
 // Returns:
 //   - bool: True if the string is found, false otherwise
 func InArray(hystack []string, needle string) bool {
@@ -169,10 +156,8 @@ func InArray(hystack []string, needle string) bool {
 }
 
 // HideAPIKey obscures an API key for logging purposes, showing only the first and last few characters.
-//
 // Parameters:
 //   - apiKey: The API key to hide.
-//
 // Returns:
 //   - string: The obscured API key.
 func HideAPIKey(apiKey string) string {
@@ -189,10 +174,8 @@ func HideAPIKey(apiKey string) string {
 // maskAuthorizationHeader masks the Authorization header value while preserving the auth type prefix.
 // Common formats: "Bearer <token>", "Basic <credentials>", "ApiKey <key>", etc.
 // It preserves the prefix (e.g., "Bearer ") and only masks the token/credential part.
-//
 // Parameters:
 //   - value: The Authorization header value
-//
 // Returns:
 //   - string: The masked Authorization value with prefix preserved
 func MaskAuthorizationHeader(value string) string {
@@ -204,16 +187,13 @@ func MaskAuthorizationHeader(value string) string {
 }
 
 // MaskSensitiveHeaderValue masks sensitive header values while preserving expected formats.
-//
 // Behavior by header key (case-insensitive):
 //   - "Authorization": Preserve the auth type prefix (e.g., "Bearer ") and mask only the credential part.
 //   - Headers containing "api-key": Mask the entire value using HideAPIKey.
 //   - Others: Return the original value unchanged.
-//
 // Parameters:
 //   - key:   The HTTP header name to inspect (case-insensitive matching).
 //   - value: The header value to mask when sensitive.
-//
 // Returns:
 //   - string: The masked value according to the header type; unchanged if not sensitive.
 func MaskSensitiveHeaderValue(key, value string) string {

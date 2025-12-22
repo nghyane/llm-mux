@@ -9,7 +9,6 @@ import (
 
 // corsMiddleware returns a Gin middleware handler that adds CORS headers
 // to every response, allowing cross-origin requests.
-//
 // Returns:
 //   - gin.HandlerFunc: The CORS middleware handler
 func corsMiddleware() gin.HandlerFunc {

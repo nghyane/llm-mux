@@ -3,7 +3,6 @@ package ir
 // ParameterSynonyms maps parameter names to their synonyms.
 // When a model returns a parameter name that doesn't exist in the schema,
 // we check if it's a known synonym and remap it to the expected name.
-//
 // Key: parameter name that model might send
 // Value: list of possible expected names in schema (checked in order)
 var ParameterSynonyms = map[string][]string{
@@ -44,7 +43,6 @@ var ParameterSynonyms = map[string][]string{
 
 // ToolDefaults defines default values for commonly missing required parameters.
 // When a model forgets to include a required parameter, we add the default value.
-//
 // Key: tool name
 // Value: map of parameter name -> default value
 var ToolDefaults = map[string]map[string]any{

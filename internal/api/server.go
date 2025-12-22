@@ -163,12 +163,10 @@ type Server struct {
 
 // NewServer creates and initializes a new API server instance.
 // It sets up the Gin engine, middleware, routes, and handlers.
-//
 // Parameters:
 //   - cfg: The server configuration
 //   - authManager: core runtime auth manager
 //   - accessManager: request authentication manager
-//
 // Returns:
 //   - *Server: A new server instance
 func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdkaccess.Manager, configFilePath string, opts ...ServerOption) *Server {
@@ -296,7 +294,6 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 
 // Start begins listening for and serving HTTP or HTTPS requests.
 // It's a blocking call and will only return on an unrecoverable error.
-//
 // Returns:
 //   - error: An error if the server fails to start
 func (s *Server) Start() error {
@@ -328,10 +325,8 @@ func (s *Server) Start() error {
 
 // Stop gracefully shuts down the API server without interrupting any
 // active connections.
-//
 // Parameters:
 //   - ctx: The context for graceful shutdown
-//
 // Returns:
 //   - error: An error if the server fails to stop
 func (s *Server) Stop(ctx context.Context) error {
@@ -369,7 +364,6 @@ func (s *Server) applyAccessConfig(oldCfg, newCfg *config.Config) {
 
 // UpdateClients updates the server's client list and configuration.
 // This method is called when the configuration or authentication tokens change.
-//
 // Parameters:
 //   - clients: The new slice of AI service clients
 //   - cfg: The new application configuration

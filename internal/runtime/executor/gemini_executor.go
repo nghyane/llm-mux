@@ -43,10 +43,8 @@ type GeminiExecutor struct {
 }
 
 // NewGeminiExecutor creates a new Gemini executor instance.
-//
 // Parameters:
 //   - cfg: The application configuration
-//
 // Returns:
 //   - *GeminiExecutor: A new Gemini executor instance
 func NewGeminiExecutor(cfg *config.Config) *GeminiExecutor { return &GeminiExecutor{cfg: cfg} }
@@ -60,13 +58,11 @@ func (e *GeminiExecutor) PrepareRequest(_ *http.Request, _ *cliproxyauth.Auth) e
 // Execute performs a non-streaming request to the Gemini API.
 // It translates the request to Gemini format, sends it to the API, and translates
 // the response back to the requested format.
-//
 // Parameters:
 //   - ctx: The context for the request
 //   - auth: The authentication information
 //   - req: The request to execute
 //   - opts: Additional execution options
-//
 // Returns:
 //   - cliproxyexecutor.Response: The response from the API
 //   - error: An error if the request fails
@@ -336,7 +332,6 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 }
 
 func (e *GeminiExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("gemini executor: refresh called")
 	// OAuth bearer token refresh for official Gemini API.
 	if auth == nil {
 		return nil, fmt.Errorf("gemini executor: auth is nil")

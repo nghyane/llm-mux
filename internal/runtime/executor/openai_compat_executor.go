@@ -256,7 +256,6 @@ func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *cliproxyau
 
 // Refresh is a no-op for API-key based compatibility providers.
 func (e *OpenAICompatExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("openai compat executor: refresh called")
 	_ = ctx
 	return auth, nil
 }

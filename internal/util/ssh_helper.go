@@ -24,7 +24,6 @@ var ipServices = []string{
 
 // getPublicIP attempts to retrieve the public IP address from a list of external services.
 // It iterates through the ipServices and returns the first successful response.
-//
 // Returns:
 //   - string: The public IP address as a string
 //   - error: An error if all services fail, nil otherwise
@@ -67,7 +66,6 @@ func getPublicIP() (string, error) {
 // getOutboundIP retrieves the preferred outbound IP address of this machine.
 // It uses a UDP connection to a public DNS server to determine the local IP
 // address that would be used for outbound traffic.
-//
 // Returns:
 //   - string: The outbound IP address as a string
 //   - error: An error if the IP address cannot be determined, nil otherwise
@@ -93,7 +91,6 @@ func getOutboundIP() (string, error) {
 // GetIPAddress attempts to find the best-available IP address.
 // It first tries to get the public IP address, and if that fails,
 // it falls back to getting the local outbound IP address.
-//
 // Returns:
 //   - string: The determined IP address (preferring public IPv4)
 func GetIPAddress() string {
@@ -114,7 +111,6 @@ func GetIPAddress() string {
 
 // PrintSSHTunnelInstructions detects the IP address and prints SSH tunnel instructions
 // for the user to connect to the local OAuth callback server from a remote machine.
-//
 // Parameters:
 //   - port: The local port number for the SSH tunnel
 func PrintSSHTunnelInstructions(port int) {

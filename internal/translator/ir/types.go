@@ -51,7 +51,6 @@ type FinishReason string
 // Unified/normalized finish reasons (used in IR)
 // These are the canonical reasons used internally. Provider-specific reasons
 // are mapped to/from these in the mapping functions (MapXxxFinishReason, MapFinishReasonToXxx).
-//
 // Consolidation notes:
 // - FinishReasonMaxTokens: Used for both OpenAI "length" and Claude/Gemini "max_tokens"
 // - FinishReasonStop: Used for both normal completion and Claude "end_turn"

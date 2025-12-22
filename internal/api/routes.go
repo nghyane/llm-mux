@@ -100,7 +100,9 @@ func (s *Server) setupRoutes() {
 				file := fmt.Sprintf("%s/.oauth-%s-%s.oauth", s.cfg.AuthDir, provider, state)
 				payload := map[string]string{"code": code, "state": state, "error": errStr}
 				data, _ := json.Marshal(payload)
-				_ = os.WriteFile(file, data, 0o600)
+				if err := os.WriteFile(file, data, 0o600); err != nil {
+					log.Errorf("Failed to persist OAuth callback data to %s: %v", file, err)
+				}
 			}
 			c.Header("Content-Type", "text/html; charset=utf-8")
 			if errStr != "" {

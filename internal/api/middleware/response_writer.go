@@ -39,12 +39,10 @@ type ResponseWriterWrapper struct {
 
 // NewResponseWriterWrapper creates and initializes a new ResponseWriterWrapper.
 // It takes the original gin.ResponseWriter, a logger instance, and request information.
-//
 // Parameters:
 //   - w: The original gin.ResponseWriter to wrap.
 //   - logger: The logging service to use for recording requests.
 //   - requestInfo: The pre-captured information about the incoming request.
-//
 // Returns:
 //   - A pointer to a new ResponseWriterWrapper.
 func NewResponseWriterWrapper(w gin.ResponseWriter, logger logging.RequestLogger, requestInfo *RequestInfo) *ResponseWriterWrapper {

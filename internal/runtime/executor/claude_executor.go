@@ -366,7 +366,6 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 }
 
 func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("claude executor: refresh called")
 	if auth == nil {
 		return nil, fmt.Errorf("claude executor: auth is nil")
 	}

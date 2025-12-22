@@ -46,10 +46,8 @@ type OAuthResult struct {
 // NewOAuthServer creates a new OAuth callback server.
 // It initializes the server with the specified port and creates channels
 // for handling OAuth results and errors.
-//
 // Parameters:
 //   - port: The port number on which the server should listen
-//
 // Returns:
 //   - *OAuthServer: A new OAuthServer instance
 func NewOAuthServer(port int) *OAuthServer {
@@ -63,7 +61,6 @@ func NewOAuthServer(port int) *OAuthServer {
 // Start starts the OAuth callback server.
 // It sets up the HTTP handlers for the callback and success endpoints,
 // and begins listening on the specified port.
-//
 // Returns:
 //   - error: An error if the server fails to start
 func (s *OAuthServer) Start() error {
@@ -107,10 +104,8 @@ func (s *OAuthServer) Start() error {
 
 // Stop gracefully stops the OAuth callback server.
 // It performs a graceful shutdown of the HTTP server with a timeout.
-//
 // Parameters:
 //   - ctx: The context for controlling the shutdown process
-//
 // Returns:
 //   - error: An error if the server fails to stop gracefully
 func (s *OAuthServer) Stop(ctx context.Context) error {
@@ -137,10 +132,8 @@ func (s *OAuthServer) Stop(ctx context.Context) error {
 // WaitForCallback waits for the OAuth callback with a timeout.
 // It blocks until either an OAuth result is received, an error occurs,
 // or the specified timeout is reached.
-//
 // Parameters:
 //   - timeout: The maximum time to wait for the callback
-//
 // Returns:
 //   - *OAuthResult: The OAuth result if successful
 //   - error: An error if the callback times out or an error occurs
@@ -158,7 +151,6 @@ func (s *OAuthServer) WaitForCallback(timeout time.Duration) (*OAuthResult, erro
 // handleCallback handles the OAuth callback endpoint.
 // It extracts the authorization code and state from the callback URL,
 // validates the parameters, and sends the result to the waiting channel.
-//
 // Parameters:
 //   - w: The HTTP response writer
 //   - r: The HTTP request
@@ -221,7 +213,6 @@ func (s *OAuthServer) handleCallback(w http.ResponseWriter, r *http.Request) {
 
 // handleSuccess handles the success page endpoint.
 // It serves a user-friendly HTML page indicating that authentication was successful.
-//
 // Parameters:
 //   - w: The HTTP response writer
 //   - r: The HTTP request
@@ -251,11 +242,9 @@ func (s *OAuthServer) handleSuccess(w http.ResponseWriter, r *http.Request) {
 // generateSuccessHTML creates the HTML content for the success page.
 // It customizes the page based on whether additional setup is required
 // and includes a link to the platform.
-//
 // Parameters:
 //   - setupRequired: Whether additional setup is required after authentication
 //   - platformURL: The URL to the platform for additional setup
-//
 // Returns:
 //   - string: The HTML content for the success page
 func (s *OAuthServer) generateSuccessHTML(setupRequired bool, platformURL string) string {
@@ -277,7 +266,6 @@ func (s *OAuthServer) generateSuccessHTML(setupRequired bool, platformURL string
 
 // sendResult sends the OAuth result to the waiting channel.
 // It ensures that the result is sent without blocking the handler.
-//
 // Parameters:
 //   - result: The OAuth result to send
 func (s *OAuthServer) sendResult(result *OAuthResult) {
@@ -291,7 +279,6 @@ func (s *OAuthServer) sendResult(result *OAuthResult) {
 
 // isPortAvailable checks if the specified port is available.
 // It attempts to listen on the port to determine availability.
-//
 // Returns:
 //   - bool: True if the port is available, false otherwise
 func (s *OAuthServer) isPortAvailable() bool {
@@ -307,7 +294,6 @@ func (s *OAuthServer) isPortAvailable() bool {
 }
 
 // IsRunning returns whether the server is currently running.
-//
 // Returns:
 //   - bool: True if the server is running, false otherwise
 func (s *OAuthServer) IsRunning() bool {

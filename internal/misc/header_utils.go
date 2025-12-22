@@ -12,7 +12,6 @@ import (
 // multiple sources in order of priority: source headers, existing target headers,
 // and finally the default value. It only sets the header if it's not already present
 // and the value is not empty after trimming whitespace.
-//
 // Parameters:
 //   - target: The target header map to modify
 //   - source: The source header map to check first (can be nil)

@@ -19,7 +19,6 @@ import (
 // StartService builds and runs the proxy service using the exported SDK.
 // It creates a new proxy service instance, sets up signal handling for graceful shutdown,
 // and starts the service with the provided configuration.
-//
 // Parameters:
 //   - cfg: The application configuration
 //   - configPath: The path to the configuration file

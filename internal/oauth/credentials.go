@@ -1,16 +1,13 @@
 package oauth
 
 // credentials.go consolidates PUBLIC OAuth client credentials for installed applications.
-//
 // IMPORTANT: These are NOT sensitive secrets. They are PUBLIC client IDs and secrets
 // intentionally distributed with the application for installed/CLI use.
-//
 // OAuth 2.0 installed applications use public (non-confidential) clients where the
 // client secret cannot be kept secure (e.g., in compiled binaries, CLI tools, mobile apps).
 // These credentials are visible in the binary and are meant for:
 // - Google Cloud Code / Antigravity API (Cloud Assist endpoint)
 // - Google Gemini CLI (Legacy endpoint)
-//
 // Do not move these to user configuration files. They are intentionally embedded.
 
 const (

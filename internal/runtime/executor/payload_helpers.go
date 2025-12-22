@@ -113,7 +113,6 @@ func buildPayloadPath(root, path string) string {
 
 // matchModelPattern performs simple wildcard matching where '*' matches zero or more characters.
 // Examples:
-//
 //	"*-5" matches "gpt-5"
 //	"gpt-*" matches "gpt-5" and "gpt-4"
 //	"gemini-*-pro" matches "gemini-2.5-pro" and "gemini-3-pro".

@@ -233,7 +233,6 @@ func (e *IFlowExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 
 // Refresh refreshes OAuth tokens or cookie-based API keys and updates the stored API key.
 func (e *IFlowExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("iflow executor: refresh called")
 	if auth == nil {
 		return nil, fmt.Errorf("iflow executor: auth is nil")
 	}

@@ -13,7 +13,6 @@ import (
 // DoQwenLogin handles the Qwen device flow using the shared authentication manager.
 // It initiates the device-based authentication process for Qwen services and saves
 // the authentication tokens to the configured auth directory.
-//
 // Parameters:
 //   - cfg: The application configuration
 //   - options: Login options including browser behavior and prompts

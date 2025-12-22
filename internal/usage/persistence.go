@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	_ "modernc.org/sqlite"
 )
 
@@ -156,8 +156,42 @@ func initSchema(db *sql.DB) error {
 	CREATE INDEX IF NOT EXISTS idx_usage_provider_model ON usage_records(provider, model);
 	`
 
-	_, err := db.Exec(schema)
-	return err
+	if _, err := db.Exec(schema); err != nil {
+		return err
+	}
+
+	// Run migrations to add new columns to existing tables
+	return migrateSchema(db)
+}
+
+// migrateSchema adds new columns to existing tables.
+// Uses error-based detection: "duplicate column name" errors are ignored.
+// This is simpler and more efficient than querying PRAGMA table_info.
+func migrateSchema(db *sql.DB) error {
+	// Columns added after initial schema release.
+	// Each entry is a complete column definition for ALTER TABLE ADD COLUMN.
+	migrations := []string{
+		"audio_tokens INTEGER NOT NULL DEFAULT 0",
+		"cache_creation_input_tokens INTEGER NOT NULL DEFAULT 0",
+		"cache_read_input_tokens INTEGER NOT NULL DEFAULT 0",
+		"tool_use_prompt_tokens INTEGER NOT NULL DEFAULT 0",
+	}
+
+	for _, colDef := range migrations {
+		_, err := db.Exec("ALTER TABLE usage_records ADD COLUMN " + colDef)
+		if err != nil {
+			// SQLite returns "duplicate column name: X" if column already exists
+			if strings.Contains(err.Error(), "duplicate column name") {
+				continue
+			}
+			return fmt.Errorf("migration failed for [%s]: %w", colDef, err)
+		}
+		// Extract column name for logging (first word before space)
+		colName := strings.Fields(colDef)[0]
+		log.Infof("Added column %s to usage_records table", colName)
+	}
+
+	return nil
 }
 
 // Enqueue adds a usage record to the persistence queue.
@@ -171,7 +205,7 @@ func (p *Persister) Enqueue(record UsageRecord) {
 		// Successfully enqueued
 	default:
 		// Channel full, drop record with warning
-		log.Printf("[WARN] Usage persistence queue full, dropping record for %s/%s", record.Provider, record.Model)
+		log.Warnf("Usage persistence queue full, dropping record for %s/%s", record.Provider, record.Model)
 	}
 }
 
@@ -186,7 +220,7 @@ func (p *Persister) writeLoop() {
 			return
 		}
 		if err := p.writeBatch(batch); err != nil {
-			log.Printf("[ERROR] Failed to write usage batch: %v", err)
+			log.Errorf("Failed to write usage batch: %v", err)
 		}
 		batch = batch[:0] // Clear batch
 	}
@@ -287,7 +321,7 @@ func (p *Persister) cleanupLoop() {
 		select {
 		case <-p.cleanupTicker.C:
 			if err := p.cleanup(); err != nil {
-				log.Printf("[ERROR] Failed to cleanup old usage records: %v", err)
+				log.Errorf("Failed to cleanup old usage records: %v", err)
 			}
 		case <-p.stopChan:
 			return
@@ -311,7 +345,7 @@ func (p *Persister) cleanup() error {
 
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected > 0 {
-		log.Printf("[INFO] Cleaned up %d usage records older than %d days", rowsAffected, p.retentionDays)
+		log.Infof("Cleaned up %d usage records older than %d days", rowsAffected, p.retentionDays)
 	}
 
 	return nil

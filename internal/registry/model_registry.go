@@ -825,7 +825,6 @@ func (r *ModelRegistry) ClientSupportsModel(clientID, modelID string) bool {
 // GetAvailableModels returns all models that have at least one available client
 // Parameters:
 //   - handlerType: The handler type to filter models for (e.g., "openai", "claude", "gemini")
-//
 // Returns:
 //   - []map[string]any: List of available models in the requested format
 func (r *ModelRegistry) GetAvailableModels(handlerType string) []map[string]any {
@@ -941,7 +940,6 @@ func (r *ModelRegistry) GetAvailableModels(handlerType string) []map[string]any 
 // GetModelCount returns the number of available clients for a specific model
 // Parameters:
 //   - modelID: The model ID to check
-//
 // Returns:
 //   - int: Number of available clients for the model
 func (r *ModelRegistry) GetModelCount(modelID string) int {
@@ -1048,7 +1046,6 @@ func NewModelIDNormalizer() *ModelIDNormalizer {
 
 // NormalizeModelID removes provider prefix and returns clean internal model ID.
 // Examples: "[Gemini CLI] gemini-2.5-flash" -> "gemini-2.5-flash"
-//
 //	"gemini-2.5-flash" -> "gemini-2.5-flash"
 func (n *ModelIDNormalizer) NormalizeModelID(modelID string) string {
 	modelID = strings.TrimSpace(modelID)
@@ -1062,7 +1059,6 @@ func (n *ModelIDNormalizer) NormalizeModelID(modelID string) string {
 
 // ExtractProviderFromPrefixedID extracts provider type from prefixed model ID.
 // Examples: "[Gemini CLI] gemini-2.5-flash" -> "gemini-cli"
-//
 //	"[Antigravity] model" -> "antigravity"
 //	"gemini-2.5-flash" -> ""
 func (n *ModelIDNormalizer) ExtractProviderFromPrefixedID(modelID string) string {
@@ -1260,10 +1256,8 @@ func (r *ModelRegistry) CleanupExpiredQuotas() {
 // GetFirstAvailableModel returns the first available model for the given handler type.
 // It prioritizes models by their creation timestamp (newest first) and checks if they have
 // available clients that are not suspended or over quota.
-//
 // Parameters:
 //   - handlerType: The API handler type (e.g., "openai", "claude", "gemini")
-//
 // Returns:
 //   - string: The model ID of the first available model, or empty string if none available
 //   - error: An error if no models are available

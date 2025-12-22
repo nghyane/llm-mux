@@ -290,7 +290,6 @@ type StreamTranslationResult struct {
 
 // TranslateToGeminiWithTokens converts request to Gemini format and counts tokens.
 // This is the optimized path - translation and token counting share the same IR.
-//
 // Token counting is only performed for Claude source format (where input_tokens is needed).
 // For other formats, EstimatedInputTokens will be 0.
 func TranslateToGeminiWithTokens(cfg *config.Config, from sdktranslator.Format, model string, payload []byte, streaming bool, metadata map[string]any) (*TranslationResult, error) {

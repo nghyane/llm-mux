@@ -15,7 +15,6 @@ import (
 // DoKiroLogin triggers the Kiro authentication flow through the shared authentication manager.
 // It initiates the authentication process for Amazon Q/CodeWhisperer services and saves
 // the authentication tokens to the configured auth directory.
-//
 // Parameters:
 //   - cfg: The application configuration
 //   - options: Login options including browser behavior and prompts

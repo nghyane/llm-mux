@@ -320,10 +320,8 @@ func NewDefaultConfig() *Config {
 // LoadConfig reads a YAML configuration file from the given path,
 // unmarshals it into a Config struct, applies environment variable overrides,
 // and returns it.
-//
 // Parameters:
 //   - configFile: The path to the YAML configuration file
-//
 // Returns:
 //   - *Config: The loaded configuration
 //   - error: An error if the configuration could not be loaded

@@ -38,10 +38,8 @@ type ClineTokenStorage struct {
 // SaveTokenToFile serializes the Cline token storage to a JSON file.
 // This method creates the necessary directory structure and writes the token
 // data in JSON format to the specified file path for persistent storage.
-//
 // Parameters:
 //   - authFilePath: The full path where the token file should be saved
-//
 // Returns:
 //   - error: An error if the operation fails, nil otherwise
 func (ts *ClineTokenStorage) SaveTokenToFile(authFilePath string) error {

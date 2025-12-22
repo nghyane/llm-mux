@@ -36,7 +36,6 @@ type CredExtractorConfig struct {
 
 // ExtractCreds extracts credentials from an auth object using the provided configuration.
 // Returns (token, url) where token may include prefix and url may be transformed.
-//
 // This centralizes credential extraction logic across all executor implementations,
 // eliminating duplicate extraction patterns while allowing provider-specific customization.
 func ExtractCreds(a *auth.Auth, cfg CredExtractorConfig) (token, url string) {

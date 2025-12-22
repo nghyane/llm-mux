@@ -41,7 +41,6 @@ var partsPool = sync.Pool{
 // It acts as a dispatcher:
 // - Gemini models: Uses google.golang.org/genai/tokenizer (native accuracy)
 // - OpenAI/Claude/Qwen: Uses tiktoken-go (o200k_base/cl100k_base)
-//
 // Returns 0 if counting fails (non-blocking, fail-safe).
 func CountTokensFromIR(model string, req *ir.UnifiedChatRequest) int64 {
 	if req == nil {
@@ -171,7 +170,6 @@ func normalizeModel(model string) string {
 //   - Claude models (use tiktoken for accurate counting)
 //   - OpenAI/GPT models (use tiktoken)
 //   - Qwen models (use tiktoken)
-//
 // This ensures models proxied through Gemini infrastructure but using different
 // tokenizers are handled correctly.
 func isGeminiModel(model string) bool {

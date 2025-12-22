@@ -226,7 +226,6 @@ func (e *QwenExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth,
 }
 
 func (e *QwenExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("qwen executor: refresh called")
 	if auth == nil {
 		return nil, fmt.Errorf("qwen executor: auth is nil")
 	}

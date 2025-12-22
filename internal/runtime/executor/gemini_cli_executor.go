@@ -205,7 +205,8 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	var lastBody []byte
 	retrier := &rateLimitRetrier{}
 
-	for idx, attemptModel := range models {
+	for idx := 0; idx < len(models); idx++ {
+		attemptModel := models[idx]
 		payload := append([]byte(nil), basePayload...)
 		payload = setJSONField(payload, "project", projectID)
 		payload = setJSONField(payload, "model", attemptModel)
@@ -262,9 +263,9 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 				}
 				switch action {
 				case rateLimitActionContinue:
-					continue
+					continue // Try next model (idx will increment)
 				case rateLimitActionRetry:
-					idx--
+					idx-- // Retry same model (decrement idx to retry current model)
 					continue
 				}
 				// rateLimitActionMaxExceeded - fall through to error
@@ -483,7 +484,6 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.
 }
 
 func (e *GeminiCLIExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {
-	log.Debugf("gemini cli executor: refresh called")
 	_ = ctx
 	return auth, nil
 }

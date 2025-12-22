@@ -86,7 +86,6 @@ func (r *rateLimitRetrier) calculateDelay(errorBody []byte) time.Duration {
 // Handles both formats:
 //   - Object: {"error": {"details": [...]}}
 //   - Array:  [{"error": {"details": [...]}}]
-//
 // Returns the parsed duration or an error if it cannot be determined.
 func parseRetryDelay(errorBody []byte) (*time.Duration, error) {
 	// Try multiple paths to handle different response formats
@@ -128,11 +127,9 @@ func parseRetryDelay(errorBody []byte) (*time.Duration, error) {
 // ParseQuotaRetryDelay extracts the full quota reset delay from a Google API 429 error response.
 // Unlike parseRetryDelay which is used for short-term retries (capped at 20s), this function
 // returns the actual quota reset time which can be hours.
-//
 // It checks multiple sources in order of preference:
 //  1. RetryInfo.retryDelay (e.g., "7118.204539195s") - most accurate
 //  2. ErrorInfo.metadata.quotaResetDelay (e.g., "1h58m38.204539195s") - human-readable format
-//
 // Returns nil if no quota delay information is found.
 func ParseQuotaRetryDelay(errorBody []byte) *time.Duration {
 	paths := []string{

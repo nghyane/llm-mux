@@ -9,10 +9,8 @@ import (
 
 // createGeminiBridgeHandler creates a handler that bridges AMP CLI's non-standard Gemini paths
 // to our standard Gemini handler by rewriting the request context.
-//
 // AMP CLI format: /publishers/google/models/gemini-3-pro-preview:streamGenerateContent
 // Standard format: /models/gemini-3-pro-preview:streamGenerateContent
-//
 // This extracts the model+method from the AMP path and sets it as the :action parameter
 // so the standard Gemini handler can process it.
 func createGeminiBridgeHandler(geminiHandler *gemini.GeminiAPIHandler) gin.HandlerFunc {

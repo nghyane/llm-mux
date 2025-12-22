@@ -26,7 +26,6 @@ type LoginOptions struct {
 // DoCodexLogin triggers the Codex OAuth flow through the shared authentication manager.
 // It initiates the OAuth authentication process for OpenAI Codex services and saves
 // the authentication tokens to the configured auth directory.
-//
 // Parameters:
 //   - cfg: The application configuration
 //   - options: Login options including browser behavior and prompts

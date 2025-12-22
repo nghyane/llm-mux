@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -654,7 +655,8 @@ func normalizeLineEndings(s string) string {
 	if s == "" {
 		return s
 	}
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	s = strings.ReplaceAll(s, "\r", "\n")
-	return s
+	// Convert CRLF to LF, then CR to LF
+	data := []byte(s)
+	replaced := bytes.ReplaceAll(data, []byte{'\r', '\n'}, []byte{'\n'})
+	return string(bytes.ReplaceAll(replaced, []byte{'\r'}, []byte{'\n'}))
 }

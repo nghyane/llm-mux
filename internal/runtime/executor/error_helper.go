@@ -21,14 +21,11 @@ type HTTPErrorResult struct {
 // NOTE: This function does NOT close the response body. The caller is responsible
 // for closing the body (typically via defer). This avoids double-close bugs when
 // callers already have defer resp.Body.Close() set up.
-//
 // Parameters:
 //   - resp: HTTP response to handle
 //   - executorName: Name of the executor for logging (e.g., "claude executor")
-//
 // Returns:
 //   - HTTPErrorResult with categorized error, status code, and body
-//
 // All executors should use this function instead of manual error handling to ensure:
 // - Consistent error categorization
 // - Standardized logging

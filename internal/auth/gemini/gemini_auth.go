@@ -54,13 +54,11 @@ func NewGeminiAuth() *GeminiAuth {
 // GetAuthenticatedClient configures and returns an HTTP client ready for making authenticated API calls.
 // It manages the entire OAuth2 flow, including handling proxies, loading existing tokens,
 // initiating a new web-based OAuth flow if necessary, and refreshing tokens.
-//
 // Parameters:
 //   - ctx: The context for the HTTP client
 //   - ts: The Gemini token storage containing authentication tokens
 //   - cfg: The configuration containing proxy settings
 //   - noBrowser: Optional parameter to disable browser opening
-//
 // Returns:
 //   - *http.Client: An HTTP client configured with authentication
 //   - error: An error if the client configuration fails, nil otherwise
@@ -134,13 +132,11 @@ func (g *GeminiAuth) GetAuthenticatedClient(ctx context.Context, ts *GeminiToken
 
 // createTokenStorage creates a new GeminiTokenStorage object. It fetches the user's email
 // using the provided token and populates the storage structure.
-//
 // Parameters:
 //   - ctx: The context for the HTTP request
 //   - config: The OAuth2 configuration
 //   - token: The OAuth2 token to use for authentication
 //   - projectID: The Google Cloud Project ID to associate with this token
-//
 // Returns:
 //   - *GeminiTokenStorage: A new token storage object with user information
 //   - error: An error if the token storage creation fails, nil otherwise
@@ -159,7 +155,7 @@ func (g *GeminiAuth) createTokenStorage(ctx context.Context, config *oauth2.Conf
 	}
 	defer func() {
 		if err = resp.Body.Close(); err != nil {
-			log.Printf("warn: failed to close response body: %v", err)
+			log.Warnf("failed to close response body: %v", err)
 		}
 	}()
 
@@ -201,12 +197,10 @@ func (g *GeminiAuth) createTokenStorage(ctx context.Context, config *oauth2.Conf
 // It starts a local HTTP server to listen for the callback from Google's auth server,
 // opens the user's browser to the authorization URL, and exchanges the received
 // authorization code for an access token.
-//
 // Parameters:
 //   - ctx: The context for the HTTP client
 //   - config: The OAuth2 configuration
 //   - noBrowser: Optional parameter to disable browser opening
-//
 // Returns:
 //   - *oauth2.Token: The OAuth2 token obtained from the authorization flow
 //   - error: An error if the token acquisition fails, nil otherwise

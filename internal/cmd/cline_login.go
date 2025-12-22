@@ -21,7 +21,6 @@ import (
 // DoClineLogin handles the Cline authentication flow using the shared authentication manager.
 // It prompts the user for a refresh token (exported from VSCode), exchanges it for access tokens,
 // and saves the authentication credentials to the configured auth directory.
-//
 // Parameters:
 //   - cfg: The application configuration
 //   - options: Login options including browser behavior and prompts

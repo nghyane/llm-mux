@@ -12,22 +12,17 @@ import (
 // WithRetry executes a function with exponential backoff retry logic.
 // It provides resilience against temporary failures by automatically retrying
 // the operation with increasing delays between attempts.
-//
 // Type Parameters:
 //   - T: The return type of the function to be retried
-//
 // Parameters:
 //   - ctx: Context for cancellation and deadline control
 //   - maxRetries: Maximum number of retry attempts (including initial try)
 //   - logPrefix: Prefix for log messages (e.g., "Token refresh")
 //   - fn: Function to execute, should be idempotent
-//
 // Returns:
 //   - T: Result of the successful function call
 //   - error: Last error if all retries fail, or context error if cancelled
-//
 // Example:
-//
 //	result, err := WithRetry(ctx, 3, "API call", func(ctx context.Context) (MyResult, error) {
 //	    return makeAPICall(ctx, params)
 //	})

@@ -14,7 +14,6 @@ import (
 // following RFC 7636 specifications for OAuth 2.0 PKCE extension.
 // This provides additional security for the OAuth flow by ensuring that
 // only the client that initiated the request can exchange the authorization code.
-//
 // Returns:
 //   - *PKCECodes: A struct containing the code verifier and challenge
 //   - error: An error if the generation fails, nil otherwise
