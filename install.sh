@@ -579,7 +579,7 @@ print_success() {
 
     echo ""
     echo "  3. Test the API:"
-    echo "     curl http://localhost:8318/v1/models"
+    echo "     curl http://localhost:8317/v1/models"
     echo ""
 
     # PATH warning

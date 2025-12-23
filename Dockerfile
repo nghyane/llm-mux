@@ -34,6 +34,6 @@ COPY --chown=llm-mux:llm-mux config.example.yaml ./
 
 USER llm-mux
 ENV TZ=UTC
-EXPOSE 8318
+EXPOSE 8317
 
 CMD ["./llm-mux"]

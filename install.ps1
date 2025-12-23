@@ -515,9 +515,9 @@ function Show-Success {
 
     Write-Host ""
     Write-Host "  3. Test the API:"
-    Write-Host "     curl http://localhost:8318/v1/models"
+    Write-Host "     curl http://localhost:8317/v1/models"
     Write-Host "     # or with PowerShell:"
-    Write-Host "     Invoke-RestMethod http://localhost:8318/v1/models"
+    Write-Host "     Invoke-RestMethod http://localhost:8317/v1/models"
     Write-Host ""
 
     if ($status -eq "running") {
