@@ -578,6 +578,129 @@ func schemaHasher(schema map[string]any) string {
 	return b.String()
 }
 
+// geminiUnsupportedFields is a pre-computed set of JSON Schema fields that Gemini API doesn't support.
+// Using a map for O(1) lookup instead of slice iteration.
+var geminiUnsupportedFields = map[string]struct{}{
+	// Reference/Definition keywords
+	"$ref": {}, "$defs": {}, "definitions": {}, "$id": {}, "$anchor": {}, "$dynamicRef": {}, "$dynamicAnchor": {},
+	// Schema metadata
+	"$schema": {}, "$vocabulary": {}, "$comment": {},
+	// Number validation keywords - the primary cause of this bug
+	"exclusiveMinimum": {}, "exclusiveMaximum": {},
+	"minimum": {}, "maximum": {}, "multipleOf": {},
+	// String validation keywords
+	"minLength": {}, "maxLength": {}, "pattern": {},
+	// Array validation keywords
+	"minItems": {}, "maxItems": {}, "uniqueItems": {}, "minContains": {}, "maxContains": {},
+	// Object validation keywords
+	"minProperties": {}, "maxProperties": {},
+	// Conditional keywords
+	"if": {}, "then": {}, "else": {}, "dependentSchemas": {}, "dependentRequired": {},
+	// Unevaluated keywords
+	"unevaluatedItems": {}, "unevaluatedProperties": {},
+	// Content keywords
+	"contentEncoding": {}, "contentMediaType": {}, "contentSchema": {},
+	// Deprecated keywords
+	"dependencies": {},
+	// Composition keywords that may cause issues
+	"allOf": {}, "anyOf": {}, "oneOf": {}, "not": {},
+}
+
+// geminiSchemaCache caches cleaned schemas for Gemini to avoid repeated processing.
+var geminiSchemaCache sync.Map
+
+func CleanJsonSchemaForGemini(schema map[string]any) map[string]any {
+	if schema == nil {
+		return nil
+	}
+
+	// Check cache first
+	cacheKey := schemaHasher(schema)
+	if cached, ok := geminiSchemaCache.Load(cacheKey); ok && cacheKey != "" {
+		return cached.(map[string]any)
+	}
+
+	schema = CleanJsonSchema(schema)
+	cleanSchemaForGeminiRecursive(schema)
+
+	// Cache the result
+	if cacheKey != "" {
+		geminiSchemaCache.Store(cacheKey, schema)
+	}
+
+	return schema
+}
+
+// cleanSchemaForGeminiRecursive recursively removes JSON Schema fields that Gemini API doesn't support.
+func cleanSchemaForGeminiRecursive(schema map[string]any) {
+	if schema == nil {
+		return
+	}
+
+	// Lowercase type fields for consistency
+	if typeVal, ok := schema["type"].(string); ok {
+		schema["type"] = strings.ToLower(typeVal)
+	}
+
+	// Delete unsupported fields using O(1) map lookup
+	for key := range schema {
+		if _, unsupported := geminiUnsupportedFields[key]; unsupported {
+			delete(schema, key)
+		}
+	}
+
+	// Recursively clean nested objects in properties
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for _, prop := range properties {
+			if propMap, ok := prop.(map[string]any); ok {
+				cleanSchemaForGeminiRecursive(propMap)
+			}
+		}
+	}
+
+	// Clean items - can be object or array
+	if items := schema["items"]; items != nil {
+		switch v := items.(type) {
+		case map[string]any:
+			cleanSchemaForGeminiRecursive(v)
+		case []any:
+			for _, item := range v {
+				if itemMap, ok := item.(map[string]any); ok {
+					cleanSchemaForGeminiRecursive(itemMap)
+				}
+			}
+		}
+	}
+
+	if prefixItems, ok := schema["prefixItems"].([]any); ok {
+		for _, item := range prefixItems {
+			if itemMap, ok := item.(map[string]any); ok {
+				cleanSchemaForGeminiRecursive(itemMap)
+			}
+		}
+	}
+
+	if addProps, ok := schema["additionalProperties"].(map[string]any); ok {
+		cleanSchemaForGeminiRecursive(addProps)
+	}
+
+	if patternProps, ok := schema["patternProperties"].(map[string]any); ok {
+		for _, prop := range patternProps {
+			if propMap, ok := prop.(map[string]any); ok {
+				cleanSchemaForGeminiRecursive(propMap)
+			}
+		}
+	}
+
+	if propNames, ok := schema["propertyNames"].(map[string]any); ok {
+		cleanSchemaForGeminiRecursive(propNames)
+	}
+
+	if contains, ok := schema["contains"].(map[string]any); ok {
+		cleanSchemaForGeminiRecursive(contains)
+	}
+}
+
 func CleanJsonSchemaForClaude(schema map[string]any) map[string]any {
 	if schema == nil {
 		return nil

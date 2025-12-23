@@ -609,7 +609,9 @@ func (p *GeminiProvider) applyTools(root map[string]any, req *ir.UnifiedChatRequ
 			} else {
 				// Use "parameters" instead of "parametersJsonSchema" for broad compatibility
 				// (including Antigravity/Vertex Claude models).
-				params := ir.CleanJsonSchema(copyMap(t.Parameters))
+				// Use CleanJsonSchemaForGemini to recursively remove unsupported fields like
+				// exclusiveMinimum, exclusiveMaximum, etc.
+				params := ir.CleanJsonSchemaForGemini(copyMap(t.Parameters))
 				// Gemini requires parameters to have type "object"
 				// Handle nil, empty string, or invalid type values (e.g., "None" from some SDKs)
 				typeVal, hasType := params["type"].(string)
