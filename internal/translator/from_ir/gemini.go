@@ -133,30 +133,63 @@ func (p *GeminiProvider) applyGenerationConfig(root map[string]any, req *ir.Unif
 
 	// Logic for Gemini 3 vs Others
 	if isGemini3 {
-		// Gemini 3 Pro uses thinking_level for thinking control
-		// Always enable thinking with includeThoughts=true to get thinking text in response
-		// This is required for SDK to preserve thinking blocks in multi-turn flows
+		// Gemini 3 uses thinking_level (MINIMAL/LOW/MEDIUM/HIGH) instead of thinkingBudget
+		// Auto-convert thinkingBudget to thinking_level for backward compatibility
 		if req.Thinking != nil || auto {
 			tc := map[string]any{
 				"includeThoughts": true,
 			}
-			// Map Effort from IR or default
-			effort := ir.ReasoningEffortMedium
+
+			// Determine thinking_level from Effort or ThinkingBudget
+			var thinkingLevel string
+
+			// Priority 1: Use explicit Effort if provided
 			if req.Thinking != nil && req.Thinking.Effort != "" {
-				effort = req.Thinking.Effort
+				switch req.Thinking.Effort {
+				case ir.ReasoningEffortLow:
+					thinkingLevel = "LOW"
+				case ir.ReasoningEffortMedium:
+					thinkingLevel = "MEDIUM"
+				case ir.ReasoningEffortHigh:
+					thinkingLevel = "HIGH"
+				default:
+					thinkingLevel = "MEDIUM"
+				}
+			} else if req.Thinking != nil && req.Thinking.ThinkingBudget != nil {
+				// Priority 2: Auto-convert thinkingBudget to thinking_level
+				// Gemini 3 Flash: MINIMAL, LOW, MEDIUM, HIGH
+				// Gemini 3 Pro: LOW, HIGH (no MINIMAL/MEDIUM)
+				budgetVal := int(*req.Thinking.ThinkingBudget)
+				isFlash := strings.Contains(req.Model, "flash")
+
+				switch {
+				case budgetVal <= 128:
+					if isFlash {
+						thinkingLevel = "MINIMAL"
+					} else {
+						thinkingLevel = "LOW" // Pro doesn't have MINIMAL
+					}
+				case budgetVal <= 1024:
+					thinkingLevel = "LOW"
+				case budgetVal <= 8192:
+					if isFlash {
+						thinkingLevel = "MEDIUM"
+					} else {
+						thinkingLevel = "HIGH" // Pro doesn't have MEDIUM
+					}
+				default:
+					thinkingLevel = "HIGH"
+				}
+			} else {
+				// Default: MEDIUM for Flash, HIGH for Pro
+				if strings.Contains(req.Model, "flash") {
+					thinkingLevel = "MEDIUM"
+				} else {
+					thinkingLevel = "HIGH"
+				}
 			}
 
-			switch effort {
-			case ir.ReasoningEffortLow:
-				tc["thinking_level"] = "LOW"
-			case ir.ReasoningEffortMedium:
-				tc["thinking_level"] = "MEDIUM"
-			case ir.ReasoningEffortHigh:
-				tc["thinking_level"] = "HIGH"
-			default:
-				tc["thinking_level"] = "MEDIUM" // Default to MEDIUM for Gemini 3
-			}
-			// Note: Gemini 3 uses 'thinking_level' (LOW/MEDIUM/HIGH) instead of budget
+			tc["thinking_level"] = thinkingLevel
 			genConfig["thinkingConfig"] = tc
 		}
 	} else {
