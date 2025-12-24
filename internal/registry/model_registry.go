@@ -50,8 +50,10 @@ type ModelInfo struct {
 	SupportedParameters []string `json:"supported_parameters,omitempty"`
 
 	// Thinking holds provider-specific reasoning/thinking budget capabilities.
-	// This is optional and currently used for Gemini thinking budget normalization.
 	Thinking *ThinkingSupport `json:"thinking,omitempty"`
+
+	// Priority controls routing order (lower = higher priority, 0 treated as 1).
+	Priority int `json:"priority,omitempty"`
 }
 
 // ThinkingSupport describes a model family's supported internal reasoning budget range.
@@ -88,6 +90,7 @@ type ModelRegistration struct {
 type ProviderModelMapping struct {
 	Provider string
 	ModelID  string
+	Priority int // 0/1 = primary, 2+ = fallback
 }
 
 type ModelRegistry struct {
@@ -380,7 +383,11 @@ func (r *ModelRegistry) addModelRegistration(modelID, provider string, model *Mo
 	if canonicalID == "" {
 		canonicalID = modelID // Use modelID as canonical if not specified
 	}
-	r.addToCanonicalIndex(canonicalID, provider, modelID)
+	priority := model.Priority
+	if priority == 0 {
+		priority = 1 // Default to highest priority
+	}
+	r.addToCanonicalIndex(canonicalID, provider, modelID, priority)
 
 	log.Debugf("Registered new model %s from provider %s (canonical: %s)", providerModelKey, provider, canonicalID)
 }
@@ -471,7 +478,7 @@ func (r *ModelRegistry) removeFromModelIDIndex(modelID, providerKey string) {
 }
 
 // addToCanonicalIndex adds a provider-model mapping to the canonical index
-func (r *ModelRegistry) addToCanonicalIndex(canonicalID, provider, modelID string) {
+func (r *ModelRegistry) addToCanonicalIndex(canonicalID, provider, modelID string, priority int) {
 	if canonicalID == "" || provider == "" || modelID == "" {
 		return
 	}
@@ -484,6 +491,7 @@ func (r *ModelRegistry) addToCanonicalIndex(canonicalID, provider, modelID strin
 	r.canonicalIndex[canonicalID] = append(r.canonicalIndex[canonicalID], ProviderModelMapping{
 		Provider: provider,
 		ModelID:  modelID,
+		Priority: priority,
 	})
 }
 
@@ -825,6 +833,7 @@ func (r *ModelRegistry) ClientSupportsModel(clientID, modelID string) bool {
 // GetAvailableModels returns all models that have at least one available client
 // Parameters:
 //   - handlerType: The handler type to filter models for (e.g., "openai", "claude", "gemini")
+//
 // Returns:
 //   - []map[string]any: List of available models in the requested format
 func (r *ModelRegistry) GetAvailableModels(handlerType string) []map[string]any {
@@ -940,6 +949,7 @@ func (r *ModelRegistry) GetAvailableModels(handlerType string) []map[string]any 
 // GetModelCount returns the number of available clients for a specific model
 // Parameters:
 //   - modelID: The model ID to check
+//
 // Returns:
 //   - int: Number of available clients for the model
 func (r *ModelRegistry) GetModelCount(modelID string) int {
@@ -972,27 +982,42 @@ func (r *ModelRegistry) GetModelCount(modelID string) int {
 	return result
 }
 
-// GetModelProviders returns provider identifiers that currently supply the given model.
-// Uses canonical index for cross-provider routing, falls back to direct lookup.
+// GetModelProviders returns providers for the model, sorted by priority.
 func (r *ModelRegistry) GetModelProviders(modelID string) []string {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
 
-	// Check canonical index first (for cross-provider routing)
 	if mappings, ok := r.canonicalIndex[modelID]; ok && len(mappings) > 0 {
-		result := make([]string, 0, len(mappings))
+		type providerWithPriority struct {
+			provider string
+			priority int
+		}
+		available := make([]providerWithPriority, 0, len(mappings))
 		for _, m := range mappings {
 			key := m.Provider + ":" + m.ModelID
 			if reg, ok := r.models[key]; ok && reg != nil && reg.Count > 0 {
-				result = append(result, m.Provider)
+				priority := m.Priority
+				if priority == 0 {
+					priority = 1
+				}
+				available = append(available, providerWithPriority{
+					provider: m.Provider,
+					priority: priority,
+				})
 			}
 		}
-		if len(result) > 0 {
+		if len(available) > 0 {
+			sort.Slice(available, func(i, j int) bool {
+				return available[i].priority < available[j].priority
+			})
+			result := make([]string, len(available))
+			for i, p := range available {
+				result[i] = p.provider
+			}
 			return result
 		}
 	}
 
-	// Fallback: direct model lookup
 	return r.getModelProvidersInternal(modelID)
 }
 
@@ -1046,6 +1071,7 @@ func NewModelIDNormalizer() *ModelIDNormalizer {
 
 // NormalizeModelID removes provider prefix and returns clean internal model ID.
 // Examples: "[Gemini CLI] gemini-2.5-flash" -> "gemini-2.5-flash"
+//
 //	"gemini-2.5-flash" -> "gemini-2.5-flash"
 func (n *ModelIDNormalizer) NormalizeModelID(modelID string) string {
 	modelID = strings.TrimSpace(modelID)
@@ -1059,6 +1085,7 @@ func (n *ModelIDNormalizer) NormalizeModelID(modelID string) string {
 
 // ExtractProviderFromPrefixedID extracts provider type from prefixed model ID.
 // Examples: "[Gemini CLI] gemini-2.5-flash" -> "gemini-cli"
+//
 //	"[Antigravity] model" -> "antigravity"
 //	"gemini-2.5-flash" -> ""
 func (n *ModelIDNormalizer) ExtractProviderFromPrefixedID(modelID string) string {
@@ -1258,6 +1285,7 @@ func (r *ModelRegistry) CleanupExpiredQuotas() {
 // available clients that are not suspended or over quota.
 // Parameters:
 //   - handlerType: The API handler type (e.g., "openai", "claude", "gemini")
+//
 // Returns:
 //   - string: The model ID of the first available model, or empty string if none available
 //   - error: An error if no models are available

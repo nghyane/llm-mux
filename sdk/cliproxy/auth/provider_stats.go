@@ -14,11 +14,11 @@ type ProviderStats struct {
 }
 
 type providerMetrics struct {
-	successCount  atomic.Int64
-	failureCount  atomic.Int64
+	successCount   atomic.Int64
+	failureCount   atomic.Int64
 	totalLatencyNs atomic.Int64 // cumulative latency in nanoseconds
-	lastUsed      atomic.Int64 // unix nano timestamp
-	lastSuccess   atomic.Int64 // unix nano timestamp
+	lastUsed       atomic.Int64 // unix nano timestamp
+	lastSuccess    atomic.Int64 // unix nano timestamp
 }
 
 // NewProviderStats creates a new stats tracker.
@@ -124,24 +124,32 @@ func (ps *ProviderStats) GetAvgLatency(provider, model string) time.Duration {
 	return time.Duration(m.totalLatencyNs.Load() / success)
 }
 
-// SortByScore sorts providers by their score (highest first).
-// Returns a new slice, does not modify input.
+// SortByScore sorts providers by score (highest first), preserving order for equal scores.
 func (ps *ProviderStats) SortByScore(providers []string, model string) []string {
 	if len(providers) <= 1 {
 		return providers
 	}
 
-	// Get scores
 	type scored struct {
 		provider string
 		score    float64
 	}
 	items := make([]scored, len(providers))
+	allDefault := true
 	for i, p := range providers {
-		items[i] = scored{provider: p, score: ps.GetScore(p, model)}
+		score := ps.GetScore(p, model)
+		items[i] = scored{provider: p, score: score}
+		if score != 0.5 {
+			allDefault = false
+		}
 	}
 
-	// Sort by score descending (simple insertion sort for small slices)
+	// Preserve priority order when all scores are default
+	if allDefault {
+		return providers
+	}
+
+	// Stable insertion sort - only swap when strictly greater
 	for i := 1; i < len(items); i++ {
 		for j := i; j > 0 && items[j].score > items[j-1].score; j-- {
 			items[j], items[j-1] = items[j-1], items[j]
