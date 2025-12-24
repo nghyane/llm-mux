@@ -71,8 +71,9 @@ type ThinkingLevel string
 
 const (
 	ThinkingLevelUnspecified ThinkingLevel = "THINKING_LEVEL_UNSPECIFIED"
+	ThinkingLevelMinimal     ThinkingLevel = "MINIMAL" // Gemini 3 Flash only
 	ThinkingLevelLow         ThinkingLevel = "LOW"
-	ThinkingLevelMedium      ThinkingLevel = "MEDIUM"
+	ThinkingLevelMedium      ThinkingLevel = "MEDIUM" // Gemini 3 Flash only
 	ThinkingLevelHigh        ThinkingLevel = "HIGH"
 )
 

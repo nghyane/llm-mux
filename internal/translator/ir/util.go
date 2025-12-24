@@ -158,36 +158,6 @@ func ParseOpenAIUsage(u gjson.Result) *Usage {
 	return usage
 }
 
-func MapEffortToBudget(effort string) (int, bool) {
-	switch effort {
-	case "none":
-		return 0, false
-	case "low", "minimal":
-		return 1024, true
-	case "medium":
-		return 8192, true
-	case "high":
-		return 32768, true
-	case "xhigh":
-		return 65536, true
-	default:
-		return -1, true
-	}
-}
-
-func MapBudgetToEffort(budget int, defaultForZero string) string {
-	if budget <= 0 {
-		return defaultForZero
-	}
-	if budget <= 1024 {
-		return "low"
-	}
-	if budget <= 8192 {
-		return "medium"
-	}
-	return "high"
-}
-
 func DefaultGeminiSafetySettings() []map[string]string {
 	return []map[string]string{
 		{"category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF"},
@@ -233,6 +203,36 @@ func generateAlphanumeric(length int) string {
 
 func GenClaudeToolCallID() string {
 	return fmt.Sprintf("toolu_%s", generateAlphanumeric(20))
+}
+
+// Tool ID Conversion Functions
+// These normalize tool call IDs between providers for consistent handling.
+
+// FromKiroToolID converts Kiro/Amazon Q tool ID format to standard format.
+// tooluse_XXX -> call_XXX
+func FromKiroToolID(id string) string {
+	if strings.HasPrefix(id, "tooluse_") {
+		return strings.Replace(id, "tooluse_", "call_", 1)
+	}
+	return id
+}
+
+// FromClaudeToolID converts Claude tool ID format to standard format.
+// toolu_XXX -> call_XXX
+func FromClaudeToolID(id string) string {
+	if strings.HasPrefix(id, "toolu_") {
+		return strings.Replace(id, "toolu_", "call_", 1)
+	}
+	return id
+}
+
+// ToKiroToolID converts standard tool ID format to Kiro format.
+// call_XXX -> tooluse_XXX
+func ToKiroToolID(id string) string {
+	if strings.HasPrefix(id, "call_") {
+		return strings.Replace(id, "call_", "tooluse_", 1)
+	}
+	return id
 }
 
 // GenerateUUID generates a UUID v4 string using pooled buffers to reduce allocations.
@@ -618,6 +618,37 @@ var geminiUnsupportedFields = map[string]struct{}{
 	"allOf": {}, "anyOf": {}, "oneOf": {}, "not": {},
 }
 
+// claudeUnsupportedFields is a pre-computed set of JSON Schema fields that Claude API doesn't support.
+// Using a map for O(1) lookup instead of slice iteration.
+var claudeUnsupportedFields = map[string]struct{}{
+	// Composition keywords
+	"anyOf": {}, "oneOf": {}, "allOf": {}, "not": {},
+	// Snake_case variants
+	"any_of": {}, "one_of": {}, "all_of": {},
+	// Reference keywords
+	"$ref": {}, "$defs": {}, "definitions": {}, "$id": {}, "$anchor": {}, "$dynamicRef": {}, "$dynamicAnchor": {},
+	// Schema metadata
+	"$schema": {}, "$vocabulary": {}, "$comment": {},
+	// Conditional keywords
+	"if": {}, "then": {}, "else": {}, "dependentSchemas": {}, "dependentRequired": {},
+	// Unevaluated keywords
+	"unevaluatedItems": {}, "unevaluatedProperties": {},
+	// Content keywords
+	"contentEncoding": {}, "contentMediaType": {}, "contentSchema": {},
+	// Deprecated keywords
+	"dependencies": {},
+	// Array validation keywords
+	"minItems": {}, "maxItems": {}, "uniqueItems": {}, "minContains": {}, "maxContains": {},
+	// String validation keywords
+	"minLength": {}, "maxLength": {}, "pattern": {}, "format": {},
+	// Number validation keywords
+	"minimum": {}, "maximum": {}, "exclusiveMinimum": {}, "exclusiveMaximum": {}, "multipleOf": {},
+	// Object validation keywords
+	"minProperties": {}, "maxProperties": {},
+	// Default values - Claude officially doesn't support in input_schema
+	"default": {},
+}
+
 // geminiSchemaCache caches cleaned schemas for Gemini to avoid repeated processing.
 var geminiSchemaCache sync.Map
 
@@ -758,39 +789,11 @@ func cleanSchemaForClaudeRecursive(schema map[string]any) {
 		schema["type"] = strings.ToLower(typeVal)
 	}
 
-	// Fields that Claude doesn't support in JSON Schema
-	// Based on JSON Schema draft 2020-12 compatibility
-	unsupportedFields := []string{
-		// Composition keywords that Claude doesn't support
-		"anyOf", "oneOf", "allOf", "not",
-		// Snake_case variants
-		"any_of", "one_of", "all_of",
-		// Reference keywords
-		"$ref", "$defs", "definitions", "$id", "$anchor", "$dynamicRef", "$dynamicAnchor",
-		// Schema metadata
-		"$schema", "$vocabulary", "$comment",
-		// Conditional keywords
-		"if", "then", "else", "dependentSchemas", "dependentRequired",
-		// Unevaluated keywords
-		"unevaluatedItems", "unevaluatedProperties",
-		// Content keywords
-		"contentEncoding", "contentMediaType", "contentSchema",
-		// Deprecated keywords
-		"dependencies",
-		// Array validation keywords that may not be supported
-		"minItems", "maxItems", "uniqueItems", "minContains", "maxContains",
-		// String validation keywords that may cause issues
-		"minLength", "maxLength", "pattern", "format",
-		// Number validation keywords
-		"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf",
-		// Object validation keywords that may cause issues
-		"minProperties", "maxProperties",
-		// Default values - Claude officially doesn't support in input_schema
-		"default",
-	}
-
-	for _, field := range unsupportedFields {
-		delete(schema, field)
+	// Delete unsupported fields using O(1) map lookup
+	for key := range schema {
+		if _, unsupported := claudeUnsupportedFields[key]; unsupported {
+			delete(schema, key)
+		}
 	}
 
 	// Recursively clean nested objects in properties

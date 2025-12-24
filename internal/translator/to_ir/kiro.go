@@ -2,7 +2,6 @@ package to_ir
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/tidwall/gjson"
@@ -214,8 +213,5 @@ func (s *KiroStreamState) Finalize() *ir.Message {
 }
 
 func convertToolID(id string) string {
-	if strings.HasPrefix(id, "tooluse_") {
-		return strings.Replace(id, "tooluse_", "call_", 1)
-	}
-	return id
+	return ir.FromKiroToolID(id)
 }

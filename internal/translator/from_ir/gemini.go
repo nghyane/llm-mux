@@ -14,17 +14,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/util"
 )
 
-const (
-	// DefaultThinkingBudgetTokens is the default thinking budget for Gemini models (tokens)
-	DefaultThinkingBudgetTokens = 16000
-
-	// GeminiSafeMaxTokens is the safe maximum tokens for Gemini models
-	GeminiSafeMaxTokens = 32000
-
-	// DefaultMaxOutputTokens is the default max output tokens when not specified
-	DefaultMaxOutputTokens = 8192
-)
-
 // GeminiProvider handles conversion to Gemini AI Studio API format.
 type GeminiProvider struct{}
 
@@ -99,131 +88,15 @@ func (p *GeminiProvider) applyGenerationConfig(root map[string]any, req *ir.Unif
 		genConfig["candidateCount"] = *req.CandidateCount
 	}
 
-	// Check models
-	isGemini3 := strings.HasPrefix(req.Model, "gemini-3")
-	isClaude := strings.Contains(req.Model, "claude")
+	isGemini3 := ir.IsGemini3(req.Model)
+	isClaude := ir.IsClaude(req.Model)
 
-	// Determine effective thinking config (handling auto-apply)
-	// 3. Thinking Config Handling
-	// Default values
-	defaultThinkingBudget := DefaultThinkingBudgetTokens
-	if isClaude {
-		// Ensure default budget for Claude if not set
-		if req.Thinking != nil && req.Thinking.ThinkingBudget == nil {
-			b := int32(defaultThinkingBudget)
-			req.Thinking.ThinkingBudget = &b
-		}
-	}
+	p.applyThinkingConfig(genConfig, req, isGemini3, isClaude)
 
-	budget, include, auto := util.GetAutoAppliedThinkingConfig(req.Model)
-	if isClaude {
-		// Only AUTO-apply thinking for Claude if NO tools in request
-		// With tools, client must explicitly request thinking via req.Thinking
-		if len(req.Tools) == 0 {
-			auto = true // Auto-apply for Claude without tools
-			include = true
-			if budget <= 0 {
-				budget = defaultThinkingBudget
-			}
-		} else {
-			// With tools: don't auto-apply, but explicit req.Thinking will still work
-			auto = false
-		}
-	}
-
-	// Logic for Gemini 3 vs Others
-	if isGemini3 {
-		// Gemini 3 uses thinking_level (MINIMAL/LOW/MEDIUM/HIGH) instead of thinkingBudget
-		// Auto-convert thinkingBudget to thinking_level for backward compatibility
-		if req.Thinking != nil || auto {
-			tc := map[string]any{
-				"includeThoughts": true,
-			}
-
-			// Determine thinking_level from Effort or ThinkingBudget
-			var thinkingLevel string
-
-			// Priority 1: Use explicit Effort if provided
-			if req.Thinking != nil && req.Thinking.Effort != "" {
-				switch req.Thinking.Effort {
-				case ir.ReasoningEffortLow:
-					thinkingLevel = "LOW"
-				case ir.ReasoningEffortMedium:
-					thinkingLevel = "MEDIUM"
-				case ir.ReasoningEffortHigh:
-					thinkingLevel = "HIGH"
-				default:
-					thinkingLevel = util.GetDefaultThinkingLevel(req.Model)
-				}
-			} else if req.Thinking != nil && req.Thinking.ThinkingBudget != nil {
-				// Priority 2: Auto-convert thinkingBudget to thinking_level
-				thinkingLevel = util.ConvertBudgetToThinkingLevel(req.Model, int(*req.Thinking.ThinkingBudget))
-			} else {
-				// Priority 3: Default based on model type
-				thinkingLevel = util.GetDefaultThinkingLevel(req.Model)
-			}
-
-			tc["thinking_level"] = thinkingLevel
-			genConfig["thinkingConfig"] = tc
-		}
-	} else {
-		// Logic for Claude/Gemini 2.5 (non-Gemini3)
-		if req.Thinking != nil || auto {
-			// Send BOTH camelCase and snake_case to ensure upstream compatibility
-
-			effectiveBudget := budget
-			if req.Thinking != nil && req.Thinking.ThinkingBudget != nil {
-				effectiveBudget = int(*req.Thinking.ThinkingBudget)
-			}
-
-			effectiveInclude := include
-			if req.Thinking != nil {
-				effectiveInclude = req.Thinking.IncludeThoughts
-			}
-
-			// Both Claude and Gemini use CamelCase: thinkingBudget, includeThoughts
-			tc := map[string]any{
-				"thinkingBudget":  effectiveBudget,
-				"includeThoughts": effectiveInclude,
-			}
-			genConfig["thinkingConfig"] = tc
-		}
-	}
-
-	if tc, ok := genConfig["thinkingConfig"].(map[string]any); ok {
-		// Existing MaxTokens Logic
-		b := int32(0)
-		if v, ok := tc["thinkingBudget"].(int); ok {
-			b = int32(v)
-		} else if v32, ok := tc["thinkingBudget"].(int32); ok {
-			b = v32
-		}
-
-		if b > 0 {
-			currentMax := 0
-			if v, ok := genConfig["maxOutputTokens"].(int); ok {
-				currentMax = v
-			} else if v32, ok := genConfig["maxOutputTokens"].(int32); ok {
-				currentMax = int(v32)
-			} else if req.MaxTokens != nil {
-				currentMax = *req.MaxTokens
-			}
-
-			safeMax := GeminiSafeMaxTokens
-			budgetInt := int(b)
-			newMax := max(currentMax, budgetInt*2, safeMax)
-			if newMax > currentMax {
-				genConfig["maxOutputTokens"] = newMax
-			}
-		}
-	}
-
-	// Response Modalities
 	if len(req.ResponseModality) > 0 {
 		genConfig["responseModalities"] = req.ResponseModality
 	}
 
-	// Image Config (standard)
 	if req.ImageConfig != nil && req.ImageConfig.AspectRatio != "" && req.Model != "gemini-2.5-flash-image-preview" {
 		imgConfig := map[string]any{"aspectRatio": req.ImageConfig.AspectRatio}
 		if req.ImageConfig.ImageSize != "" {
@@ -232,13 +105,11 @@ func (p *GeminiProvider) applyGenerationConfig(root map[string]any, req *ir.Unif
 		genConfig["imageConfig"] = imgConfig
 	}
 
-	// Response Schema (Structured Output) - Gemini uses responseJsonSchema
 	if req.ResponseSchema != nil {
 		genConfig["responseMimeType"] = "application/json"
 		genConfig["responseJsonSchema"] = req.ResponseSchema
 	}
 
-	// Function Calling Config
 	if req.FunctionCalling != nil {
 		toolConfig := make(map[string]any)
 		fcConfig := make(map[string]any)
@@ -270,7 +141,7 @@ func (p *GeminiProvider) applyGenerationConfig(root map[string]any, req *ir.Unif
 
 	if currentMax < 1 {
 		// Default to 8192 if not provided (Safe for Claude Sonnet/Opus)
-		genConfig["maxOutputTokens"] = DefaultMaxOutputTokens
+		genConfig["maxOutputTokens"] = ir.DefaultMaxOutputTokens
 	}
 
 	if len(genConfig) > 0 {
@@ -305,7 +176,7 @@ func (p *GeminiProvider) applyMessages(root map[string]any, req *ir.UnifiedChatR
 
 		case ir.RoleAssistant:
 			modelParts, responseParts := p.buildAssistantAndToolParts(
-				msg, toolCallIDToName, toolResults,
+				msg, toolCallIDToName, toolResults, req.Model,
 			)
 			coalescer.Emit("model", modelParts)
 			coalescer.Emit("user", responseParts)
@@ -427,6 +298,7 @@ func (p *GeminiProvider) buildAssistantAndToolParts(
 	msg *ir.Message,
 	toolIDToName map[string]string,
 	toolResults map[string]*ir.ToolResultPart,
+	model string,
 ) (modelParts, responseParts []any) {
 	if len(msg.Content) == 0 && len(msg.ToolCalls) == 0 {
 		return nil, nil
@@ -443,7 +315,7 @@ func (p *GeminiProvider) buildAssistantAndToolParts(
 				modelParts = make([]any, 0, len(msg.Content)+len(msg.ToolCalls))
 			}
 			part := map[string]any{"text": cp.Reasoning, "thought": true}
-			if isValidThoughtSignature(cp.ThoughtSignature) {
+			if ir.IsValidThoughtSignature(cp.ThoughtSignature) {
 				part["thoughtSignature"] = string(cp.ThoughtSignature)
 			}
 			modelParts = append(modelParts, part)
@@ -456,7 +328,7 @@ func (p *GeminiProvider) buildAssistantAndToolParts(
 				modelParts = make([]any, 0, len(msg.Content)+len(msg.ToolCalls))
 			}
 			part := map[string]any{"text": cp.Text}
-			if isValidThoughtSignature(cp.ThoughtSignature) {
+			if ir.IsValidThoughtSignature(cp.ThoughtSignature) {
 				part["thoughtSignature"] = string(cp.ThoughtSignature)
 			}
 			modelParts = append(modelParts, part)
@@ -488,8 +360,13 @@ func (p *GeminiProvider) buildAssistantAndToolParts(
 
 		// Only use the tool call's own signature - do not propagate from other parts
 		// ThoughtSignature is opaque and context-specific, reusing it can cause corruption
-		if isValidThoughtSignature(tc.ThoughtSignature) {
+		if ir.IsValidThoughtSignature(tc.ThoughtSignature) {
 			part["thoughtSignature"] = string(tc.ThoughtSignature)
+		} else if ir.IsGemini3(model) {
+			// Gemini 3 requires thoughtSignature for function calls (strict validation)
+			// Use dummy signature for migrated conversations without valid signatures
+			// See: https://ai.google.dev/gemini-api/docs/gemini-3#thought_signatures
+			part["thoughtSignature"] = ir.DummyThoughtSignature
 		}
 		modelParts = append(modelParts, part)
 
@@ -1055,21 +932,6 @@ func (p *GeminiCLIProvider) ParseStreamChunkWithContext(chunkJSON []byte, schema
 	return to_ir.ParseGeminiChunkWithContext(chunkJSON, schemaCtx)
 }
 
-// isValidThoughtSignature checks if a thought signature is valid for output.
-// Filters out invalid values like "[undefined]", "undefined", "null", empty strings.
-func isValidThoughtSignature(ts []byte) bool {
-	if len(ts) == 0 {
-		return false
-	}
-	// Filter out invalid placeholder values from clients (e.g., Cherry Studio)
-	tsStr := string(ts)
-	switch tsStr {
-	case "[undefined]", "undefined", "null", "[null]":
-		return false
-	}
-	return true
-}
-
 func buildFunctionResponseObject(result string, isError bool) any {
 	if result == "" {
 		if isError {
@@ -1077,7 +939,6 @@ func buildFunctionResponseObject(result string, isError bool) any {
 		}
 		return map[string]any{"content": ""}
 	}
-	// If error, wrap in error field
 	if isError {
 		return map[string]any{"error": result}
 	}
@@ -1091,4 +952,106 @@ func buildFunctionResponseObject(result string, isError bool) any {
 		}
 	}
 	return map[string]any{"content": result}
+}
+
+func (p *GeminiProvider) applyThinkingConfig(genConfig map[string]any, req *ir.UnifiedChatRequest, isGemini3, isClaude bool) {
+	budget, include, auto := util.GetAutoAppliedThinkingConfig(req.Model)
+
+	if isClaude {
+		if req.Thinking != nil && req.Thinking.ThinkingBudget == nil {
+			b := int32(ir.DefaultThinkingBudgetTokens)
+			req.Thinking.ThinkingBudget = &b
+		}
+		if len(req.Tools) == 0 {
+			auto = true
+			include = true
+			if budget <= 0 {
+				budget = ir.DefaultThinkingBudgetTokens
+			}
+		} else {
+			auto = false
+		}
+	}
+
+	if req.Thinking == nil && !auto {
+		return
+	}
+
+	if isGemini3 {
+		p.applyGemini3ThinkingConfig(genConfig, req)
+	} else {
+		p.applyLegacyThinkingConfig(genConfig, req, budget, include)
+	}
+
+	p.adjustMaxTokensForThinking(genConfig, req)
+}
+
+func (p *GeminiProvider) applyGemini3ThinkingConfig(genConfig map[string]any, req *ir.UnifiedChatRequest) {
+	tc := map[string]any{"includeThoughts": true}
+
+	var thinkingLevel string
+	switch {
+	case req.Thinking != nil && req.Thinking.Effort != "":
+		thinkingLevel = string(ir.EffortToThinkingLevel(req.Model, string(req.Thinking.Effort)))
+	case req.Thinking != nil && req.Thinking.ThinkingBudget != nil:
+		thinkingLevel = string(ir.BudgetToThinkingLevel(req.Model, int(*req.Thinking.ThinkingBudget)))
+	default:
+		thinkingLevel = string(ir.DefaultThinkingLevel(req.Model))
+	}
+
+	tc["thinkingLevel"] = thinkingLevel
+	genConfig["thinkingConfig"] = tc
+}
+
+func (p *GeminiProvider) applyLegacyThinkingConfig(genConfig map[string]any, req *ir.UnifiedChatRequest, budget int, include bool) {
+	effectiveBudget := budget
+	if req.Thinking != nil && req.Thinking.ThinkingBudget != nil {
+		effectiveBudget = int(*req.Thinking.ThinkingBudget)
+	}
+
+	effectiveInclude := include
+	if req.Thinking != nil {
+		effectiveInclude = req.Thinking.IncludeThoughts
+	}
+
+	genConfig["thinkingConfig"] = map[string]any{
+		"thinkingBudget":  effectiveBudget,
+		"includeThoughts": effectiveInclude,
+	}
+}
+
+func (p *GeminiProvider) adjustMaxTokensForThinking(genConfig map[string]any, req *ir.UnifiedChatRequest) {
+	tc, ok := genConfig["thinkingConfig"].(map[string]any)
+	if !ok {
+		return
+	}
+
+	var b int32
+	switch v := tc["thinkingBudget"].(type) {
+	case int:
+		b = int32(v)
+	case int32:
+		b = v
+	}
+
+	if b <= 0 {
+		return
+	}
+
+	currentMax := 0
+	switch v := genConfig["maxOutputTokens"].(type) {
+	case int:
+		currentMax = v
+	case int32:
+		currentMax = int(v)
+	default:
+		if req.MaxTokens != nil {
+			currentMax = *req.MaxTokens
+		}
+	}
+
+	newMax := max(currentMax, int(b)*2, ir.GeminiSafeMaxTokens)
+	if newMax > currentMax {
+		genConfig["maxOutputTokens"] = newMax
+	}
 }

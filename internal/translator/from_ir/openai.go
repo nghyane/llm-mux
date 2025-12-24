@@ -57,7 +57,7 @@ func convertToChatCompletionsRequest(req *ir.UnifiedChatRequest) ([]byte, error)
 		if req.Thinking.ThinkingBudget != nil {
 			budget = int(*req.Thinking.ThinkingBudget)
 		}
-		m["reasoning_effort"] = ir.MapBudgetToEffort(budget, "auto")
+		m["reasoning_effort"] = ir.BudgetToEffort(budget, "auto")
 	}
 
 	var messages []any
@@ -248,7 +248,7 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 			if req.Thinking.ThinkingBudget != nil {
 				budget = int(*req.Thinking.ThinkingBudget)
 			}
-			reasoning["effort"] = ir.MapBudgetToEffort(budget, "low")
+			reasoning["effort"] = ir.BudgetToEffort(budget, "low")
 		}
 		if req.Thinking.Summary != "" {
 			reasoning["summary"] = req.Thinking.Summary

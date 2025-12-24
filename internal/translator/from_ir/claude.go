@@ -108,7 +108,7 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 		thinkingEnabled = true
 	}
 	// Force enable for known thinking models to ensure protocol compliance in history
-	if strings.Contains(req.Model, "thinking") {
+	if ir.IsThinkingModel(req.Model) {
 		thinkingEnabled = true
 	}
 

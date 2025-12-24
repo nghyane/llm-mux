@@ -34,11 +34,9 @@ func ParseGeminiThinkingSuffix(model string) (string, *int, *bool, bool) {
 		return base, &budgetValue, &include, true
 	}
 
-	// Handle "-reasoning" suffix: enables thinking with dynamic budget (-1)
-	// Maps: gemini-2.5-flash-reasoning -> gemini-2.5-flash with thinkingBudget=-1
 	if strings.HasSuffix(lower, "-reasoning") {
 		base := model[:len(model)-len("-reasoning")]
-		budgetValue := -1 // Dynamic budget
+		budgetValue := -1
 		include := true
 		return base, &budgetValue, &include, true
 	}
@@ -137,97 +135,90 @@ func GeminiThinkingFromMetadata(metadata map[string]any) (*int, *bool, bool) {
 	if len(metadata) == 0 {
 		return nil, nil, false
 	}
-	var (
-		budgetPtr  *int
-		includePtr *bool
-		matched    bool
-	)
-	if rawBudget, ok := metadata[GeminiThinkingBudgetMetadataKey]; ok {
-		switch v := rawBudget.(type) {
-		case int:
-			budget := v
-			budgetPtr = &budget
-			matched = true
-		case int32:
-			budget := int(v)
-			budgetPtr = &budget
-			matched = true
-		case int64:
-			budget := int(v)
-			budgetPtr = &budget
-			matched = true
-		case float64:
-			budget := int(v)
-			budgetPtr = &budget
-			matched = true
-		case json.Number:
-			if val, err := v.Int64(); err == nil {
-				budget := int(val)
-				budgetPtr = &budget
-				matched = true
-			}
-		}
-	}
-	if rawInclude, ok := metadata[GeminiIncludeThoughtsMetadataKey]; ok {
-		switch v := rawInclude.(type) {
-		case bool:
-			include := v
-			includePtr = &include
-			matched = true
-		case string:
-			if parsed, err := strconv.ParseBool(v); err == nil {
-				include := parsed
-				includePtr = &include
-				matched = true
-			}
-		case json.Number:
-			if val, err := v.Int64(); err == nil {
-				include := val != 0
-				includePtr = &include
-				matched = true
-			}
-		case int:
-			include := v != 0
-			includePtr = &include
-			matched = true
-		case int32:
-			include := v != 0
-			includePtr = &include
-			matched = true
-		case int64:
-			include := v != 0
-			includePtr = &include
-			matched = true
-		case float64:
-			include := v != 0
-			includePtr = &include
+
+	var budgetPtr *int
+	var includePtr *bool
+	matched := false
+
+	if raw, ok := metadata[GeminiThinkingBudgetMetadataKey]; ok {
+		if v := toInt(raw); v != nil {
+			budgetPtr = v
 			matched = true
 		}
 	}
+
+	if raw, ok := metadata[GeminiIncludeThoughtsMetadataKey]; ok {
+		if v := toBool(raw); v != nil {
+			includePtr = v
+			matched = true
+		}
+	}
+
 	return budgetPtr, includePtr, matched
 }
 
-// StripThinkingConfigIfUnsupported removes thinkingConfig from the request body
-// when the target model does not advertise Thinking capability. It cleans both
-// standard Gemini and Gemini CLI JSON envelopes. This acts as a final safety net
-// in case upstream injected thinking for an unsupported model.
+func toInt(v any) *int {
+	var result int
+	switch x := v.(type) {
+	case int:
+		result = x
+	case int32:
+		result = int(x)
+	case int64:
+		result = int(x)
+	case float64:
+		result = int(x)
+	case json.Number:
+		if val, err := x.Int64(); err == nil {
+			result = int(val)
+		} else {
+			return nil
+		}
+	default:
+		return nil
+	}
+	return &result
+}
+
+func toBool(v any) *bool {
+	var result bool
+	switch x := v.(type) {
+	case bool:
+		result = x
+	case string:
+		if parsed, err := strconv.ParseBool(x); err == nil {
+			result = parsed
+		} else {
+			return nil
+		}
+	case int, int32, int64:
+		result = x != 0
+	case float64:
+		result = x != 0
+	case json.Number:
+		if val, err := x.Int64(); err == nil {
+			result = val != 0
+		} else {
+			return nil
+		}
+	default:
+		return nil
+	}
+	return &result
+}
+
+// StripThinkingConfigIfUnsupported removes thinkingConfig for models that don't support it.
 func StripThinkingConfigIfUnsupported(model string, body []byte) []byte {
 	if ModelSupportsThinking(model) || len(body) == 0 {
 		return body
 	}
 	updated := body
-	// Gemini CLI path
 	updated, _ = sjson.DeleteBytes(updated, "request.generationConfig.thinkingConfig")
-	// Standard Gemini path
 	updated, _ = sjson.DeleteBytes(updated, "generationConfig.thinkingConfig")
 	return updated
 }
 
-// ConvertThinkingLevelToBudget checks for "generationConfig.thinkingConfig.thinkingLevel"
-// and converts it to "thinkingBudget".
-// "high" -> 32768
-// "low" -> 128
-// It removes "thinkingLevel" after conversion.
+// ConvertThinkingLevelToBudget converts thinkingLevel to thinkingBudget for legacy models.
 func ConvertThinkingLevelToBudget(body []byte) []byte {
 	levelPath := "generationConfig.thinkingConfig.thinkingLevel"
 	res := gjson.GetBytes(body, levelPath)
@@ -243,70 +234,18 @@ func ConvertThinkingLevelToBudget(body []byte) []byte {
 	case "low":
 		budget = 128
 	default:
-		// If unknown level, we might just leave it or default.
-		// User only specified high and low. We'll assume we shouldn't touch it if it's something else,
-		// or maybe we should just remove the invalid level?
-		// For safety adhering to strict instructions: "If high... if low...".
-		// If it's something else, the upstream might fail anyway if we leave it,
-		// but let's just delete the level if we processed it.
-		// Actually, let's check if we need to do anything for other values.
-		// For now, only handle high/low.
 		return body
 	}
 
-	// Set budget
 	budgetPath := "generationConfig.thinkingConfig.thinkingBudget"
 	updated, err := sjson.SetBytes(body, budgetPath, budget)
 	if err != nil {
 		return body
 	}
 
-	// Remove level
 	updated, err = sjson.DeleteBytes(updated, levelPath)
 	if err != nil {
 		return body
 	}
 	return updated
-}
-
-// ConvertBudgetToThinkingLevel converts thinkingBudget to thinking_level for Gemini 3 models.
-// Gemini 3 uses thinking_level (MINIMAL/LOW/MEDIUM/HIGH) instead of thinkingBudget.
-//
-// Mapping for Gemini 3 Flash (supports all levels):
-//   - budget ≤ 128   → MINIMAL
-//   - budget ≤ 1024  → LOW
-//   - budget ≤ 8192  → MEDIUM
-//   - budget > 8192  → HIGH
-//
-// Mapping for Gemini 3 Pro (no MINIMAL/MEDIUM):
-//   - budget ≤ 1024  → LOW
-//   - budget > 1024  → HIGH
-func ConvertBudgetToThinkingLevel(model string, budget int) string {
-	isFlash := strings.Contains(strings.ToLower(model), "flash")
-
-	switch {
-	case budget <= 128:
-		if isFlash {
-			return "MINIMAL"
-		}
-		return "LOW" // Pro doesn't have MINIMAL
-	case budget <= 1024:
-		return "LOW"
-	case budget <= 8192:
-		if isFlash {
-			return "MEDIUM"
-		}
-		return "HIGH" // Pro doesn't have MEDIUM
-	default:
-		return "HIGH"
-	}
-}
-
-// GetDefaultThinkingLevel returns the default thinking level for a Gemini 3 model.
-// Flash defaults to MEDIUM, Pro defaults to HIGH.
-func GetDefaultThinkingLevel(model string) string {
-	if strings.Contains(strings.ToLower(model), "flash") {
-		return "MEDIUM"
-	}
-	return "HIGH"
 }

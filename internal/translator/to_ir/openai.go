@@ -891,7 +891,7 @@ func parseThinkingConfig(root gjson.Result) *ir.ThinkingConfig {
 	var thinking *ir.ThinkingConfig
 	if re := root.Get("reasoning_effort"); re.Exists() {
 		thinking = &ir.ThinkingConfig{Effort: ir.ReasoningEffort(re.String())}
-		budget, include := ir.MapEffortToBudget(re.String())
+		budget, include := ir.EffortToBudget(re.String())
 		b := int32(budget)
 		thinking.ThinkingBudget = &b
 		thinking.IncludeThoughts = include
@@ -902,7 +902,7 @@ func parseThinkingConfig(root gjson.Result) *ir.ThinkingConfig {
 		}
 		if effort := reasoning.Get("effort"); effort.Exists() {
 			thinking.Effort = ir.ReasoningEffort(effort.String())
-			budget, include := ir.MapEffortToBudget(effort.String())
+			budget, include := ir.EffortToBudget(effort.String())
 			b := int32(budget)
 			thinking.ThinkingBudget = &b
 			thinking.IncludeThoughts = include
