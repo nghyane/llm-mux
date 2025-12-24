@@ -1067,7 +1067,7 @@ func GetClineModels() []*ModelInfo {
 	return models
 }
 
-// GetGitHubCopilotModels returns models available via GitHub Copilot API
+// GetGitHubCopilotModels returns models via GitHub Copilot API (Priority=2 fallback)
 func GetGitHubCopilotModels() []*ModelInfo {
 	entries := []struct {
 		ID          string
@@ -1075,16 +1075,24 @@ func GetGitHubCopilotModels() []*ModelInfo {
 		Description string
 		Created     int64
 	}{
+		// OpenAI models via GitHub Copilot
 		{ID: "gpt-4.1", DisplayName: "GPT-4.1", Description: "OpenAI GPT-4.1 via GitHub Copilot", Created: 1754524800},
 		{ID: "gpt-4o", DisplayName: "GPT-4o", Description: "OpenAI GPT-4o via GitHub Copilot", Created: 1715558400},
 		{ID: "gpt-5", DisplayName: "GPT-5", Description: "OpenAI GPT-5 via GitHub Copilot", Created: 1762473600},
 		{ID: "gpt-5-mini", DisplayName: "GPT-5 Mini", Description: "OpenAI GPT-5 Mini via GitHub Copilot", Created: 1762473600},
 		{ID: "gpt-5.1", DisplayName: "GPT-5.1", Description: "OpenAI GPT-5.1 via GitHub Copilot", Created: 1763424000},
-		{ID: "gpt-5.1-codex", DisplayName: "GPT-5.1 Codex", Description: "OpenAI GPT-5.1 Codex via GitHub Copilot", Created: 1763424000},
-		{ID: "gpt-5.1-codex-mini", DisplayName: "GPT-5.1 Codex Mini", Description: "OpenAI GPT-5.1 Codex Mini via GitHub Copilot", Created: 1763424000},
-		{ID: "gpt-5.1-codex-max", DisplayName: "GPT-5.1 Codex Max", Description: "OpenAI GPT-5.1 Codex Max via GitHub Copilot", Created: 1763424000},
-		{ID: "gpt-5-codex", DisplayName: "GPT-5 Codex", Description: "OpenAI GPT-5 Codex via GitHub Copilot", Created: 1762473600},
 		{ID: "gpt-5.2", DisplayName: "GPT-5.2", Description: "OpenAI GPT-5.2 via GitHub Copilot", Created: 1763424000},
+		// Claude models via GitHub Copilot
+		{ID: "claude-sonnet-4", DisplayName: "Claude Sonnet 4", Description: "Anthropic Claude Sonnet 4 via GitHub Copilot", Created: 1763424000},
+		{ID: "claude-sonnet-4.5", DisplayName: "Claude Sonnet 4.5", Description: "Anthropic Claude Sonnet 4.5 via GitHub Copilot", Created: 1763424000},
+		{ID: "claude-haiku-4.5", DisplayName: "Claude Haiku 4.5", Description: "Anthropic Claude Haiku 4.5 via GitHub Copilot", Created: 1763424000},
+		{ID: "claude-opus-4.5", DisplayName: "Claude Opus 4.5", Description: "Anthropic Claude Opus 4.5 via GitHub Copilot", Created: 1763424000},
+		// Google models via GitHub Copilot
+		{ID: "gemini-2.5-pro", DisplayName: "Gemini 2.5 Pro", Description: "Google Gemini 2.5 Pro via GitHub Copilot", Created: 1763424000},
+		{ID: "gemini-3-flash", DisplayName: "Gemini 3 Flash", Description: "Google Gemini 3 Flash via GitHub Copilot", Created: 1763424000},
+		{ID: "gemini-3-pro-preview", DisplayName: "Gemini 3 Pro Preview", Description: "Google Gemini 3 Pro Preview via GitHub Copilot", Created: 1763424000},
+		// xAI models via GitHub Copilot
+		{ID: "grok-code-fast-1", DisplayName: "Grok Code Fast 1", Description: "xAI Grok Code Fast 1 via GitHub Copilot", Created: 1763424000},
 	}
 	models := make([]*ModelInfo, 0, len(entries))
 	for _, entry := range entries {
@@ -1096,6 +1104,7 @@ func GetGitHubCopilotModels() []*ModelInfo {
 			Type:        "github-copilot",
 			DisplayName: entry.DisplayName,
 			Description: entry.Description,
+			Priority:    2, // Fallback priority - prefer native providers
 		})
 	}
 	return models

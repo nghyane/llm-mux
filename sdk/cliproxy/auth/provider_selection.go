@@ -26,30 +26,13 @@ func (m *Manager) normalizeProviders(providers []string) []string {
 	return result
 }
 
-// selectProviders returns providers ordered by performance score + round-robin.
-// Uses weighted selection based on success rate, with atomic round-robin fallback.
+// selectProviders returns providers ordered for execution.
+// Input order is respected (priority-sorted from registry), with performance scoring as secondary factor.
 func (m *Manager) selectProviders(model string, providers []string) []string {
 	if len(providers) <= 1 {
 		return providers
 	}
-
-	// First: sort by performance score (best first)
-	sorted := m.providerStats.SortByScore(providers, model)
-
-	// Then: apply round-robin rotation within same-score tiers
-	// This ensures fair distribution when providers have similar scores
-	counter := m.providerCounter.Add(1)
-	offset := int(counter % uint64(len(sorted)))
-
-	if offset == 0 {
-		return sorted
-	}
-
-	// Rotate to distribute load
-	rotated := make([]string, len(sorted))
-	copy(rotated, sorted[offset:])
-	copy(rotated[len(sorted)-offset:], sorted[:offset])
-	return rotated
+	return m.providerStats.SortByScore(providers, model)
 }
 
 // recordProviderResult records success/failure for weighted selection.
@@ -64,4 +47,3 @@ func (m *Manager) recordProviderResult(provider, model string, success bool, lat
 		stats.RecordFailure(provider, model)
 	}
 }
-
