@@ -55,16 +55,6 @@ All integrations use the same configuration:
 
 See [Cline detailed guide](cline.md).
 
-### VS Code + Roo Code
-
-1. Install [Roo Code](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline) extension
-2. Open settings (gear icon)
-3. Set:
-   - **API Provider**: OpenAI Compatible
-   - **Base URL**: `http://localhost:8317/v1`
-   - **API Key**: `unused`
-   - **Model ID**: `gemini-2.5-pro`
-
 ### Zed
 
 1. Open Assistant Panel (`Cmd+Shift+A`)
@@ -86,21 +76,6 @@ See [Cline detailed guide](cline.md).
     }]
   }
 }
-```
-
-### Neovim + avante.nvim
-
-Add to your Neovim config:
-
-```lua
-require("avante").setup({
-  provider = "openai",
-  openai = {
-    endpoint = "http://localhost:8317/v1",
-    model = "gemini-2.5-pro",
-    api_key_name = "cmd:echo unused",
-  },
-})
 ```
 
 ---
@@ -156,22 +131,6 @@ For Gemini native format, use `@ai-sdk/google` with `/v1beta`:
 }
 ```
 
-### Aider
-
-```bash
-export OPENAI_API_BASE=http://localhost:8317/v1
-export OPENAI_API_KEY=unused
-aider --model openai/gemini-2.5-pro
-```
-
-Or via command line flags:
-
-```bash
-aider --openai-api-base http://localhost:8317/v1 \
-      --openai-api-key unused \
-      --model openai/gemini-2.5-pro
-```
-
 ### Claude Code
 
 ```bash
@@ -193,23 +152,6 @@ codex
 ```bash
 export GOOGLE_GEMINI_BASE_URL=http://localhost:8317
 gemini
-```
-
-### Goose
-
-```bash
-goose configure
-# Select: Configure Providers → OpenAI Compatible
-# Base URL: http://localhost:8317/v1
-# API Key: unused
-```
-
-Or via environment:
-
-```bash
-export OPENAI_API_BASE=http://localhost:8317/v1
-export OPENAI_API_KEY=unused
-goose session start
 ```
 
 ---
