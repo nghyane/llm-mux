@@ -71,31 +71,32 @@ providers:
 |------|-------------|-----------------|
 | `gemini` | Google Gemini API | `api-key` |
 | `anthropic` | Claude API (official or compatible) | `api-key` |
-| `openai` | OpenAI-compatible APIs | `name`, `base-url`, `api-key`, `models` |
-| `vertex-compat` | Vertex AI-compatible | `name`, `base-url`, `api-key`, `models` |
+| `openai` | OpenAI-compatible APIs | `base-url`, `api-key`, `models` |
+| `vertex-compat` | Vertex AI-compatible | `base-url`, `api-key`, `models` |
 
 ### All Provider Fields
 
 | Field | Description |
 |-------|-------------|
 | `type` | Provider type (required) |
-| `name` | Display name |
+| `name` | Display name (recommended for openai/vertex-compat) |
 | `api-key` | Single API key |
-| `api-keys` | Multiple keys for load balancing |
+| `api-keys` | Multiple keys: `[{key: "...", proxy-url: "..."}]` |
 | `base-url` | Custom API endpoint |
 | `proxy-url` | Per-provider proxy (http/https/socks5) |
 | `headers` | Custom HTTP headers |
-| `models` | Model list with optional `alias` |
+| `models` | Model list: `[{name: "...", alias: "..."}]` |
 | `excluded-models` | Models to skip (wildcards: `*flash*`, `gemini-*`) |
 
 ### Examples
 
-**Multiple API keys:**
+**Multiple API keys with per-key proxy:**
 ```yaml
 - type: gemini
   api-keys:
-    - "AIzaSy...01"
-    - "AIzaSy...02"
+    - key: "AIzaSy...01"
+    - key: "AIzaSy...02"
+      proxy-url: "socks5://proxy2:1080"
 ```
 
 **Custom Claude endpoint (OpenRouter, Bedrock proxy):**
