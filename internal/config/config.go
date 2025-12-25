@@ -36,11 +36,17 @@ type Config struct {
 	WebsocketAuth bool `yaml:"ws-auth" json:"ws-auth"`
 	DisableAuth   bool `yaml:"disable-auth" json:"disable-auth"`
 
-	GeminiKey           []GeminiKey           `yaml:"gemini-api-key" json:"gemini-api-key"`
-	CodexKey            []CodexKey            `yaml:"codex-api-key" json:"codex-api-key"`
-	ClaudeKey           []ClaudeKey           `yaml:"claude-api-key" json:"claude-api-key"`
-	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
-	VertexCompatAPIKey  []VertexCompatKey     `yaml:"vertex-api-key" json:"vertex-api-key"`
+	// Providers is the new unified provider configuration.
+	// This replaces the legacy gemini-api-key, claude-api-key, codex-api-key,
+	// openai-compatibility, and vertex-api-key configurations.
+	Providers []Provider `yaml:"providers,omitempty" json:"providers,omitempty"`
+
+	// Legacy provider configurations (deprecated, use Providers instead)
+	GeminiKey           []GeminiKey           `yaml:"gemini-api-key,omitempty" json:"gemini-api-key,omitempty"`
+	CodexKey            []CodexKey            `yaml:"codex-api-key,omitempty" json:"codex-api-key,omitempty"`
+	ClaudeKey           []ClaudeKey           `yaml:"claude-api-key,omitempty" json:"claude-api-key,omitempty"`
+	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility,omitempty" json:"openai-compatibility,omitempty"`
+	VertexCompatAPIKey  []VertexCompatKey     `yaml:"vertex-api-key,omitempty" json:"vertex-api-key,omitempty"`
 
 	AmpCode             AmpCode             `yaml:"ampcode" json:"ampcode"`
 	OAuthExcludedModels map[string][]string `yaml:"oauth-excluded-models,omitempty" json:"oauth-excluded-models,omitempty"`
@@ -273,6 +279,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 
 	// Sanitize OpenAI compatibility providers: drop entries without base-url
 	cfg.SanitizeOpenAICompatibility()
+
+	// Migrate legacy configs to unified Providers format
+	cfg.MigrateLegacyProviders()
 
 	// Normalize OAuth provider model exclusion map.
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
