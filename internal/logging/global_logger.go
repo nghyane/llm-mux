@@ -55,8 +55,12 @@ func (m *LogFormatter) Format(entry *log.Entry) ([]byte, error) {
 func SetupBaseLogger() {
 	setupOnce.Do(func() {
 		log.SetOutput(os.Stdout)
+		log.SetLevel(log.InfoLevel)
 		log.SetReportCaller(true)
 		log.SetFormatter(&LogFormatter{})
+
+		// Default to release mode; server.go will switch to debug if config.Debug is true
+		gin.SetMode(gin.ReleaseMode)
 
 		ginInfoWriter = log.StandardLogger().Writer()
 		gin.DefaultWriter = ginInfoWriter
@@ -64,7 +68,7 @@ func SetupBaseLogger() {
 		gin.DefaultErrorWriter = ginErrorWriter
 		gin.DebugPrintFunc = func(format string, values ...any) {
 			format = strings.TrimRight(format, "\r\n")
-			log.StandardLogger().Infof(format, values...)
+			log.StandardLogger().Debugf(format, values...)
 		}
 
 		log.RegisterExitHandler(closeLogOutputs)

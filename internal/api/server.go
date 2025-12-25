@@ -154,8 +154,8 @@ func NewServer(cfg *config.Config, authManager *auth.Manager, accessManager *sdk
 	for i := range opts {
 		opts[i](optionState)
 	}
-	if !cfg.Debug {
-		gin.SetMode(gin.ReleaseMode)
+	if cfg.Debug {
+		gin.SetMode(gin.DebugMode)
 	}
 
 	engine := gin.New()
