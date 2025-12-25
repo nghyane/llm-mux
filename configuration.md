@@ -12,7 +12,7 @@ llm-mux --init  # Creates config, auth dir, and management key
 
 ```yaml
 port: 8317                              # Server port
-auth-dir: "$XDG_CONFIG_HOME/llm-mux/auth"  # OAuth tokens location
+auth-dir: "~/.config/llm-mux/auth"      # OAuth tokens location
 disable-auth: true                      # No API key required (local use)
 debug: false                            # Verbose logging
 logging-to-file: false                  # Log to file vs stdout
@@ -40,109 +40,106 @@ tls:
 
 ## Providers
 
-All API providers are configured in a unified `providers` array:
+Unified `providers` array for all API backends:
 
 ```yaml
 providers:
-  # Gemini (Google AI)
   - type: gemini
-    api-key: "your-gemini-key"
-    proxy-url: ""                     # Optional
-    excluded-models: []               # Optional
+    api-key: "AIzaSy..."
 
-  # Anthropic (Claude) - official API or compatible endpoints
   - type: anthropic
     api-key: "sk-ant-..."
-    base-url: ""                      # Optional, defaults to api.anthropic.com
-    proxy-url: ""
-    models:                           # Optional: override default models for custom endpoints
-      - name: "claude-3-5-sonnet-20241022"
-        alias: "claude-sonnet"
 
-  # Anthropic-compatible endpoint example (OpenRouter, AWS Bedrock proxy, etc.)
-  - type: anthropic
-    name: "openrouter-claude"
-    api-key: "sk-or-v1-..."
-    base-url: "https://openrouter.ai/api/v1"
-    models:
-      - name: "anthropic/claude-3.5-sonnet"
-        alias: "claude-sonnet-or"
-
-  # OpenAI-compatible (OpenAI, DeepSeek, Groq, etc.)
-  - type: openai
-    name: "openai"                    # Display name
-    base-url: "https://api.openai.com/v1"
-    api-key: "sk-..."                 # Single key
-    # OR multiple keys:
-    # api-keys:
-    #   - "sk-...01"
-    #   - "sk-...02"
-    proxy-url: ""                     # Optional per-provider proxy
-    models:                           # Required: list available models
-      - name: "gpt-4o"
-      - name: "gpt-4-turbo"
-        alias: "gpt4"                 # Optional alias
-
-  # DeepSeek example
   - type: openai
     name: "deepseek"
     base-url: "https://api.deepseek.com/v1"
     api-key: "sk-..."
     models:
       - name: "deepseek-chat"
-        alias: "deepseek"
 
-  # Groq example
-  - type: openai
-    name: "groq"
-    base-url: "https://api.groq.com/openai/v1"
-    api-key: "gsk_..."
-    models:
-      - name: "llama-3.3-70b-versatile"
-
-  # Vertex-compatible (zenmux, etc.)
   - type: vertex-compat
     name: "zenmux"
     base-url: "https://zenmux.ai/api"
-    api-key: "your-key"
+    api-key: "vk-..."
     models:
       - name: "gemini-2.5-pro"
-        alias: "zenmux-gemini"
 ```
 
 ### Provider Types
 
-| Type | Description | Requires |
-|------|-------------|----------|
+| Type | Description | Required Fields |
+|------|-------------|-----------------|
 | `gemini` | Google Gemini API | `api-key` |
-| `anthropic` | Anthropic Claude API or compatible | `api-key` |
-| `openai` | OpenAI-compatible APIs | `base-url`, `api-key`, `models` |
-| `vertex-compat` | Vertex AI-compatible | `base-url`, `api-key`, `models` |
+| `anthropic` | Claude API (official or compatible) | `api-key` |
+| `openai` | OpenAI-compatible APIs | `name`, `base-url`, `api-key`, `models` |
+| `vertex-compat` | Vertex AI-compatible | `name`, `base-url`, `api-key`, `models` |
 
-> **Note:** `anthropic` type supports custom endpoints via `base-url` and `models` for Claude-compatible APIs (OpenRouter, AWS Bedrock proxies, etc.)
-
-### Provider Fields
+### All Provider Fields
 
 | Field | Description |
 |-------|-------------|
 | `type` | Provider type (required) |
-| `name` | Display name (required for openai) |
+| `name` | Display name |
 | `api-key` | Single API key |
-| `api-keys` | Array of API keys for load balancing |
-| `base-url` | API endpoint URL |
-| `proxy-url` | Per-provider HTTP/SOCKS5 proxy |
+| `api-keys` | Multiple keys for load balancing |
+| `base-url` | Custom API endpoint |
+| `proxy-url` | Per-provider proxy (http/https/socks5) |
 | `headers` | Custom HTTP headers |
-| `models` | Available models with optional aliases |
-| `excluded-models` | Models to skip (supports wildcards) |
+| `models` | Model list with optional `alias` |
+| `excluded-models` | Models to skip (wildcards: `*flash*`, `gemini-*`) |
+
+### Examples
+
+**Multiple API keys:**
+```yaml
+- type: gemini
+  api-keys:
+    - "AIzaSy...01"
+    - "AIzaSy...02"
+```
+
+**Custom Claude endpoint (OpenRouter, Bedrock proxy):**
+```yaml
+- type: anthropic
+  name: "openrouter-claude"
+  base-url: "https://openrouter.ai/api/v1"
+  api-key: "sk-or-..."
+  models:
+    - name: "anthropic/claude-3.5-sonnet"
+      alias: "claude-sonnet"
+```
+
+**Model aliases:**
+```yaml
+- type: openai
+  name: "groq"
+  base-url: "https://api.groq.com/openai/v1"
+  api-key: "gsk_..."
+  models:
+    - name: "llama-3.3-70b-versatile"
+      alias: "llama70b"
+```
+
+**Exclude models:**
+```yaml
+- type: gemini
+  api-key: "AIzaSy..."
+  excluded-models:
+    - "gemini-2.5-pro"      # exact match
+    - "gemini-1.5-*"        # prefix
+    - "*-preview"           # suffix
+    - "*flash*"             # substring
+```
 
 ---
 
-## Environment Variables (Cloud Deployment)
+## Environment Variables
+
+Cloud deployment options:
 
 ```bash
 # PostgreSQL token store
 PGSTORE_DSN=postgresql://user:pass@host:5432/db
-PGSTORE_SCHEMA=public
 
 # S3-compatible storage
 OBJECTSTORE_ENDPOINT=https://s3.amazonaws.com
@@ -160,15 +157,13 @@ GITSTORE_GIT_TOKEN=ghp_...
 ## Advanced
 
 ```yaml
-# Management API access from non-localhost
 remote-management:
-  allow-remote: false
+  allow-remote: false       # Management API from non-localhost
+  secret-key: "admin"       # Management API key
 
-# WebSocket auth
-ws-auth: false
-
-# Usage tracking
-usage-statistics-enabled: false
+ws-auth: false              # WebSocket authentication
+usage-statistics-enabled: true
+use-canonical-translator: true  # IR translator (recommended)
 ```
 
 See [API Reference](api-reference.md#management-api) for management endpoints.
