@@ -97,14 +97,20 @@ openai-compatibility:
 
 > **Legacy**: `codex-api-key` also works for OpenAI keys but `openai-compatibility` is preferred.
 
-### Vertex AI
+### Vertex-Compatible Providers
+
+For third-party services using Vertex AI-style endpoints (e.g., zenmux.ai):
 
 ```yaml
 vertex-api-key:
-  - project-id: "your-project"
-    location: "us-central1"
-    credentials-file: "/path/to/service-account.json"
+  - api-key: "your-api-key"
+    base-url: "https://zenmux.ai/api"
+    models:
+      - name: "gemini-2.5-pro"
+        alias: "zenmux-gemini"
 ```
+
+> **Note**: For Google Cloud Vertex AI, use `llm-mux --vertex-import /path/to/service-account.json`
 
 ---
 
