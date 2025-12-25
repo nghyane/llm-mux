@@ -38,66 +38,88 @@ tls:
 
 ---
 
-## API Keys
+## Providers
 
-### Gemini
-
-```yaml
-gemini-api-key:
-  - api-key: "your-key"
-    base-url: ""              # Optional: custom endpoint
-    proxy-url: ""             # Per-key proxy
-    headers: {}               # Extra headers
-    excluded-models: []       # Models to skip
-```
-
-### Claude
+All API providers are configured in a unified `providers` array:
 
 ```yaml
-claude-api-key:
-  - api-key: "sk-ant-..."
-    base-url: "https://api.anthropic.com"
+providers:
+  # Gemini (Google AI)
+  - type: gemini
+    api-key: "your-gemini-key"
+    proxy-url: ""                     # Optional
+    excluded-models: []               # Optional
+
+  # Anthropic (Claude)
+  - type: anthropic
+    api-key: "sk-ant-..."
+    base-url: ""                      # Optional, defaults to api.anthropic.com
     proxy-url: ""
-    headers: {}
-    excluded-models: []
-    models:                   # Model aliases
-      - name: "claude-3-opus"
-        alias: "opus"
-```
 
-### OpenAI-Compatible Providers
-
-```yaml
-openai-compatibility:
-  - name: "openai"
+  # OpenAI-compatible (OpenAI, DeepSeek, Groq, etc.)
+  - type: openai
+    name: "openai"                    # Display name
     base-url: "https://api.openai.com/v1"
-    headers: {}               # Extra headers
-    api-key-entries:
-      - api-key: "sk-..."
-        proxy-url: ""         # Per-key proxy
-    models:
+    api-keys:                         # Multiple keys for load balancing
+      - key: "sk-..."
+        proxy-url: ""                 # Per-key proxy
+    models:                           # Required: list available models
       - name: "gpt-4o"
-        alias: ""             # Optional alias
-```
+      - name: "gpt-4-turbo"
+        alias: "gpt4"                 # Optional alias
 
-Examples: OpenAI, DeepSeek (`https://api.deepseek.com/v1`), Groq (`https://api.groq.com/openai/v1`)
+  # DeepSeek example
+  - type: openai
+    name: "deepseek"
+    base-url: "https://api.deepseek.com/v1"
+    api-keys:
+      - key: "sk-..."
+    models:
+      - name: "deepseek-chat"
+        alias: "deepseek"
 
-> **Legacy**: `codex-api-key` also works for OpenAI keys but `openai-compatibility` is preferred.
+  # Groq example
+  - type: openai
+    name: "groq"
+    base-url: "https://api.groq.com/openai/v1"
+    api-keys:
+      - key: "gsk_..."
+    models:
+      - name: "llama-3.3-70b-versatile"
 
-### Vertex-Compatible Providers
-
-```yaml
-vertex-api-key:
-  - api-key: "your-api-key"
-    base-url: "https://zenmux.ai/api"  # Required
-    proxy-url: ""
-    headers: {}
+  # Vertex-compatible (zenmux, etc.)
+  - type: vertex-compat
+    name: "zenmux"
+    base-url: "https://zenmux.ai/api"
+    api-key: "your-key"
     models:
       - name: "gemini-2.5-pro"
         alias: "zenmux-gemini"
 ```
 
-> For Google Cloud Vertex AI, use `llm-mux --vertex-import /path/to/service-account.json`
+### Provider Types
+
+| Type | Description | Requires |
+|------|-------------|----------|
+| `gemini` | Google Gemini API | `api-key` |
+| `anthropic` | Anthropic Claude API | `api-key` |
+| `openai` | OpenAI-compatible APIs | `base-url`, `api-keys`, `models` |
+| `vertex-compat` | Vertex AI-compatible | `base-url`, `api-key`, `models` |
+
+### Provider Fields
+
+| Field | Description |
+|-------|-------------|
+| `type` | Provider type (required) |
+| `name` | Display name (required for openai) |
+| `api-key` | Single API key |
+| `api-keys` | Multiple API keys with per-key proxy |
+| `base-url` | API endpoint URL |
+| `proxy-url` | HTTP/SOCKS5 proxy |
+| `headers` | Custom HTTP headers |
+| `models` | Available models with optional aliases |
+| `excluded-models` | Models to skip |
+| `enabled` | Set to `false` to disable |
 
 ---
 

@@ -108,8 +108,8 @@ Requires `X-Management-Key` header. Get key with `llm-mux --init`.
 |----------|--------|-------------|
 | `/v0/management/config` | GET | Runtime config |
 | `/v0/management/config.yaml` | GET/PUT | Config file |
+| `/v0/management/providers` | GET/PUT/DELETE | Provider configs |
 | `/v0/management/usage` | GET | Usage statistics |
-| `/v0/management/api-keys` | GET/PUT/DELETE | API keys |
 | `/v0/management/logs` | GET/DELETE | Server logs |
 | `/v0/management/debug` | GET/PUT | Debug mode |
 | `/v0/management/auth-files` | GET/POST/DELETE | OAuth tokens |
