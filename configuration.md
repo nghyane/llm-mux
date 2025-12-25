@@ -62,21 +62,22 @@ claude-api-key:
     proxy-url: ""
 ```
 
-### OpenAI / Codex
+### OpenAI-Compatible Providers
 
-```yaml
-codex-api-key:
-  - api-key: "sk-..."               # OpenAI API key
-    base-url: ""                    # Default: api.openai.com
-    proxy-url: ""
-```
-
-> Note: For ChatGPT Plus/Pro OAuth access, use `llm-mux --codex-login` instead.
-
-### OpenAI-Compatible
+Use for OpenAI, DeepSeek, Groq, Together, or any OpenAI-compatible API:
 
 ```yaml
 openai-compatibility:
+  # OpenAI direct
+  - name: "openai"
+    base-url: "https://api.openai.com/v1"
+    api-key-entries:
+      - api-key: "sk-..."
+    models:
+      - name: "gpt-4o"
+      - name: "gpt-4-turbo"
+
+  # DeepSeek
   - name: "deepseek"
     base-url: "https://api.deepseek.com/v1"
     api-key-entries:
@@ -84,7 +85,17 @@ openai-compatibility:
     models:
       - name: "deepseek-chat"
         alias: "deepseek"
+
+  # Groq
+  - name: "groq"
+    base-url: "https://api.groq.com/openai/v1"
+    api-key-entries:
+      - api-key: "gsk_..."
+    models:
+      - name: "llama-3.3-70b-versatile"
 ```
+
+> **Legacy**: `codex-api-key` also works for OpenAI keys but `openai-compatibility` is preferred.
 
 ### Vertex AI
 
