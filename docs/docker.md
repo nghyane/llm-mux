@@ -1,7 +1,5 @@
 # Docker
 
-Run llm-mux in a Docker container for isolated deployments.
-
 ## Quick Start
 
 ```bash
@@ -13,11 +11,7 @@ docker run -d \
   nghyane/llm-mux:latest
 ```
 
----
-
 ## Docker Compose
-
-Create a `docker-compose.yml`:
 
 ```yaml
 services:
@@ -29,13 +23,15 @@ services:
     volumes:
       - ./config.yaml:/llm-mux/config.yaml
       - ./auths:/llm-mux/auth
-      - ./logs:/llm-mux/logs
     environment:
       - TZ=UTC
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8317/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 ```
-
-Start the service:
 
 ```bash
 docker compose up -d
@@ -43,19 +39,14 @@ docker compose up -d
 
 ---
 
-## Configuration
+## Volume Mounts
 
-### Volume Mounts
-
-| Host Path | Container Path | Description |
-|-----------|----------------|-------------|
-| `./config.yaml` | `/llm-mux/config.yaml` | Configuration file |
+| Host | Container | Description |
+|------|-----------|-------------|
+| `./config.yaml` | `/llm-mux/config.yaml` | Config file |
 | `./auths/` | `/llm-mux/auth` | OAuth tokens |
-| `./logs/` | `/llm-mux/logs` | Log files (optional) |
 
-### Create Config File
-
-Before starting, create a `config.yaml`:
+### Minimal config.yaml
 
 ```yaml
 port: 8317
@@ -65,47 +56,29 @@ disable-auth: true
 
 ---
 
-## Authentication in Docker
+## Authentication
 
-OAuth login requires a browser, which isn't available in containers. Options:
+OAuth requires a browser. Options:
 
-### Option 1: Login on Host, Copy Tokens
-
+**Option 1: Copy tokens from host**
 ```bash
-# Login on host machine
-llm-mux --antigravity-login
-
-# Copy tokens to Docker volume
+llm-mux --antigravity-login          # Login on host
 cp -r ~/.config/llm-mux/auth/* ./auths/
 ```
 
-### Option 2: Use API Keys Only
-
-Configure API keys in `config.yaml` instead of OAuth:
-
+**Option 2: API keys only** (no OAuth needed)
 ```yaml
-gemini-api-key:
-  - api-key: "your-api-key"
-
-claude-api-key:
-  - api-key: "sk-ant-..."
-    base-url: "https://api.anthropic.com"
+openai-compatibility:
+  - name: "openai"
+    base-url: "https://api.openai.com/v1"
+    api-key-entries:
+      - api-key: "sk-..."
+    models:
+      - name: "gpt-4o"
 ```
 
-### Option 3: Management API
-
-Use the management API for remote administration:
-
+**Option 3: Get management key**
 ```bash
-# Start container
-docker run -d \
-  --name llm-mux \
-  -p 8317:8317 \
-  -v ./config.yaml:/llm-mux/config.yaml \
-  -v ./auths:/llm-mux/auth \
-  nghyane/llm-mux:latest
-
-# Initialize and get management key
 docker exec llm-mux ./llm-mux --init
 ```
 
@@ -114,135 +87,32 @@ docker exec llm-mux ./llm-mux --init
 ## Build from Source
 
 ```bash
-# Clone repository
-git clone https://github.com/nghyane/llm-mux.git
-cd llm-mux
-
-# Build image
+git clone https://github.com/nghyane/llm-mux.git && cd llm-mux
 docker build -t llm-mux:local .
-
-# Or with docker compose
-docker compose build
-```
-
-### Build Arguments
-
-```bash
-docker build \
-  --build-arg VERSION=v1.0.0 \
-  --build-arg COMMIT=$(git rev-parse HEAD) \
-  --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
-  -t llm-mux:local .
 ```
 
 ---
 
 ## Environment Variables
 
-For cloud deployments with shared storage:
+For cloud deployments, see [Configuration - Environment Variables](configuration.md#environment-variables-cloud-deployment).
 
 ```yaml
-services:
-  llm-mux:
-    image: nghyane/llm-mux:latest
-    environment:
-      # PostgreSQL token store
-      - PGSTORE_DSN=postgresql://user:pass@postgres:5432/llmmux
-      - PGSTORE_SCHEMA=public
-      
-      # Or S3-compatible storage
-      - OBJECTSTORE_ENDPOINT=https://s3.amazonaws.com
-      - OBJECTSTORE_BUCKET=llm-mux-tokens
-      - OBJECTSTORE_ACCESS_KEY=AKIA...
-      - OBJECTSTORE_SECRET_KEY=xxxxx
+environment:
+  - PGSTORE_DSN=postgresql://user:pass@postgres:5432/db
+  # or
+  - OBJECTSTORE_ENDPOINT=https://s3.amazonaws.com
+  - OBJECTSTORE_BUCKET=llm-mux-tokens
 ```
 
 ---
 
-## Health Check
-
-Add a health check to your compose file:
-
-```yaml
-services:
-  llm-mux:
-    image: nghyane/llm-mux:latest
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8317/v1/models"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-```
-
----
-
-## Reverse Proxy
-
-### Nginx
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name api.example.com;
-
-    location / {
-        proxy_pass http://localhost:8317;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 86400;
-    }
-}
-```
-
-### Traefik
-
-```yaml
-services:
-  llm-mux:
-    image: nghyane/llm-mux:latest
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.llm-mux.rule=Host(`api.example.com`)"
-      - "traefik.http.services.llm-mux.loadbalancer.server.port=8317"
-```
-
----
-
-## Logs
+## Common Commands
 
 ```bash
-# View logs
-docker logs llm-mux
-
-# Follow logs
-docker logs -f llm-mux
-
-# Last 100 lines
-docker logs --tail 100 llm-mux
-```
-
----
-
-## Commands
-
-```bash
-# Start
-docker compose up -d
-
-# Stop
-docker compose down
-
-# Restart
-docker compose restart
-
-# Update to latest
-docker compose pull
-docker compose up -d
-
-# Shell access
-docker exec -it llm-mux sh
+docker compose up -d      # Start
+docker compose down       # Stop
+docker compose pull && docker compose up -d  # Update
+docker logs -f llm-mux    # Logs
+docker exec -it llm-mux sh  # Shell
 ```

@@ -195,38 +195,13 @@ Base URL: http://localhost:8317/api
 
 ---
 
-## Testing Integration
-
-After configuring any tool:
+## Test Integration
 
 ```bash
-# Verify llm-mux is running
 curl http://localhost:8317/v1/models
-
-# Test a completion
 curl http://localhost:8317/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "Say hello"}]}'
+  -d '{"model": "gemini-2.5-pro", "messages": [{"role": "user", "content": "Hi"}]}'
 ```
 
----
-
-## Common Issues
-
-### "Model not found"
-
-Check available models:
-```bash
-curl http://localhost:8317/v1/models | jq '.data[].id'
-```
-
-### "Connection refused"
-
-Ensure llm-mux is running:
-```bash
-llm-mux  # Start if not running
-```
-
-### Streaming not working
-
-Some tools require specific streaming settings. Try disabling streaming in the tool's settings first to verify basic connectivity.
+See [Troubleshooting](../troubleshooting.md) for common issues.
