@@ -62,14 +62,16 @@ claude-api-key:
     proxy-url: ""
 ```
 
-### Codex
+### OpenAI / Codex
 
 ```yaml
 codex-api-key:
-  - api-key: "your-key"
-    base-url: ""
+  - api-key: "sk-..."               # OpenAI API key
+    base-url: ""                    # Default: api.openai.com
     proxy-url: ""
 ```
+
+> Note: For ChatGPT Plus/Pro OAuth access, use `llm-mux --codex-login` instead.
 
 ### OpenAI-Compatible
 
