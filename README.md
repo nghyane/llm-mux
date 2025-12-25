@@ -103,10 +103,10 @@ See [all providers](docs/providers.md) for details and model lists.
 
 ## Integrations
 
-Works with any OpenAI/Anthropic-compatible tool:
+Works with any OpenAI/Anthropic/Gemini-compatible tool:
 
-**Editors:** Cursor, VS Code + Continue, VS Code + Cline, JetBrains IDEs  
-**CLI:** Aider, Claude Code, OpenAI CLI  
+**Editors:** Cursor, VS Code (Continue, Cline, Roo Code), Zed, Neovim (avante.nvim)  
+**CLI:** Aider, Claude Code, Codex CLI, Gemini CLI, Goose  
 **Frameworks:** LangChain, LlamaIndex, Vercel AI SDK  
 **Web UIs:** Open WebUI, LibreChat
 

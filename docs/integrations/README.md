@@ -8,7 +8,7 @@ All integrations use the same configuration:
 
 | Setting | Value |
 |---------|-------|
-| **Base URL** | `http://localhost:8317/v1` |
+| **Base URL** | `http://localhost:8317/v1` (OpenAI) or `http://localhost:8317` (Anthropic/Gemini) |
 | **API Key** | `unused` (or any string) |
 
 ---
@@ -23,10 +23,12 @@ All integrations use the same configuration:
 4. Enter any API key (e.g., `unused`)
 5. Select a model from the dropdown or enter: `gemini-2.5-pro`
 
+**Note:** Overriding Base URL applies to all OpenAI models in Cursor.
+
 ### VS Code + Continue
 
 1. Install [Continue](https://marketplace.visualstudio.com/items?itemName=Continue.continue) extension
-2. Open Continue settings (`~/.continue/config.json`)
+2. Open Continue settings (`Ctrl+Shift+P` → "Continue: Open Config")
 3. Add configuration:
 
 ```json
@@ -44,7 +46,7 @@ All integrations use the same configuration:
 ### VS Code + Cline
 
 1. Install [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) extension
-2. Open Cline settings
+2. Open Cline settings (gear icon in Cline panel)
 3. Set:
    - **API Provider**: OpenAI Compatible
    - **Base URL**: `http://localhost:8317/v1`
@@ -55,19 +57,51 @@ See [Cline detailed guide](cline.md).
 
 ### VS Code + Roo Code
 
-1. Install Roo Code extension
-2. Configure:
-   - **Provider**: OpenAI Compatible
+1. Install [Roo Code](https://marketplace.visualstudio.com/items?itemName=RooVeterinaryInc.roo-cline) extension
+2. Open settings (gear icon)
+3. Set:
+   - **API Provider**: OpenAI Compatible
    - **Base URL**: `http://localhost:8317/v1`
+   - **API Key**: `unused`
    - **Model ID**: `gemini-2.5-pro`
 
-### JetBrains IDEs
+### Zed
 
-For IntelliJ, PyCharm, WebStorm, etc:
+1. Open Assistant Panel (`Cmd+Shift+A`)
+2. Click Configure (gear icon)
+3. Add OpenAI Compatible provider
+4. Or edit `settings.json`:
 
-1. Install AI Assistant or compatible plugin
-2. Configure OpenAI-compatible endpoint
-3. Set Base URL: `http://localhost:8317/v1`
+```json
+{
+  "language_models": {
+    "openai_compatible": [{
+      "name": "llm-mux",
+      "url": "http://localhost:8317/v1",
+      "api_key": "unused",
+      "available_models": [
+        {"name": "gemini-2.5-pro"},
+        {"name": "claude-sonnet-4"}
+      ]
+    }]
+  }
+}
+```
+
+### Neovim + avante.nvim
+
+Add to your Neovim config:
+
+```lua
+require("avante").setup({
+  provider = "openai",
+  openai = {
+    endpoint = "http://localhost:8317/v1",
+    model = "gemini-2.5-pro",
+    api_key_name = "cmd:echo unused",
+  },
+})
+```
 
 ---
 
@@ -76,20 +110,20 @@ For IntelliJ, PyCharm, WebStorm, etc:
 ### Aider
 
 ```bash
-aider --openai-api-base http://localhost:8317/v1 \
-      --openai-api-key unused \
-      --model gemini-2.5-pro
-```
-
-Or set environment variables:
-
-```bash
 export OPENAI_API_BASE=http://localhost:8317/v1
 export OPENAI_API_KEY=unused
-aider --model gemini-2.5-pro
+aider --model openai/gemini-2.5-pro
 ```
 
-### Claude Code (claude-cli)
+Or via command line flags:
+
+```bash
+aider --openai-api-base http://localhost:8317/v1 \
+      --openai-api-key unused \
+      --model openai/gemini-2.5-pro
+```
+
+### Claude Code
 
 ```bash
 export ANTHROPIC_BASE_URL=http://localhost:8317
@@ -97,20 +131,36 @@ export ANTHROPIC_API_KEY=unused
 claude
 ```
 
-### OpenAI CLI
+### Codex CLI
 
 ```bash
-export OPENAI_API_BASE=http://localhost:8317/v1
+export OPENAI_BASE_URL=http://localhost:8317/v1
 export OPENAI_API_KEY=unused
-openai api chat.completions.create -m gemini-2.5-pro -g user "Hello"
+codex
 ```
 
-### LangChain CLI
+### Gemini CLI
+
+```bash
+export GOOGLE_GEMINI_BASE_URL=http://localhost:8317
+gemini
+```
+
+### Goose
+
+```bash
+goose configure
+# Select: Configure Providers → OpenAI Compatible
+# Base URL: http://localhost:8317/v1
+# API Key: unused
+```
+
+Or via environment:
 
 ```bash
 export OPENAI_API_BASE=http://localhost:8317/v1
 export OPENAI_API_KEY=unused
-langchain run your-chain
+goose session start
 ```
 
 ---
