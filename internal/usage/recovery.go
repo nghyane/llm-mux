@@ -176,12 +176,13 @@ func loadGlobalAggregate(ctx context.Context, db *sql.DB, cutoff time.Time, out 
 func loadDailyAggregates(ctx context.Context, db *sql.DB, cutoff time.Time, out *[]dailyAggregate) error {
 	rows, err := db.QueryContext(ctx, `
 		SELECT 
-			DATE(requested_at) as day,
+			COALESCE(DATE(requested_at), DATE('now')) as day,
 			COUNT(*) as requests,
 			COALESCE(SUM(total_tokens), 0) as tokens
 		FROM usage_records
 		WHERE requested_at >= ?
 		GROUP BY DATE(requested_at)
+		HAVING day IS NOT NULL
 		ORDER BY day
 	`, cutoff)
 	if err != nil {
@@ -191,10 +192,14 @@ func loadDailyAggregates(ctx context.Context, db *sql.DB, cutoff time.Time, out 
 
 	for rows.Next() {
 		var d dailyAggregate
-		if err := rows.Scan(&d.day, &d.requests, &d.tokens); err != nil {
+		var dayStr sql.NullString
+		if err := rows.Scan(&dayStr, &d.requests, &d.tokens); err != nil {
 			return err
 		}
-		*out = append(*out, d)
+		if dayStr.Valid && dayStr.String != "" {
+			d.day = dayStr.String
+			*out = append(*out, d)
+		}
 	}
 	return rows.Err()
 }

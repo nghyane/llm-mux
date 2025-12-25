@@ -60,9 +60,12 @@ providers:
   - type: openai
     name: "openai"                    # Display name
     base-url: "https://api.openai.com/v1"
-    api-keys:                         # Multiple keys for load balancing
-      - key: "sk-..."
-        proxy-url: ""                 # Per-key proxy
+    api-key: "sk-..."                 # Single key
+    # OR multiple keys:
+    # api-keys:
+    #   - "sk-...01"
+    #   - "sk-...02"
+    proxy-url: ""                     # Optional per-provider proxy
     models:                           # Required: list available models
       - name: "gpt-4o"
       - name: "gpt-4-turbo"
@@ -72,8 +75,7 @@ providers:
   - type: openai
     name: "deepseek"
     base-url: "https://api.deepseek.com/v1"
-    api-keys:
-      - key: "sk-..."
+    api-key: "sk-..."
     models:
       - name: "deepseek-chat"
         alias: "deepseek"
@@ -82,8 +84,7 @@ providers:
   - type: openai
     name: "groq"
     base-url: "https://api.groq.com/openai/v1"
-    api-keys:
-      - key: "gsk_..."
+    api-key: "gsk_..."
     models:
       - name: "llama-3.3-70b-versatile"
 
@@ -113,13 +114,12 @@ providers:
 | `type` | Provider type (required) |
 | `name` | Display name (required for openai) |
 | `api-key` | Single API key |
-| `api-keys` | Multiple API keys with per-key proxy |
+| `api-keys` | Array of API keys for load balancing |
 | `base-url` | API endpoint URL |
-| `proxy-url` | HTTP/SOCKS5 proxy |
+| `proxy-url` | Per-provider HTTP/SOCKS5 proxy |
 | `headers` | Custom HTTP headers |
 | `models` | Available models with optional aliases |
-| `excluded-models` | Models to skip |
-| `enabled` | Set to `false` to disable |
+| `excluded-models` | Models to skip (supports wildcards) |
 
 ---
 

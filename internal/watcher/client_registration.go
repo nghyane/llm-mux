@@ -214,6 +214,35 @@ func (w *Watcher) loadFileClients(cfg *config.Config) int {
 
 // BuildAPIKeyClients counts API key clients from the configuration.
 func BuildAPIKeyClients(cfg *config.Config) (int, int, int, int, int) {
-	// Legacy configs removed; return 0 for all
-	return 0, 0, 0, 0, 0
+	geminiAPIKeyCount := 0
+	vertexCompatAPIKeyCount := 0
+	claudeAPIKeyCount := 0
+	codexAPIKeyCount := 0
+	openAICompatCount := 0
+
+	if cfg == nil {
+		return 0, 0, 0, 0, 0
+	}
+
+	for _, p := range cfg.Providers {
+		keys := p.GetAPIKeys()
+		keyCount := len(keys)
+
+		switch p.Type {
+		case config.ProviderTypeGemini:
+			geminiAPIKeyCount += keyCount
+		case config.ProviderTypeAnthropic:
+			if strings.EqualFold(p.Name, "codex") {
+				codexAPIKeyCount += keyCount
+			} else {
+				claudeAPIKeyCount += keyCount
+			}
+		case config.ProviderTypeOpenAI:
+			openAICompatCount += keyCount
+		case config.ProviderTypeVertexCompat:
+			vertexCompatAPIKeyCount += keyCount
+		}
+	}
+
+	return geminiAPIKeyCount, vertexCompatAPIKeyCount, claudeAPIKeyCount, codexAPIKeyCount, openAICompatCount
 }

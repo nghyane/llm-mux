@@ -15,6 +15,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/api"
 	"github.com/nghyane/llm-mux/internal/config"
 	_ "github.com/nghyane/llm-mux/internal/usage"
+	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/nghyane/llm-mux/internal/watcher"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
 	sdkaccess "github.com/nghyane/llm-mux/sdk/access"
@@ -443,7 +444,12 @@ func (s *Service) Run(ctx context.Context) error {
 		s.rebindExecutors()
 	}
 
-	watcherWrapper, err = s.watcherFactory(s.configPath, s.cfg.AuthDir, reloadCallback)
+	resolvedAuthDir, err := util.ResolveAuthDir(s.cfg.AuthDir)
+	if err != nil {
+		return fmt.Errorf("cliproxy: failed to resolve auth directory: %w", err)
+	}
+
+	watcherWrapper, err = s.watcherFactory(s.configPath, resolvedAuthDir, reloadCallback)
 	if err != nil {
 		return fmt.Errorf("cliproxy: failed to create watcher: %w", err)
 	}
@@ -538,19 +544,24 @@ func (s *Service) Shutdown(ctx context.Context) error {
 }
 
 func (s *Service) ensureAuthDir() error {
-	info, err := os.Stat(s.cfg.AuthDir)
+	authDir, err := util.ResolveAuthDir(s.cfg.AuthDir)
+	if err != nil {
+		return fmt.Errorf("cliproxy: failed to resolve auth directory path: %w", err)
+	}
+
+	info, err := os.Stat(authDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if mkErr := os.MkdirAll(s.cfg.AuthDir, 0o755); mkErr != nil {
-				return fmt.Errorf("cliproxy: failed to create auth directory %s: %w", s.cfg.AuthDir, mkErr)
+			if mkErr := os.MkdirAll(authDir, 0o755); mkErr != nil {
+				return fmt.Errorf("cliproxy: failed to create auth directory %s: %w", authDir, mkErr)
 			}
-			log.Infof("created missing auth directory: %s", s.cfg.AuthDir)
+			log.Infof("created missing auth directory: %s", authDir)
 			return nil
 		}
-		return fmt.Errorf("cliproxy: error checking auth directory %s: %w", s.cfg.AuthDir, err)
+		return fmt.Errorf("cliproxy: error checking auth directory %s: %w", authDir, err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("cliproxy: auth path exists but is not a directory: %s", s.cfg.AuthDir)
+		return fmt.Errorf("cliproxy: auth path exists but is not a directory: %s", authDir)
 	}
 	return nil
 }
