@@ -25,10 +25,6 @@ proxy-url: ""                           # Global proxy (http/https/socks5)
 request-retry: 3                        # Retry attempts
 max-retry-interval: 30                  # Max seconds between retries
 disable-cooling: false                  # Skip cooldown after quota errors
-
-quota-exceeded:
-  switch-project: true                  # Try another account on quota
-  switch-preview-model: true            # Fallback to preview models
 ```
 
 ## TLS
