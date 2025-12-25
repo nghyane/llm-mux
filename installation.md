@@ -155,8 +155,8 @@ Remove-Item -Recurse "$env:USERPROFILE\.config\llm-mux"
 ## Verify Installation
 
 ```bash
-# Check version
-llm-mux --version
+# Check version (prints on startup)
+llm-mux
 
 # Initialize (if not done by installer)
 llm-mux --init

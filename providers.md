@@ -48,7 +48,7 @@ llm-mux --claude-login
 **Available Models:**
 - `claude-sonnet-4-20250514`
 - `claude-opus-4-5-20251101`
-- `claude-3-5-sonnet-20241022`
+- `claude-3-7-sonnet-20250219`
 
 ---
 
@@ -196,12 +196,11 @@ OAuth tokens are stored in `~/.config/llm-mux/auth/`:
 
 ```
 ~/.config/llm-mux/auth/
-├── antigravity/
-│   └── token_xxxxx.json
-├── claude/
-│   └── token_xxxxx.json
-└── copilot/
-    └── token_xxxxx.json
+├── claude-user@example.com.json
+├── github-copilot-username.json
+├── antigravity-user@example.com.json
+├── cline-user@example.com.json
+└── ...
 ```
 
 Tokens are automatically refreshed before expiration.

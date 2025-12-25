@@ -40,6 +40,9 @@ proxy-url: ""
 request-retry: 3
 max-retry-interval: 30
 
+# Disable cooldown period after quota errors (advanced)
+disable-cooling: false
+
 # Quota exceeded behavior
 quota-exceeded:
   switch-project: true       # Try another account on quota limit
@@ -47,6 +50,30 @@ quota-exceeded:
 
 # Usage statistics
 usage-statistics-enabled: false
+
+# Usage persistence (SQLite)
+usage-persistence:
+  enabled: false
+  db-path: "~/.config/llm-mux/usage.db"
+  batch-size: 100
+  flush-interval: 60
+  retention-days: 30
+
+# WebSocket authentication
+ws-auth: false
+```
+
+---
+
+## TLS/HTTPS
+
+Enable HTTPS for the server:
+
+```yaml
+tls:
+  enable: true
+  cert: "/path/to/cert.pem"
+  key: "/path/to/key.pem"
 ```
 
 ---
@@ -73,6 +100,15 @@ claude-api-key:
     models:
       - name: "claude-3-opus"
         alias: "claude-opus"  # Optional alias
+```
+
+### Codex API Key
+
+```yaml
+codex-api-key:
+  - api-key: "your-codex-key"
+    base-url: "https://api.openai.com/v1"  # Optional
+    proxy-url: ""
 ```
 
 ### OpenAI-Compatible Providers
@@ -134,34 +170,15 @@ OBJECTSTORE_LOCAL_PATH=/data/llm-mux/objectstore
 
 A management key is generated during `--init` for accessing the management API.
 
-### View Current Key
-
 ```bash
+# View current key
 llm-mux --init
-# Output: Management key: abc123...
-```
 
-### Regenerate Key
-
-```bash
+# Regenerate key
 llm-mux --init --force
 ```
 
-### API Endpoints
-
-All management endpoints require the `X-Management-Key` header:
-
-```bash
-curl -H "X-Management-Key: your-key" http://localhost:8317/v0/management/config
-```
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/v0/management/config` | GET | View current config |
-| `/v0/management/config.yaml` | GET/PUT | Get or update config file |
-| `/v0/management/usage` | GET | Usage statistics |
-| `/v0/management/api-keys` | GET/PUT/DELETE | Manage API keys |
-| `/v0/management/logs` | GET/DELETE | View or clear logs |
+See [API Reference - Management API](api-reference.md#management-api) for full endpoint documentation.
 
 ---
 
