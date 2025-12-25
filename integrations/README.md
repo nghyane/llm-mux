@@ -86,13 +86,16 @@ See [Cline detailed guide](cline.md).
 
 OpenCode supports custom providers via `opencode.json`. Create or edit `~/.config/opencode/opencode.json`:
 
+**Claude provider (Anthropic format):**
+
 ```json
 {
-  "model": "llm-mux/claude-sonnet-4",
+  "$schema": "https://opencode.ai/config.json",
+  "model": "llm-mux-claude/claude-sonnet-4",
   "provider": {
-    "llm-mux": {
+    "llm-mux-claude": {
       "npm": "@ai-sdk/anthropic",
-      "name": "LLM-Mux",
+      "name": "LLM-Mux Claude",
       "options": {
         "baseURL": "http://localhost:8317/v1",
         "apiKey": "unused"
@@ -102,12 +105,30 @@ OpenCode supports custom providers via `opencode.json`. Create or edit `~/.confi
           "id": "claude-sonnet-4",
           "name": "Claude Sonnet 4",
           "tool_call": true,
-          "reasoning": true
+          "temperature": true,
+          "reasoning": true,
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          }
         },
-        "gemini-2.5-pro": {
-          "id": "gemini-2.5-pro",
-          "name": "Gemini 2.5 Pro",
-          "tool_call": true
+        "claude-opus-4-5-thinking": {
+          "id": "claude-opus-4-5-thinking",
+          "name": "Claude 4.5 Opus Thinking",
+          "tool_call": true,
+          "temperature": true,
+          "reasoning": true,
+          "limit": {
+            "context": 200000,
+            "output": 64000
+          },
+          "options": {
+            "maxOutputTokens": 64000,
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 32000
+            }
+          }
         }
       }
     }
@@ -115,16 +136,27 @@ OpenCode supports custom providers via `opencode.json`. Create or edit `~/.confi
 }
 ```
 
-For Gemini native format, use `@ai-sdk/google` with `/v1beta`:
+**Gemini provider (native format):**
 
 ```json
 {
+  "model": "llm-mux-gemini/gemini-2.5-pro",
   "provider": {
     "llm-mux-gemini": {
       "npm": "@ai-sdk/google",
+      "name": "LLM-Mux Gemini",
       "options": {
         "baseURL": "http://localhost:8317/v1beta",
         "apiKey": "unused"
+      },
+      "models": {
+        "gemini-2.5-pro": {
+          "id": "gemini-2.5-pro",
+          "name": "Gemini 2.5 Pro",
+          "tool_call": true,
+          "temperature": true,
+          "reasoning": true
+        }
       }
     }
   }
