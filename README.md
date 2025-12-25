@@ -1,6 +1,7 @@
 # llm-mux
 
 [![GitHub stars](https://img.shields.io/github/stars/nghyane/llm-mux?style=social)](https://github.com/nghyane/llm-mux)
+[![GitHub release](https://img.shields.io/github/v/release/nghyane/llm-mux)](https://github.com/nghyane/llm-mux/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-blue)](https://github.com/nghyane/llm-mux)
 
@@ -9,6 +10,14 @@ A local gateway that enables your Claude Pro, GitHub Copilot, and Google Gemini 
 
 > **Universal Compatibility:** Supports OpenAI, Anthropic (Claude), Google (Gemini), and Ollama API formats.
 > **Zero Overhead:** No separate API billing. No per-token charges. Runs locally.
+
+---
+
+## Prerequisites
+
+- **macOS** 12+ / **Linux** (Ubuntu 20.04+, Debian 11+) / **Windows** 10+
+- Active subscription to at least one supported provider (Google One AI Premium, Claude Pro/Max, GitHub Copilot, etc.)
+- No additional dependencies required for pre-built binaries
 
 ---
 
@@ -35,6 +44,7 @@ Run this once to set up the configuration directory:
 ```bash
 llm-mux --init
 ```
+> This creates `~/.config/llm-mux/` with default settings.
 
 ### 2. Authenticate Providers
 Login to the services you have subscriptions for. This opens your browser to cache OAuth tokens locally.
@@ -57,13 +67,19 @@ llm-mux --copilot-login
 |:---|:---|:---|
 | **OpenAI Codex** | `llm-mux --codex-login` | Access GPT-5 series (if eligible) |
 | **Qwen** | `llm-mux --qwen-login` | Alibaba Cloud Qwen models |
-| **Amazon Q** | `llm-mux --kiro-login` | AWS/Amazon Q Developer |
+| **Kiro** | `llm-mux --kiro-login` | AWS/Amazon Q Developer |
 | **Cline** | `llm-mux --cline-login` | Cline API integration |
 | **iFlow** | `llm-mux --iflow-login` | iFlow integration |
 
 </details>
 
-### 3. Verify
+### 3. Start the Server
+```bash
+llm-mux
+```
+> The server runs on `http://localhost:8317` by default. Use `llm-mux --port 9000` for a custom port.
+
+### 4. Verify
 Check if the server is running and models are available:
 ```bash
 curl http://localhost:8317/v1/models
@@ -76,6 +92,8 @@ curl http://localhost:8317/v1/models
 Point your tools to the local proxy. 
 **Base URL:** `http://localhost:8317/v1`  
 **API Key:** `any-string` (unused, but required by some clients)
+
+> **Security Note:** llm-mux is designed for **local use only**. If exposing to a network, configure proper authentication in `~/.config/llm-mux/config.yaml`.
 
 ### Cursor
 1. Go to **Settings** > **Models**.
@@ -118,43 +136,76 @@ llm-mux automatically maps your subscription access to these model identifiers.
 | Provider | Top Models |
 |:---|:---|
 | **Google** | `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3-pro-preview` |
-| **Anthropic** | `claude-sonnet-4-20250514`, `claude-opus-4-5-20251101`, `claude-3-5-sonnet` |
+| **Anthropic** | `claude-sonnet-4-20250514`, `claude-opus-4-5-20251101`, `claude-3-5-sonnet-20241022` |
 | **GitHub** | `gpt-4.1`, `gpt-4o`, `gpt-5`, `gpt-5-mini`, `gpt-5.1`, `gpt-5.2` |
 
 > **Note:** Run `curl http://localhost:8317/v1/models` to see the exact list available to your account.
 
 ---
 
-## 🧩 Architecture
+## Architecture
 
-llm-mux acts as a universal adapter, accepting requests in multiple formats (OpenAI, Claude, Gemini, Ollama) and routing them to your active subscriptions.
+llm-mux is a **universal AI API gateway** that translates between different LLM API formats and routes requests to your authenticated provider backends through an **Intermediate Representation (IR)** layer.
 
 ```mermaid
-graph LR
-    subgraph "Inbound Protocols"
-        OpenAI[OpenAI / Compatible]
-        Anthropic[Anthropic SDK]
-        Google[Google AI SDK]
-        Ollama[Ollama Clients]
+flowchart TB
+    subgraph Inbound["Inbound Protocols"]
+        OpenAI["OpenAI Chat"]
+        OpenAIResp["OpenAI Responses"]
+        Anthropic["Anthropic"]
+        GeminiIn["Gemini"]
+        Ollama["Ollama"]
     end
 
-    Mux[llm-mux :8317]
-    
-    subgraph "Outbound Subscriptions"
-        Gemini[Google Gemini]
-        Claude[Claude Pro]
-        Copilot[GitHub Copilot]
+    subgraph IR["Intermediate Representation (IR)"]
+        ToIR["to_ir/ normalize"]
+        Unified["UnifiedChatRequest"]
+        Registry["Model Registry"]
+        Select["Provider Selection"]
+        FromIR["from_ir/ convert"]
     end
 
-    OpenAI --> Mux
-    Anthropic --> Mux
-    Google --> Mux
-    Ollama --> Mux
+    subgraph Outbound["Outbound Providers (13+)"]
+        Gemini["Gemini"]
+        Antigravity["Antigravity"]
+        Vertex["Vertex AI"]
+        AIStudio["AI Studio"]
+        Claude["Claude"]
+        Codex["Codex"]
+        Copilot["Copilot"]
+        Qwen["Qwen"]
+        Kiro["Kiro"]
+        Others["iFlow / Cline / ..."]
+    end
 
-    Mux -->|Translation Layer| Gemini
-    Mux -->|Translation Layer| Claude
-    Mux -->|Translation Layer| Copilot
+    OpenAI --> ToIR
+    OpenAIResp --> ToIR
+    Anthropic --> ToIR
+    GeminiIn --> ToIR
+    Ollama --> ToIR
+
+    ToIR --> Unified --> Registry --> Select --> FromIR
+
+    FromIR --> Gemini
+    FromIR --> Antigravity
+    FromIR --> Vertex
+    FromIR --> AIStudio
+    FromIR --> Claude
+    FromIR --> Codex
+    FromIR --> Copilot
+    FromIR --> Qwen
+    FromIR --> Kiro
+    FromIR --> Others
 ```
+
+### Key Components
+
+| Component | Description |
+|:---|:---|
+| **Model Registry** | Reference-counted model tracking with canonical ID mapping across providers |
+| **Auth Manager** | Multi-account credential rotation with automatic token refresh |
+| **Load Balancer** | Provider failover with exponential backoff retry and quota tracking |
+| **IR Translator** | Normalizes tool calls, thinking tokens, MCP servers, and streaming events |
 
 ---
 
@@ -178,8 +229,9 @@ You can use `llm-mux` as a drop-in replacement for these providers without chang
 
 You can login multiple times with different accounts to distribute load and increase quotas.
 ```bash
-llm-mux --login              # Account 1
-llm-mux --login              # Account 2
+llm-mux --antigravity-login   # Google Account 1
+llm-mux --antigravity-login   # Google Account 2
+llm-mux --claude-login        # Claude Account 1
 ```
 The system will automatically rotate requests and handle failovers.
 </details>
@@ -200,6 +252,50 @@ Edit `~/.config/llm-mux/config.yaml` to add upstream proxies:
 ```yaml
 proxy-url: "socks5://user:pass@proxy.example.com:1080"
 ```
+</details>
+
+---
+
+## Troubleshooting
+
+<details>
+<summary><strong>Port already in use (EADDRINUSE)</strong></summary>
+
+```bash
+# Find process using port 8317
+lsof -i :8317
+# Kill the process or use a different port
+llm-mux --port 9000
+```
+</details>
+
+<details>
+<summary><strong>No models available</strong></summary>
+
+- Ensure you've completed authentication for at least one provider
+- Check if tokens are valid: re-run the login command (e.g., `llm-mux --claude-login`)
+- Verify with `curl http://localhost:8317/v1/models`
+</details>
+
+<details>
+<summary><strong>Authentication token expired</strong></summary>
+
+Tokens are automatically refreshed, but if issues persist:
+```bash
+# Re-authenticate the affected provider
+llm-mux --antigravity-login  # For Gemini
+llm-mux --claude-login       # For Claude
+```
+</details>
+
+<details>
+<summary><strong>Connection refused / Server not running</strong></summary>
+
+Ensure the server is running in a separate terminal:
+```bash
+llm-mux
+```
+Check if the server started successfully and is listening on the expected port.
 </details>
 
 ---
