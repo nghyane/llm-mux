@@ -77,7 +77,7 @@ llm-mux --copilot-login
 ```bash
 llm-mux
 ```
-> The server runs on `http://localhost:8317` by default. Use `llm-mux --port 9000` for a custom port.
+> The server runs on `http://localhost:8317` by default. To change the port, edit `port: 8317` in `~/.config/llm-mux/config.yaml`.
 
 ### 4. Verify
 Check if the server is running and models are available:
@@ -262,8 +262,7 @@ proxy-url: "socks5://user:pass@proxy.example.com:1080"
 ```bash
 # Find process using port 8317
 lsof -i :8317
-# Kill the process or use a different port
-llm-mux --port 9000
+# Kill the process or change port in config.yaml
 ```
 </details>
 
