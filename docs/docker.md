@@ -9,7 +9,7 @@ docker run -d \
   --name llm-mux \
   -p 8317:8317 \
   -v ./config.yaml:/llm-mux/config.yaml \
-  -v ./auths:/root/.llm-mux \
+  -v ./auths:/llm-mux/auth \
   nghyane/llm-mux:latest
 ```
 
@@ -28,7 +28,7 @@ services:
       - "8317:8317"
     volumes:
       - ./config.yaml:/llm-mux/config.yaml
-      - ./auths:/root/.llm-mux
+      - ./auths:/llm-mux/auth
       - ./logs:/llm-mux/logs
     environment:
       - TZ=UTC
@@ -50,7 +50,7 @@ docker compose up -d
 | Host Path | Container Path | Description |
 |-----------|----------------|-------------|
 | `./config.yaml` | `/llm-mux/config.yaml` | Configuration file |
-| `./auths/` | `/root/.llm-mux` | OAuth tokens |
+| `./auths/` | `/llm-mux/auth` | OAuth tokens |
 | `./logs/` | `/llm-mux/logs` | Log files (optional) |
 
 ### Create Config File
@@ -59,7 +59,7 @@ Before starting, create a `config.yaml`:
 
 ```yaml
 port: 8317
-auth-dir: "/root/.llm-mux"
+auth-dir: "/llm-mux/auth"
 disable-auth: true
 ```
 
@@ -92,27 +92,21 @@ claude-api-key:
     base-url: "https://api.anthropic.com"
 ```
 
-### Option 3: Remote OAuth (Management API)
+### Option 3: Management API
 
-Use the management API to trigger OAuth from a web interface:
+Use the management API for remote administration:
 
 ```bash
-# Start container with management key
+# Start container
 docker run -d \
   --name llm-mux \
   -p 8317:8317 \
   -v ./config.yaml:/llm-mux/config.yaml \
-  -v ./auths:/root/.llm-mux \
+  -v ./auths:/llm-mux/auth \
   nghyane/llm-mux:latest
 
 # Initialize and get management key
 docker exec llm-mux ./llm-mux --init
-
-# Use management API for OAuth
-curl -X POST \
-  -H "X-Management-Key: your-key" \
-  http://localhost:8317/v0/management/oauth/start \
-  -d '{"provider": "claude"}'
 ```
 
 ---

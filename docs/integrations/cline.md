@@ -59,18 +59,14 @@ npx @vscode/vsce package --allow-package-secrets sendgrid
 ### 2. Login to llm-mux
 
 ```bash
-# Interactive login
-cliproxyapi login cline
+llm-mux --cline-login
 # Paste token when prompted
-
-# Or direct provision
-cliproxyapi login cline --metadata refresh_token=YOUR_REFRESH_TOKEN
 ```
 
 ### 3. Verify
 
 ```bash
-cliproxyapi list
+ls ~/.config/llm-mux/auth/
 # Should show: cline-your-email@example.com.json
 ```
 
@@ -80,12 +76,9 @@ cliproxyapi list
 - Refresh Token: Long-lived (from VSCode)
 - Access Token: ~10 minutes, auto-refreshed 2 minutes before expiration
 
-**Storage:** `./auth/cline-your-email@example.com.json`
+**Storage:** `~/.config/llm-mux/auth/cline-your-email@example.com.json`
 
-**Manual Refresh:**
-```bash
-cliproxyapi refresh cline-your-email@example.com.json
-```
+**Manual Refresh:** Tokens are automatically refreshed. Re-run `--cline-login` if needed.
 
 ## Usage
 
@@ -95,8 +88,8 @@ cliproxyapi refresh cline-your-email@example.com.json
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:11434/v1",
-    api_key="your-cliproxyapi-key"
+    base_url="http://localhost:8317/v1",
+    api_key="unused"
 )
 
 response = client.chat.completions.create(
@@ -108,24 +101,22 @@ response = client.chat.completions.create(
 ### cURL Example
 
 ```bash
-curl http://localhost:11434/v1/chat/completions \
-  -H "Authorization: Bearer your-key" \
+curl http://localhost:8317/v1/chat/completions \
+  -H "Content-Type: application/json" \
   -d '{"model":"x-ai/grok-code-fast-1","messages":[{"role":"user","content":"Hello!"}]}'
 ```
 
 ### List Models
 
 ```bash
-curl http://localhost:11434/v1/models -H "Authorization: Bearer your-key"
+curl http://localhost:8317/v1/models
 ```
 
 ## Configuration
 
 ```yaml
-auth-dir: "./auth"
+auth-dir: "~/.config/llm-mux/auth"
 debug: true
-proxy-url: ""
-request-retry: 3
 ```
 
 ## Troubleshooting

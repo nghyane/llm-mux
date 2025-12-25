@@ -51,7 +51,7 @@ All integrations use the same configuration:
    - **API Key**: `unused`
    - **Model**: `claude-sonnet-4-20250514`
 
-See [Cline detailed guide](cline-integration.md).
+See [Cline detailed guide](cline.md).
 
 ### VS Code + Roo Code
 

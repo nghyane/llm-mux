@@ -187,10 +187,7 @@ Check available models from your authenticated providers:
 curl http://localhost:8317/v1/models | jq '.data[].id'
 ```
 
-Common models:
-- `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-3-pro-preview`
-- `claude-sonnet-4-20250514`, `claude-opus-4-5-20251101`
-- `gpt-4.1`, `gpt-4o`, `gpt-5`, `gpt-5-mini`
+See [Providers](providers.md) for the full list of supported models.
 
 ---
 
@@ -325,3 +322,55 @@ Errors follow the OpenAI error format:
 | 429 | Rate limited (quota exceeded) |
 | 500 | Internal server error |
 | 503 | Service unavailable (no providers) |
+
+---
+
+## Management API
+
+Management endpoints require authentication via the `X-Management-Key` header.
+
+### Get Management Key
+
+```bash
+llm-mux --init
+# Output: Management key: abc123...
+
+# Regenerate
+llm-mux --init --force
+```
+
+### Endpoints
+
+All requests require:
+```bash
+-H "X-Management-Key: your-key"
+```
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v0/management/config` | GET | View current runtime config |
+| `/v0/management/config.yaml` | GET | Get config file contents |
+| `/v0/management/config.yaml` | PUT | Update config file |
+| `/v0/management/usage` | GET | Get usage statistics |
+| `/v0/management/api-keys` | GET | List configured API keys |
+| `/v0/management/api-keys` | PUT | Add/update API keys |
+| `/v0/management/api-keys` | DELETE | Remove API keys |
+| `/v0/management/logs` | GET | View server logs |
+| `/v0/management/logs` | DELETE | Clear logs |
+| `/v0/management/debug` | GET/PUT | Get or toggle debug mode |
+
+### Examples
+
+```bash
+# View config
+curl -H "X-Management-Key: $KEY" http://localhost:8317/v0/management/config
+
+# Get usage stats
+curl -H "X-Management-Key: $KEY" http://localhost:8317/v0/management/usage
+
+# Toggle debug mode
+curl -X PUT -H "X-Management-Key: $KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"value": true}' \
+  http://localhost:8317/v0/management/debug
+```

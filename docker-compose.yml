@@ -16,6 +16,6 @@ services:
       - "8317:8317"
     volumes:
       - ./config.yaml:/llm-mux/config.yaml
-      - ./auths:/root/.llm-mux
+      - ./auths:/llm-mux/auth
       - ./logs:/llm-mux/logs
     restart: unless-stopped
