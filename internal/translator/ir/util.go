@@ -36,8 +36,7 @@ func ExtractThoughtSignature(part gjson.Result) []byte {
 	return []byte(tsStr)
 }
 
-// ParseAndValidateJSON parses JSON and validates it in one operation.
-// This is more efficient than calling ValidateJSON + gjson.ParseBytes separately.
+// ParseAndValidateJSON parses and validates JSON in one operation.
 // Returns the parsed result and nil error on success, or empty result and ErrInvalidJSON on failure.
 func ParseAndValidateJSON(rawJSON []byte) (gjson.Result, error) {
 	result := gjson.ParseBytes(rawJSON)

@@ -10,8 +10,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
-// Request Parsing (Client → Unified)
-
 // ParseOllamaRequest parses incoming Ollama API request into unified format.
 // Supports both /api/chat and /api/generate endpoints.
 func ParseOllamaRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
@@ -68,8 +66,6 @@ func ParseOllamaRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 
 	return req, nil
 }
-
-// Helper Functions
 
 func parseOllamaOptions(opts gjson.Result, req *ir.UnifiedChatRequest) {
 	if !opts.Exists() {
