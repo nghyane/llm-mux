@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -109,28 +108,6 @@ func ApplyGeminiThinkingConfig(body []byte, budget *int, includeThoughts *bool) 
 	return updated
 }
 
-func ApplyGeminiCLIThinkingConfig(body []byte, budget *int, includeThoughts *bool) []byte {
-	if budget == nil && includeThoughts == nil {
-		return body
-	}
-	updated := body
-	if budget != nil {
-		valuePath := "request.generationConfig.thinkingConfig.thinkingBudget"
-		rewritten, err := sjson.SetBytes(updated, valuePath, *budget)
-		if err == nil {
-			updated = rewritten
-		}
-	}
-	if includeThoughts != nil {
-		valuePath := "request.generationConfig.thinkingConfig.include_thoughts"
-		rewritten, err := sjson.SetBytes(updated, valuePath, *includeThoughts)
-		if err == nil {
-			updated = rewritten
-		}
-	}
-	return updated
-}
-
 func GeminiThinkingFromMetadata(metadata map[string]any) (*int, *bool, bool) {
 	if len(metadata) == 0 {
 		return nil, nil, false
@@ -215,37 +192,5 @@ func StripThinkingConfigIfUnsupported(model string, body []byte) []byte {
 	updated := body
 	updated, _ = sjson.DeleteBytes(updated, "request.generationConfig.thinkingConfig")
 	updated, _ = sjson.DeleteBytes(updated, "generationConfig.thinkingConfig")
-	return updated
-}
-
-// ConvertThinkingLevelToBudget converts thinkingLevel to thinkingBudget for legacy models.
-func ConvertThinkingLevelToBudget(body []byte) []byte {
-	levelPath := "generationConfig.thinkingConfig.thinkingLevel"
-	res := gjson.GetBytes(body, levelPath)
-	if !res.Exists() {
-		return body
-	}
-
-	level := strings.ToLower(res.String())
-	var budget int
-	switch level {
-	case "high":
-		budget = 32768
-	case "low":
-		budget = 128
-	default:
-		return body
-	}
-
-	budgetPath := "generationConfig.thinkingConfig.thinkingBudget"
-	updated, err := sjson.SetBytes(body, budgetPath, budget)
-	if err != nil {
-		return body
-	}
-
-	updated, err = sjson.DeleteBytes(updated, levelPath)
-	if err != nil {
-		return body
-	}
 	return updated
 }

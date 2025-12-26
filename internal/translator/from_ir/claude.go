@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
-	"github.com/tidwall/gjson"
 )
 
 // Claude user tracking (matches old translator behavior)
@@ -349,10 +348,10 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 }
 
 func (p *ClaudeProvider) ParseResponse(responseJSON []byte) ([]ir.Message, *ir.Usage, error) {
-	if err := ir.ValidateJSON(responseJSON); err != nil {
+	parsed, err := ir.ParseAndValidateJSON(responseJSON)
+	if err != nil {
 		return nil, nil, err
 	}
-	parsed := gjson.ParseBytes(responseJSON)
 	usage := ir.ParseClaudeUsage(parsed.Get("usage"))
 
 	content := parsed.Get("content")
@@ -380,11 +379,11 @@ func (p *ClaudeProvider) ParseStreamChunkWithState(chunkJSON []byte, state *ir.C
 	if len(data) == 0 {
 		return nil, nil
 	}
-	if ir.ValidateJSON(data) != nil {
+	parsed, err := ir.ParseAndValidateJSON(data)
+	if err != nil {
 		return nil, nil // Ignore invalid chunks in streaming
 	}
 
-	parsed := gjson.ParseBytes(data)
 	switch parsed.Get("type").String() {
 	case ir.ClaudeSSEContentBlockStart:
 		return ir.ParseClaudeContentBlockStart(parsed, state), nil

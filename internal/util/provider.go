@@ -95,23 +95,6 @@ func ResolveAutoModel(modelName string) string {
 	return firstModel
 }
 
-// InArray checks if a string exists in a slice of strings.
-// It iterates through the slice and returns true if the target string is found,
-// otherwise it returns false.
-// Parameters:
-//   - hystack: The slice of strings to search in
-//   - needle: The string to search for
-//
-// Returns:
-//   - bool: True if the string is found, false otherwise
-func InArray(hystack []string, needle string) bool {
-	for _, item := range hystack {
-		if needle == item {
-			return true
-		}
-	}
-	return false
-}
 
 // HideAPIKey obscures an API key for logging purposes, showing only the first and last few characters.
 // Parameters:
