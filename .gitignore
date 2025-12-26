@@ -52,3 +52,4 @@ gitstore/
 .gemini/*
 .gemini
 server.pid
+gitstore.bak
