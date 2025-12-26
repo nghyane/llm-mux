@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"io/fs"
@@ -32,6 +31,7 @@ import (
 	sdkAuth "github.com/nghyane/llm-mux/sdk/auth"
 	coreauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	log "github.com/sirupsen/logrus"
+	flag "github.com/spf13/pflag"
 )
 
 var (
@@ -88,37 +88,11 @@ func main() {
 	flag.BoolVar(&initConfig, "init", false, "Initialize config and generate management key")
 	flag.BoolVar(&forceInit, "force", false, "Force regenerate management key (use with --init)")
 	flag.BoolVar(&updateFlag, "update", false, "Check for updates and install if available")
-	flag.StringVar(&projectID, "project_id", "", "Project ID (Gemini only, not required)")
+	flag.StringVar(&projectID, "project-id", "", "Project ID (Gemini only, not required)")
 	flag.StringVar(&configPath, "config", DefaultConfigPath, "Configure File Path")
 	flag.StringVar(&vertexImport, "vertex-import", "", "Import Vertex service account key JSON file")
 	flag.StringVar(&password, "password", "", "")
-
-	flag.CommandLine.Usage = func() {
-		out := flag.CommandLine.Output()
-		_, _ = fmt.Fprintf(out, "Usage of %s\n", os.Args[0])
-		flag.CommandLine.VisitAll(func(f *flag.Flag) {
-			if f.Name == "password" {
-				return
-			}
-			s := fmt.Sprintf("  -%s", f.Name)
-			name, unquoteUsage := flag.UnquoteUsage(f)
-			if name != "" {
-				s += " " + name
-			}
-			if len(s) <= 4 {
-				s += "	"
-			} else {
-				s += "\n    "
-			}
-			if unquoteUsage != "" {
-				s += unquoteUsage
-			}
-			if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "0" {
-				s += fmt.Sprintf(" (default %s)", f.DefValue)
-			}
-			_, _ = fmt.Fprint(out, s+"\n")
-		})
-	}
+	_ = flag.CommandLine.MarkHidden("password")
 
 	flag.Parse()
 
