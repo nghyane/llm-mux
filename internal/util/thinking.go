@@ -22,12 +22,9 @@ func ModelSupportsThinking(model string) bool {
 }
 
 // GetAutoAppliedThinkingConfig returns the default thinking configuration for a model
-// if it should be auto-applied (e.g. model supports thinking but no explicit config found).
-// Returns (budget, include_thoughts, should_apply).
+// if it should be auto-applied. Returns (budget, include_thoughts, should_apply).
 func GetAutoAppliedThinkingConfig(model string) (int, bool, bool) {
 	if ModelSupportsThinking(model) {
-		// Use fixed budget (1024) instead of dynamic (-1) as upstream might not support dynamic for Claude
-		// or other mapped models.
 		return DefaultThinkingBudget, true, true
 	}
 	return 0, false, false

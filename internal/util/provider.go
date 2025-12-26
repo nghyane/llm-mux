@@ -1,6 +1,4 @@
-// Package util provides utility functions used across the llm-mux application.
-// These functions handle common tasks such as determining AI service providers
-// from model names and managing HTTP proxies.
+// Package util provides utility functions for provider detection and header masking.
 package util
 
 import (
@@ -12,22 +10,7 @@ import (
 )
 
 // GetProviderName determines all AI service providers capable of serving a registered model.
-// It first queries the global model registry to retrieve the providers backing the supplied model name.
-// When the model has not been registered yet, it falls back to legacy string heuristics to infer
-// potential providers.
-// Supported providers include (but are not limited to):
-//   - "gemini" for Google's Gemini family
-//   - "codex" for OpenAI GPT-compatible providers
-//   - "claude" for Anthropic models
-//   - "qwen" for Alibaba's Qwen models
-//   - "openai-compatibility" for external OpenAI-compatible providers
-//
-// Parameters:
-//   - modelName: The name of the model to identify providers for.
-//   - cfg: The application configuration containing OpenAI compatibility settings.
-//
-// Returns:
-//   - []string: All provider identifiers capable of serving the model, ordered by preference.
+// It queries the model registry and returns providers ordered by preference.
 func GetProviderName(modelName string) []string {
 	if modelName == "" {
 		log.Debugf("GetProviderName: empty modelName")
@@ -42,43 +25,24 @@ func GetProviderName(modelName string) []string {
 	modelProviders := registry.GetGlobalRegistry().GetModelProviders(cleanModelName)
 	log.Debugf("GetProviderName: modelProviders=%v", modelProviders)
 
-	// Return all providers for load balancing and fallback
-	// selectProviders() handles round-robin, pickNext() handles quota-based skipping
 	return modelProviders
 }
 
-// NormalizeIncomingModelID is the main entry point for normalizing model IDs from client requests.
-// This should be called once at the beginning of request processing to ensure consistent
-// model ID handling throughout the system.
-// Examples:
-//   - "[Gemini CLI] gemini-2.5-flash" -> "gemini-2.5-flash"
-//   - "[Antigravity] claude-3-sonnet" -> "claude-3-sonnet"
-//   - "[Gemini] gemini-2.5-flash" -> "gemini-2.5-flash"
-//   - "gemini-2.5-flash" -> "gemini-2.5-flash"
+// NormalizeIncomingModelID normalizes model IDs from client requests.
+// Examples: "[Gemini CLI] model" -> "model", "[Antigravity] model" -> "model"
 func NormalizeIncomingModelID(modelID string) string {
 	normalizer := registry.NewModelIDNormalizer()
 	return normalizer.NormalizeModelID(modelID)
 }
 
 // ExtractProviderFromPrefixedModelID extracts the provider type from a prefixed model ID.
-// Returns empty string if no prefix is present.
-// Examples:
-//   - "[Gemini CLI] gemini-2.5-flash" -> "gemini-cli"
-//   - "[Antigravity] model" -> "antigravity"
-//   - "[Gemini] gemini-2.5-flash" -> "gemini"
-//   - "gemini-2.5-flash" -> ""
+// Examples: "[Gemini CLI] model" -> "gemini-cli", "model" -> ""
 func ExtractProviderFromPrefixedModelID(modelID string) string {
 	normalizer := registry.NewModelIDNormalizer()
 	return normalizer.ExtractProviderFromPrefixedID(modelID)
 }
 
 // ResolveAutoModel resolves the "auto" model name to an actual available model.
-// It uses an empty handler type to get any available model from the registry.
-// Parameters:
-//   - modelName: The model name to check (should be "auto")
-//
-// Returns:
-//   - string: The resolved model name, or the original if not "auto" or resolution fails
 func ResolveAutoModel(modelName string) string {
 	if modelName != "auto" {
 		return modelName
@@ -96,12 +60,7 @@ func ResolveAutoModel(modelName string) string {
 }
 
 
-// HideAPIKey obscures an API key for logging purposes, showing only the first and last few characters.
-// Parameters:
-//   - apiKey: The API key to hide.
-//
-// Returns:
-//   - string: The obscured API key.
+// HideAPIKey obscures an API key for logging, showing only first and last few characters.
 func HideAPIKey(apiKey string) string {
 	if len(apiKey) > 8 {
 		return apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
@@ -113,14 +72,7 @@ func HideAPIKey(apiKey string) string {
 	return apiKey
 }
 
-// maskAuthorizationHeader masks the Authorization header value while preserving the auth type prefix.
-// Common formats: "Bearer <token>", "Basic <credentials>", "ApiKey <key>", etc.
-// It preserves the prefix (e.g., "Bearer ") and only masks the token/credential part.
-// Parameters:
-//   - value: The Authorization header value
-//
-// Returns:
-//   - string: The masked Authorization value with prefix preserved
+// MaskAuthorizationHeader masks the Authorization header value while preserving the auth type prefix.
 func MaskAuthorizationHeader(value string) string {
 	parts := strings.SplitN(strings.TrimSpace(value), " ", 2)
 	if len(parts) < 2 {
@@ -130,17 +82,7 @@ func MaskAuthorizationHeader(value string) string {
 }
 
 // MaskSensitiveHeaderValue masks sensitive header values while preserving expected formats.
-// Behavior by header key (case-insensitive):
-//   - "Authorization": Preserve the auth type prefix (e.g., "Bearer ") and mask only the credential part.
-//   - Headers containing "api-key": Mask the entire value using HideAPIKey.
-//   - Others: Return the original value unchanged.
-//
-// Parameters:
-//   - key:   The HTTP header name to inspect (case-insensitive matching).
-//   - value: The header value to mask when sensitive.
-//
-// Returns:
-//   - string: The masked value according to the header type; unchanged if not sensitive.
+// Handles Authorization headers (preserves auth type prefix) and API key headers.
 func MaskSensitiveHeaderValue(key, value string) string {
 	lowerKey := strings.ToLower(strings.TrimSpace(key))
 	switch {
