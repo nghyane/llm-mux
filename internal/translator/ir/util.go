@@ -36,24 +36,6 @@ func ExtractThoughtSignature(part gjson.Result) []byte {
 	return []byte(tsStr)
 }
 
-// ExtractThoughtSignatureString extracts thought signature as string (for backward compatibility).
-func ExtractThoughtSignatureString(part gjson.Result) string {
-	if ts := part.Get("thoughtSignature").String(); ts != "" {
-		return ts
-	}
-	return part.Get("thought_signature").String()
-}
-
-// ValidateJSON checks if the provided bytes are valid JSON.
-// Returns ErrInvalidJSON if validation fails.
-// DEPRECATED: Use ParseAndValidateJSON for better performance (avoids double-parsing).
-func ValidateJSON(rawJSON []byte) error {
-	if !gjson.ValidBytes(rawJSON) {
-		return ErrInvalidJSON
-	}
-	return nil
-}
-
 // ParseAndValidateJSON parses JSON and validates it in one operation.
 // This is more efficient than calling ValidateJSON + gjson.ParseBytes separately.
 // Returns the parsed result and nil error on success, or empty result and ErrInvalidJSON on failure.
@@ -78,13 +60,6 @@ var bytePool = sync.Pool{
 		b := make([]byte, 24) // OpenAI tool call ID length
 		return &b
 	},
-}
-
-func EstimateTokenCount(text string) int {
-	if text == "" {
-		return 0
-	}
-	return (utf8.RuneCountInString(text) + 2) / 3
 }
 
 func ParseOpenAIUsage(u gjson.Result) *Usage {
@@ -505,68 +480,6 @@ func MapStandardRole(role string) Role {
 	}
 }
 
-func MapFinishReasonToClaude(reason FinishReason) string {
-	switch reason {
-	case FinishReasonStop:
-		return "end_turn" // IR "stop" = Claude "end_turn"
-	case FinishReasonStopSequence:
-		return "stop_sequence"
-	case FinishReasonMaxTokens:
-		return "max_tokens"
-	case FinishReasonToolCalls:
-		return "tool_use"
-	default:
-		return "end_turn"
-	}
-}
-
-func MapFinishReasonToGemini(reason FinishReason) string {
-	switch reason {
-	case FinishReasonStop:
-		return "STOP"
-	case FinishReasonMaxTokens:
-		return "MAX_TOKENS"
-	case FinishReasonStopSequence:
-		return "STOP"
-	case FinishReasonToolCalls:
-		return "STOP"
-	case FinishReasonContentFilter:
-		return "SAFETY"
-	default:
-		return "OTHER"
-	}
-}
-
-// HasThoughtSignatureOnly checks if a Gemini part contains only thoughtSignature.
-func HasThoughtSignatureOnly(thoughtSig, thoughtSigSnake, text, functionCall, inlineData, inlineDataSnake any) bool {
-	getString := func(r any) string {
-		if r == nil {
-			return ""
-		}
-		if sg, ok := r.(interface{ String() string }); ok {
-			return sg.String()
-		}
-		return ""
-	}
-	exists := func(r any) bool {
-		if r == nil {
-			return false
-		}
-		if ec, ok := r.(interface{ Exists() bool }); ok {
-			return ec.Exists()
-		}
-		return false
-	}
-
-	hasThoughtSig := (exists(thoughtSig) && getString(thoughtSig) != "") ||
-		(exists(thoughtSigSnake) && getString(thoughtSigSnake) != "")
-
-	if !hasThoughtSig {
-		return false
-	}
-
-	return !(exists(text) || exists(functionCall) || exists(inlineData) || exists(inlineDataSnake))
-}
 
 // schemaCache caches cleaned schemas to avoid repeated processing.
 // Uses sync.Map for concurrent access without locks on read path.
