@@ -3,12 +3,12 @@ package from_ir
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 

@@ -1,8 +1,8 @@
 package management
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 
 	"github.com/gin-gonic/gin"

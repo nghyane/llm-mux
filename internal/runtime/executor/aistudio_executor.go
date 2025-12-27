@@ -3,8 +3,8 @@ package executor
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"net/http"
 	"net/url"
 	"strings"

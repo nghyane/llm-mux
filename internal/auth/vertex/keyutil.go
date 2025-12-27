@@ -4,9 +4,9 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 )
 

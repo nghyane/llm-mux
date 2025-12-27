@@ -2,8 +2,8 @@ package ir
 
 import (
 	"crypto/rand"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -478,7 +478,6 @@ func MapStandardRole(role string) Role {
 		return RoleUser
 	}
 }
-
 
 // schemaCache caches cleaned schemas to avoid repeated processing.
 // Uses sync.Map for concurrent access without locks on read path.

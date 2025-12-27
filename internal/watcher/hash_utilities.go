@@ -3,8 +3,8 @@ package watcher
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"reflect"
 	"sort"
 	"strings"

@@ -1,6 +1,6 @@
 package ir
 
-import "encoding/json"
+import "github.com/nghyane/llm-mux/internal/json"
 
 // ToClaudeToolID converts tool call ID to Claude format (toolu_...).
 // Optimized: avoids allocation if already in correct format.

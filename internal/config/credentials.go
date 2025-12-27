@@ -3,8 +3,8 @@ package config
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"os"
 	"path/filepath"
 	"strings"

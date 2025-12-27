@@ -2,9 +2,9 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"io/fs"
 	"os"
 	"path/filepath"
