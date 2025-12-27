@@ -3,8 +3,8 @@
 package vertex
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"os"
 	"path/filepath"
 

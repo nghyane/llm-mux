@@ -2,7 +2,6 @@
 package to_ir
 
 import (
-	"encoding/json"
 	"os"
 	"strings"
 	"time"
@@ -10,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
+	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 

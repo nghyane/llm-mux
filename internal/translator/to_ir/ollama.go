@@ -2,11 +2,11 @@
 package to_ir
 
 import (
-	"encoding/json"
 	"strings"
 
 	"github.com/tidwall/gjson"
 
+	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 

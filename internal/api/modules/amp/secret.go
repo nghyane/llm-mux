@@ -2,8 +2,8 @@ package amp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"os"
 	"path/filepath"
 	"strings"

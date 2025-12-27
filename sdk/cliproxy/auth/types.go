@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 	"sync"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	baseauth "github.com/nghyane/llm-mux/internal/auth"
+	"github.com/nghyane/llm-mux/internal/json"
 )
 
 // Auth encapsulates the runtime state and metadata associated with a single credential.

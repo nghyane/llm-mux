@@ -1,10 +1,11 @@
 package auth
 
 import (
-	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nghyane/llm-mux/internal/json"
 )
 
 // parseDurationValue converts various types to time.Duration (in seconds).

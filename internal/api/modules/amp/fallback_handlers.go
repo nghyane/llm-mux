@@ -2,7 +2,7 @@ package amp
 
 import (
 	"bytes"
-	"encoding/json"
+	"github.com/nghyane/llm-mux/internal/json"
 	"io"
 	"net/http/httputil"
 	"strings"

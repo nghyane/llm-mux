@@ -2,7 +2,7 @@ package wsrelay
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"github.com/nghyane/llm-mux/internal/json"
 )
 
 // Message represents the JSON payload exchanged with websocket clients.

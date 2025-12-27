@@ -2,8 +2,8 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 
 	"github.com/nghyane/llm-mux/internal/config"

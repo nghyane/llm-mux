@@ -2,8 +2,8 @@
 package util
 
 import (
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 	"sync"
 

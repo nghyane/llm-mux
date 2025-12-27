@@ -49,7 +49,7 @@
 package ir
 
 import (
-	"encoding/json"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 
 	"github.com/tidwall/gjson"

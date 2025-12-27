@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/auth/kiro"
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/constant"
+	"github.com/nghyane/llm-mux/internal/json"
 	coreauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 )
 

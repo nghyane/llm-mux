@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nghyane/llm-mux/internal/json"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
 )
 

@@ -2,8 +2,8 @@ package codex
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
 	"time"
 )

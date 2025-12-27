@@ -2,9 +2,9 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"net/http"
 	"os"
 	"strings"

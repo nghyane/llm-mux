@@ -26,8 +26,8 @@ package executor
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
+	"github.com/nghyane/llm-mux/internal/json"
 	"io"
 	"net/http"
 	"strings"

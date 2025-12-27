@@ -2,7 +2,6 @@ package auth
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -11,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nghyane/llm-mux/internal/json"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 )
 
