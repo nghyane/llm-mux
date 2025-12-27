@@ -954,6 +954,12 @@ func buildFunctionResponseObject(result string, isError bool) any {
 }
 
 func (p *GeminiProvider) applyThinkingConfig(genConfig map[string]any, req *ir.UnifiedChatRequest, isGemini3 bool) {
+	// Explicitly disabled via metadata for non-streaming Claude via Antigravity
+	// See: translator_wrapper.go TranslateToGeminiCLIWithTokens
+	if force, _ := req.Metadata[ir.MetaForceDisableThinking].(bool); force {
+		return
+	}
+
 	// Get auto config from registry - only models with Thinking metadata get auto=true
 	budget, include, auto := util.GetAutoAppliedThinkingConfig(req.Model)
 

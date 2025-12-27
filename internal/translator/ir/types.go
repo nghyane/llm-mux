@@ -29,6 +29,9 @@ const (
 	MetaGeminiLabels        = "gemini:labels"
 
 	MetaClaudeMetadata = "claude:metadata"
+
+	// Internal flags (prefixed with _ to indicate internal use)
+	MetaForceDisableThinking = "_force_disable_thinking" // Set by translator_wrapper for non-streaming Claude via Antigravity
 )
 
 type EventType string

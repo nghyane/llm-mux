@@ -872,6 +872,7 @@ func emitFinishTo(result *strings.Builder, usage *ir.Usage, state *ClaudeStreamS
 		}))
 		state.TextBlockStarted = false
 		state.TextBlockIndex++
+		state.CurrentBlockType = ""
 	}
 
 	// Client requirement: If we only emitted thinking (no text, no tool calls), inject empty text block
