@@ -67,7 +67,7 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 	if err != nil {
 		return resp, err
 	}
-	e.applyHeaders(httpReq, apiToken)
+	applyCopilotHeaders(httpReq, apiToken, false)
 
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
@@ -128,7 +128,7 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 	if err != nil {
 		return nil, err
 	}
-	e.applyHeaders(httpReq, apiToken)
+	applyCopilotHeaders(httpReq, apiToken, true)
 
 	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
@@ -229,16 +229,18 @@ func (e *GitHubCopilotExecutor) ensureAPIToken(ctx context.Context, auth *clipro
 	return result.(string), nil
 }
 
-func (e *GitHubCopilotExecutor) applyHeaders(r *http.Request, apiToken string) {
-	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("Authorization", "Bearer "+apiToken)
-	r.Header.Set("Accept", "application/json")
-	r.Header.Set("User-Agent", DefaultCopilotUserAgent)
-	r.Header.Set("Editor-Version", CopilotEditorVersion)
-	r.Header.Set("Editor-Plugin-Version", CopilotPluginVersion)
-	r.Header.Set("Openai-Intent", CopilotOpenAIIntent)
-	r.Header.Set("Copilot-Integration-Id", CopilotIntegrationID)
-	r.Header.Set("X-Request-Id", uuid.NewString())
+func applyCopilotHeaders(r *http.Request, apiToken string, stream bool) {
+	ApplyAPIHeaders(r, HeaderConfig{
+		Token:     apiToken,
+		UserAgent: DefaultCopilotUserAgent,
+		ExtraHeaders: map[string]string{
+			"Editor-Version":         CopilotEditorVersion,
+			"Editor-Plugin-Version":  CopilotPluginVersion,
+			"Openai-Intent":          CopilotOpenAIIntent,
+			"Copilot-Integration-Id": CopilotIntegrationID,
+			"X-Request-Id":           uuid.NewString(),
+		},
+	}, stream)
 }
 
 func isHTTPSuccessCode(statusCode int) bool {

@@ -12,12 +12,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
-// Claude user tracking (matches old translator behavior)
-var (
-	claudeUser    = ""
-	claudeAccount = ""
-	claudeSession = ""
-)
+// Claude user tracking (per-request, no global state)
 
 func toClaudeToolID(id string) string { return ir.ToClaudeToolID(id) }
 
@@ -44,18 +39,18 @@ func NewClaudeStreamState() *ClaudeStreamState {
 }
 
 func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
-	if claudeAccount == "" {
-		u, _ := uuid.NewRandom()
-		claudeAccount = u.String()
-	}
-	if claudeSession == "" {
-		u, _ := uuid.NewRandom()
-		claudeSession = u.String()
-	}
-	if claudeUser == "" {
-		sum := sha256.Sum256([]byte(claudeAccount + claudeSession))
-		claudeUser = hex.EncodeToString(sum[:])
-	}
+	// Generate per-request user tracking IDs
+	claudeAccount := ""
+	claudeSession := ""
+	claudeUser := ""
+
+	u, _ := uuid.NewRandom()
+	claudeAccount = u.String()
+	u, _ = uuid.NewRandom()
+	claudeSession = u.String()
+	sum := sha256.Sum256([]byte(claudeAccount + claudeSession))
+	claudeUser = hex.EncodeToString(sum[:])
+
 	userID := fmt.Sprintf("user_%s_account_%s_session_%s", claudeUser, claudeAccount, claudeSession)
 
 	root := map[string]any{
@@ -119,7 +114,7 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 				root["system"] = text
 			}
 		case ir.RoleUser:
-			if parts := buildClaudeContentParts(msg, false, false); len(parts) > 0 {
+			if parts := ir.BuildClaudeContentParts(msg, false, false); len(parts) > 0 {
 				msgObj := map[string]any{"role": ir.ClaudeRoleUser, "content": parts}
 				// Add cache_control if present
 				if msg.CacheControl != nil {
@@ -133,7 +128,7 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 			}
 		case ir.RoleAssistant:
 			// Pass thinkingEnabled to inject placeholder if needed
-			if parts := buildClaudeContentParts(msg, isAssistantWithToolUse(msg), thinkingEnabled); len(parts) > 0 {
+			if parts := ir.BuildClaudeContentParts(msg, isAssistantWithToolUse(msg), thinkingEnabled); len(parts) > 0 {
 				msgObj := map[string]any{"role": ir.ClaudeRoleAssistant, "content": parts}
 				// Add cache_control if present
 				if msg.CacheControl != nil {
@@ -223,7 +218,7 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 	for _, t := range req.Tools {
 		tool := map[string]any{"name": t.Name, "description": t.Description}
 		if len(t.Parameters) > 0 {
-			tool["input_schema"] = ir.CleanJsonSchemaForClaude(copyMap(t.Parameters))
+			tool["input_schema"] = ir.CleanJsonSchemaForClaude(ir.CopyMap(t.Parameters))
 		} else {
 			tool["input_schema"] = map[string]any{
 				"type": "object", "properties": map[string]any{}, "additionalProperties": false, "$schema": ir.JSONSchemaDraft202012,
@@ -308,8 +303,42 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 		}
 	}
 
+	// Handle tool_choice: when "none", don't send tools at all (Claude has no explicit "none" mode)
+	if req.ToolChoice == "none" {
+		// Explicitly disable tools by not sending them
+		tools = nil
+	}
+
 	if len(tools) > 0 {
 		root["tools"] = tools
+
+		// Set tool_choice mode with disable_parallel_tool_use support
+		if req.ToolChoice == "function" && req.ToolChoiceFunction != "" {
+			toolChoice := map[string]any{
+				"type": "tool",
+				"name": req.ToolChoiceFunction,
+			}
+			// Emit disable_parallel_tool_use if ParallelToolCalls is explicitly set to false
+			if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
+				toolChoice["disable_parallel_tool_use"] = true
+			}
+			root["tool_choice"] = toolChoice
+		} else if req.ToolChoice == "required" || req.ToolChoice == "any" {
+			toolChoice := map[string]any{"type": "any"}
+			// Emit disable_parallel_tool_use if ParallelToolCalls is explicitly set to false
+			if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
+				toolChoice["disable_parallel_tool_use"] = true
+			}
+			root["tool_choice"] = toolChoice
+		} else if req.ToolChoice == "auto" {
+			toolChoice := map[string]any{"type": "auto"}
+			// Note: Claude also supports disable_parallel_tool_use on "auto" type
+			if req.ParallelToolCalls != nil && !*req.ParallelToolCalls {
+				toolChoice["disable_parallel_tool_use"] = true
+			}
+			root["tool_choice"] = toolChoice
+		}
+		// Default: omit tool_choice, Claude defaults to "auto"
 	}
 
 	// Add MCP servers if present
@@ -441,7 +470,11 @@ func ToClaudeSSE(event ir.UnifiedEvent, model, messageID string, state *ClaudeSt
 	case ir.EventTypeToken:
 		emitTextDeltaTo(result, event.Content, state)
 	case ir.EventTypeReasoning:
-		emitThinkingDeltaTo(result, event.Reasoning, event.ThoughtSignature, state)
+		if event.RedactedData != "" {
+			emitRedactedThinkingDeltaTo(result, event.RedactedData, state)
+		} else {
+			emitThinkingDeltaTo(result, event.Reasoning, event.ThoughtSignature, state)
+		}
 	case ir.EventTypeToolCall:
 		if event.ToolCall != nil {
 			emitToolCallTo(result, event.ToolCall, state)
@@ -495,210 +528,6 @@ func ToClaudeResponse(messages []ir.Message, usage *ir.Usage, model, messageID s
 		response["usage"] = usageMap
 	}
 	return json.Marshal(response)
-}
-
-func buildClaudeContentParts(msg ir.Message, includeToolCalls bool, thinkingEnabled bool) []any {
-	// Pre-allocate with estimated capacity
-	capacity := len(msg.Content)
-	if includeToolCalls {
-		capacity += len(msg.ToolCalls)
-	}
-	parts := make([]any, 0, capacity)
-
-	// Check if we have thinking content and text/tool content
-	hasThinking := false
-	hasTextOrImage := false
-	for i := range msg.Content {
-		switch msg.Content[i].Type {
-		case ir.ContentTypeReasoning:
-			if msg.Content[i].Reasoning != "" {
-				hasThinking = true
-			}
-		case ir.ContentTypeText, ir.ContentTypeImage:
-			hasTextOrImage = true
-		}
-	}
-
-	for i := range msg.Content {
-		p := &msg.Content[i]
-		switch p.Type {
-		case ir.ContentTypeReasoning:
-			if p.Reasoning != "" {
-				thinkingBlock := map[string]any{"type": ir.ClaudeBlockThinking, "thinking": p.Reasoning}
-				if len(p.ThoughtSignature) > 0 {
-					thinkingBlock["signature"] = string(p.ThoughtSignature)
-				}
-				parts = append(parts, thinkingBlock)
-			}
-		case ir.ContentTypeText:
-			if p.Text != "" {
-				parts = append(parts, map[string]any{"type": ir.ClaudeBlockText, "text": p.Text})
-			}
-		case ir.ContentTypeImage:
-			if p.Image != nil {
-				imgBlock := map[string]any{"type": ir.ClaudeBlockImage}
-				if p.Image.Data != "" {
-					// Base64-encoded image
-					imgBlock["source"] = map[string]any{
-						"type":       "base64",
-						"media_type": p.Image.MimeType,
-						"data":       p.Image.Data,
-					}
-				} else if p.Image.URL != "" {
-					// URL-referenced image
-					imgBlock["source"] = map[string]any{
-						"type": "url",
-						"url":  p.Image.URL,
-					}
-				} else if p.Image.FileID != "" {
-					// Claude Files API reference
-					imgBlock["source"] = map[string]any{
-						"type":    "file",
-						"file_id": p.Image.FileID,
-					}
-				}
-				if _, hasSource := imgBlock["source"]; hasSource {
-					parts = append(parts, imgBlock)
-				}
-			}
-		case ir.ContentTypeFile:
-			if p.File != nil {
-				// Claude document block
-				docBlock := map[string]any{"type": ir.ClaudeBlockDocument}
-				if p.File.Filename != "" {
-					docBlock["title"] = p.File.Filename
-				}
-				source := map[string]any{}
-				if p.File.FileData != "" {
-					source["type"] = "base64"
-					source["data"] = p.File.FileData
-					// Use stored MimeType or default to application/pdf
-					if p.File.MimeType != "" {
-						source["media_type"] = p.File.MimeType
-					} else {
-						source["media_type"] = "application/pdf"
-					}
-				} else if p.File.FileURL != "" {
-					source["type"] = "url"
-					source["url"] = p.File.FileURL
-				} else if p.File.FileID != "" {
-					source["type"] = "file"
-					source["file_id"] = p.File.FileID
-				}
-				if len(source) > 0 {
-					docBlock["source"] = source
-					parts = append(parts, docBlock)
-				}
-			}
-		case ir.ContentTypeToolResult:
-			if p.ToolResult != nil {
-				// Build the tool_result block
-				toolResultBlock := map[string]any{
-					"type":        ir.ClaudeBlockToolResult,
-					"tool_use_id": p.ToolResult.ToolCallID,
-				}
-				// Add is_error if tool execution failed
-				if p.ToolResult.IsError {
-					toolResultBlock["is_error"] = true
-				}
-
-				// Check if we have images or files
-				hasMedia := len(p.ToolResult.Images) > 0 || len(p.ToolResult.Files) > 0
-
-				if hasMedia {
-					// Build content array with text, images, and documents
-					var content []any
-
-					// Add text content if present
-					if p.ToolResult.Result != "" {
-						content = append(content, map[string]any{
-							"type": "text",
-							"text": p.ToolResult.Result,
-						})
-					}
-
-					// Add images if present
-					for _, img := range p.ToolResult.Images {
-						if img.Data != "" {
-							content = append(content, map[string]any{
-								"type": ir.ClaudeBlockImage,
-								"source": map[string]any{
-									"type":       "base64",
-									"media_type": img.MimeType,
-									"data":       img.Data,
-								},
-							})
-						} else if img.URL != "" {
-							content = append(content, map[string]any{
-								"type": ir.ClaudeBlockImage,
-								"source": map[string]any{
-									"type": "url",
-									"url":  img.URL,
-								},
-							})
-						} else if img.FileID != "" {
-							content = append(content, map[string]any{
-								"type": ir.ClaudeBlockImage,
-								"source": map[string]any{
-									"type":    "file",
-									"file_id": img.FileID,
-								},
-							})
-						}
-					}
-
-					// Add files/documents if present
-					for _, file := range p.ToolResult.Files {
-						docBlock := map[string]any{"type": ir.ClaudeBlockDocument}
-						if file.Filename != "" {
-							docBlock["title"] = file.Filename
-						}
-						source := map[string]any{}
-						if file.FileData != "" {
-							source["type"] = "base64"
-							source["data"] = file.FileData
-							if file.MimeType != "" {
-								source["media_type"] = file.MimeType
-							}
-						} else if file.FileURL != "" {
-							source["type"] = "url"
-							source["url"] = file.FileURL
-						} else if file.FileID != "" {
-							source["type"] = "file"
-							source["file_id"] = file.FileID
-						}
-						if len(source) > 0 {
-							docBlock["source"] = source
-							content = append(content, docBlock)
-						}
-					}
-
-					toolResultBlock["content"] = content
-				} else {
-					// No images/files, use simple string content
-					toolResultBlock["content"] = p.ToolResult.Result
-				}
-
-				parts = append(parts, toolResultBlock)
-			}
-		}
-	}
-	if includeToolCalls {
-		for i := range msg.ToolCalls {
-			tc := &msg.ToolCalls[i]
-			toolUse := map[string]any{"type": ir.ClaudeBlockToolUse, "id": toClaudeToolID(tc.ID), "name": tc.Name}
-			toolUse["input"] = ir.ParseToolCallArgs(tc.Args)
-			parts = append(parts, toolUse)
-		}
-	}
-
-	// Client requirement: Response must have text or tool calls, not just thinking
-	// If we only have thinking content (no text, no tool calls), add text block with space
-	if hasThinking && !hasTextOrImage && len(msg.ToolCalls) == 0 {
-		parts = append(parts, map[string]any{"type": ir.ClaudeBlockText, "text": " "})
-	}
-
-	return parts
 }
 
 // sseBuffer wraps a byte slice for pooling (pointer type for sync.Pool).
@@ -780,6 +609,20 @@ func emitTextDeltaTo(result *strings.Builder, text string, state *ClaudeStreamSt
 // emitThinkingDeltaTo writes thinking delta SSE to builder.
 // If signature is non-empty, also emits signature_delta event.
 func emitThinkingDeltaTo(result *strings.Builder, thinking string, signature []byte, state *ClaudeStreamState) {
+	// Signature-only event (no thinking content): only emit signature_delta to existing block
+	// Don't start a new thinking block just for signature
+	if thinking == "" && len(signature) > 0 {
+		if state != nil && state.TextBlockStarted && state.CurrentBlockType == ir.ClaudeBlockThinking {
+			// Emit signature to existing thinking block
+			result.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{
+				"type": ir.ClaudeSSEContentBlockDelta, "index": state.TextBlockIndex,
+				"delta": map[string]any{"type": "signature_delta", "signature": string(signature)},
+			}))
+		}
+		// If no thinking block is open, signature is dropped (this shouldn't happen in practice)
+		return
+	}
+
 	idx := 0
 	if state != nil {
 		// Switch block if needed
@@ -817,6 +660,36 @@ func emitThinkingDeltaTo(result *strings.Builder, thinking string, signature []b
 			"delta": map[string]any{"type": "signature_delta", "signature": string(signature)},
 		}))
 	}
+}
+
+// emitRedactedThinkingDeltaTo writes redacted thinking delta SSE to builder.
+func emitRedactedThinkingDeltaTo(result *strings.Builder, data string, state *ClaudeStreamState) {
+	idx := 0
+	if state != nil {
+		// Switch block if needed
+		if state.TextBlockStarted && state.CurrentBlockType != ir.ClaudeBlockRedactedThinking {
+			result.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{
+				"type": ir.ClaudeSSEContentBlockStop, "index": state.TextBlockIndex,
+			}))
+			state.TextBlockStarted = false
+			state.TextBlockIndex++
+		}
+
+		idx = state.TextBlockIndex
+		if !state.TextBlockStarted {
+			state.TextBlockStarted = true
+			state.CurrentBlockType = ir.ClaudeBlockRedactedThinking
+			result.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{
+				"type": ir.ClaudeSSEContentBlockStart, "index": idx,
+				"content_block": map[string]any{"type": ir.ClaudeBlockRedactedThinking, "data": ""},
+			}))
+		}
+	}
+
+	result.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{
+		"type": ir.ClaudeSSEContentBlockDelta, "index": idx,
+		"delta": map[string]any{"type": ir.ClaudeDeltaRedactedThinking, "data": data},
+	}))
 }
 
 // emitToolCallTo writes tool call SSE to builder.
@@ -897,10 +770,15 @@ func emitFinishTo(result *strings.Builder, usage *ir.Usage, state *ClaudeStreamS
 		stopReason = ir.ClaudeStopToolUse
 	}
 	delta := map[string]any{"type": ir.ClaudeSSEMessageDelta, "delta": map[string]any{"stop_reason": stopReason}}
+	// Anthropic SDK requires usage field in message_delta - always include it
+	usageMap := map[string]any{"output_tokens": int64(0)}
 	if usage != nil {
 		// Claude spec: output_tokens includes both regular output and thinking/reasoning tokens
 		outputTokens := usage.CompletionTokens + int64(usage.ThoughtsTokenCount)
-		usageMap := map[string]any{"input_tokens": usage.PromptTokens, "output_tokens": outputTokens}
+		usageMap["output_tokens"] = outputTokens
+		if usage.PromptTokens > 0 {
+			usageMap["input_tokens"] = usage.PromptTokens
+		}
 		if usage.CacheCreationInputTokens > 0 {
 			usageMap["cache_creation_input_tokens"] = usage.CacheCreationInputTokens
 		}
@@ -910,8 +788,8 @@ func emitFinishTo(result *strings.Builder, usage *ir.Usage, state *ClaudeStreamS
 		} else if usage.PromptTokensDetails != nil && usage.PromptTokensDetails.CachedTokens > 0 {
 			usageMap["cache_read_input_tokens"] = usage.PromptTokensDetails.CachedTokens
 		}
-		delta["usage"] = usageMap
 	}
+	delta["usage"] = usageMap
 	result.WriteString(formatSSE(ir.ClaudeSSEMessageDelta, delta))
 	result.WriteString(formatSSE(ir.ClaudeSSEMessageStop, map[string]any{"type": ir.ClaudeSSEMessageStop}))
 }
@@ -921,31 +799,6 @@ func errMsg(err error) string {
 		return err.Error()
 	}
 	return "Unknown error"
-}
-
-func copyMap(m map[string]any) map[string]any {
-	if m == nil {
-		return nil
-	}
-	result := make(map[string]any, len(m))
-	for k, v := range m {
-		if nested, ok := v.(map[string]any); ok {
-			result[k] = copyMap(nested)
-		} else if arr, ok := v.([]any); ok {
-			newArr := make([]any, len(arr))
-			for i, item := range arr {
-				if nestedMap, ok := item.(map[string]any); ok {
-					newArr[i] = copyMap(nestedMap)
-				} else {
-					newArr[i] = item
-				}
-			}
-			result[k] = newArr
-		} else {
-			result[k] = v
-		}
-	}
-	return result
 }
 
 // isAssistantWithToolUse checks if the assistant message contains tool calls.

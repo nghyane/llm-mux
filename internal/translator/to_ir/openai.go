@@ -44,6 +44,9 @@ func ParseOpenAIRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 	} else if v := root.Get("max_output_tokens"); v.Exists() {
 		i := int(v.Int())
 		req.MaxTokens = &i
+	} else if v := root.Get("max_completion_tokens"); v.Exists() {
+		i := int(v.Int())
+		req.MaxTokens = &i
 	}
 
 	if v := root.Get("stop"); v.Exists() {
@@ -153,13 +156,6 @@ func ParseOpenAIRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 		}
 	}
 
-	if v := root.Get("tool_choice"); v.Exists() {
-		if v.IsObject() {
-			req.ToolChoice = "required"
-		} else {
-			req.ToolChoice = v.String()
-		}
-	}
 	if v := root.Get("parallel_tool_calls"); v.Exists() {
 		b := v.Bool()
 		req.ParallelToolCalls = &b
@@ -184,15 +180,37 @@ func ParseOpenAIRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 		}
 	}
 
+	if prediction := root.Get("prediction"); prediction.Exists() && prediction.IsObject() {
+		pType := prediction.Get("type").String()
+		if pType == "content" {
+			req.Prediction = &ir.PredictionConfig{
+				Type:    pType,
+				Content: prediction.Get("content").String(),
+			}
+		}
+	}
+
+	if so := root.Get("stream_options"); so.Exists() && so.IsObject() {
+		req.StreamOptions = &ir.StreamOptionsConfig{
+			IncludeUsage: so.Get("include_usage").Bool(),
+		}
+	}
+
 	req.Thinking = parseThinkingConfig(root)
 
 	if rf := root.Get("response_format"); rf.Exists() {
 		if rf.Get("type").String() == "json_schema" {
+			if name := rf.Get("json_schema.name"); name.Exists() {
+				req.ResponseSchemaName = name.String()
+			}
 			if schema := rf.Get("json_schema.schema"); schema.Exists() {
 				var schemaMap map[string]any
 				if json.Unmarshal([]byte(schema.Raw), &schemaMap) == nil {
 					req.ResponseSchema = schemaMap
 				}
+			}
+			if strict := rf.Get("json_schema.strict"); strict.Exists() {
+				req.ResponseSchemaStrict = strict.Bool()
 			}
 		} else if rf.Get("type").String() == "json_object" {
 			req.Metadata["ollama_format"] = "json"
@@ -215,6 +233,40 @@ func ParseOpenAIRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 	// Parse service_tier if present (OpenAI-specific)
 	if v := root.Get("service_tier"); v.Exists() && v.String() != "" {
 		req.ServiceTier = ir.ServiceTier(v.String())
+	}
+
+	if v := root.Get("tool_choice"); v.Exists() {
+		if v.IsObject() {
+			tcType := v.Get("type").String()
+			if tcType == "function" {
+				req.ToolChoice = "function"
+				if fn := v.Get("function.name"); fn.Exists() {
+					req.ToolChoiceFunction = fn.String()
+				}
+				// Parse allowed_tools for GPT-5+ (subset of tools model can use)
+				if allowed := v.Get("allowed_tools"); allowed.Exists() && allowed.IsArray() {
+					for _, t := range allowed.Array() {
+						req.AllowedTools = append(req.AllowedTools, t.String())
+					}
+				}
+			} else if tcType == "required" || tcType == "any" {
+				req.ToolChoice = tcType
+			} else if tcType == "none" || tcType == "auto" {
+				// Explicit none/auto in object format
+				req.ToolChoice = tcType
+			} else if tcType != "" {
+				// Unknown type - use as-is for forward compatibility
+				req.ToolChoice = tcType
+			} else if fn := v.Get("function.name"); fn.Exists() {
+				// Handle object format without explicit type but with function.name
+				// Some clients send: {"function": {"name": "..."}} without "type": "function"
+				req.ToolChoice = "function"
+				req.ToolChoiceFunction = fn.String()
+			}
+			// If tcType is empty and no function, leave ToolChoice unset (defaults to auto behavior)
+		} else {
+			req.ToolChoice = v.String()
+		}
 	}
 
 	return req, nil
@@ -653,6 +705,39 @@ func parseResponsesStreamEvent(eventType string, root gjson.Result) ([]ir.Unifie
 			},
 			ToolCallIndex: int(root.Get("output_index").Int()),
 		})
+	case "response.web_search_call.in_progress":
+		// Web search tool started - emit tool call event
+		events = append(events, ir.UnifiedEvent{
+			Type: ir.EventTypeToolCall,
+			ToolCall: &ir.ToolCall{
+				ID:   root.Get("item_id").String(),
+				Name: "web_search",
+				Args: "{}",
+			},
+		})
+
+	case "response.web_search_call.completed":
+		// Web search completed - could emit result or just ignore
+		return nil, nil
+
+	case "response.refusal.delta":
+		if delta := root.Get("delta").String(); delta != "" {
+			events = append(events, ir.UnifiedEvent{
+				Type:    ir.EventTypeToken,
+				Refusal: delta,
+			})
+		}
+
+	case "response.audio_transcript.delta":
+		if delta := root.Get("delta").String(); delta != "" {
+			events = append(events, ir.UnifiedEvent{
+				Type: ir.EventTypeAudio,
+				Audio: &ir.AudioPart{
+					Transcript: delta,
+				},
+			})
+		}
+
 	case "response.completed":
 		event := ir.UnifiedEvent{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}
 		if u := root.Get("response.usage"); u.Exists() {
@@ -779,15 +864,23 @@ func parseOpenAIContentPart(item gjson.Result, msg *ir.Message) *ir.ContentPart 
 			}
 		}
 	case "redacted_thinking":
-		// Claude Extended Thinking: Redacted thinking blocks (content hidden but preserved for protocol)
+		// Claude Extended Thinking: Redacted thinking blocks (encrypted content preserved for round-trip)
 		return &ir.ContentPart{
-			Type:             ir.ContentTypeReasoning,
-			Reasoning:        "[Redacted]",
-			ThoughtSignature: []byte(item.Get("data").String()), // Preserve opaque data if present
+			Type:         ir.ContentTypeRedactedThinking,
+			RedactedData: item.Get("data").String(),
 		}
 	case "image_url":
-		if img := parseDataURI(item.Get("image_url.url").String()); img != nil {
-			return &ir.ContentPart{Type: ir.ContentTypeImage, Image: img}
+		imageURL := item.Get("image_url")
+		if imageURL.Exists() {
+			url := imageURL.Get("url").String()
+			detail := imageURL.Get("detail").String()
+			if img := parseDataURI(url); img != nil {
+				img.Detail = detail
+				return &ir.ContentPart{Type: ir.ContentTypeImage, Image: img}
+			}
+			if url != "" {
+				return &ir.ContentPart{Type: ir.ContentTypeImage, Image: &ir.ImagePart{URL: url, Detail: detail}}
+			}
 		}
 	case "image":
 		mediaType := item.Get("source.media_type").String()

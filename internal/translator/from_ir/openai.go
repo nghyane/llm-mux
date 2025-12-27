@@ -52,6 +52,12 @@ func convertToChatCompletionsRequest(req *ir.UnifiedChatRequest) ([]byte, error)
 	if len(req.StopSequences) > 0 {
 		m["stop"] = req.StopSequences
 	}
+	if req.Prediction != nil && req.Prediction.Content != "" {
+		m["prediction"] = map[string]any{
+			"type":    req.Prediction.Type,
+			"content": req.Prediction.Content,
+		}
+	}
 	if req.Thinking != nil && req.Thinking.IncludeThoughts {
 		budget := 0
 		if req.Thinking.ThinkingBudget != nil {
@@ -62,11 +68,40 @@ func convertToChatCompletionsRequest(req *ir.UnifiedChatRequest) ([]byte, error)
 
 	var messages []any
 	for _, msg := range req.Messages {
+		// Special handling for RoleTool: each tool_result needs its own message
+		if msg.Role == ir.RoleTool {
+			for _, part := range msg.Content {
+				if part.Type == ir.ContentTypeToolResult && part.ToolResult != nil {
+					messages = append(messages, map[string]any{
+						"role":         "tool",
+						"tool_call_id": part.ToolResult.ToolCallID,
+						"content":      part.ToolResult.Result,
+					})
+				}
+			}
+			continue
+		}
 		if msgObj := convertMessageToOpenAI(msg); msgObj != nil {
 			messages = append(messages, msgObj)
 		}
 	}
 	m["messages"] = messages
+
+	if req.ResponseSchema != nil {
+		responseFormat := map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"schema": req.ResponseSchema,
+			},
+		}
+		if req.ResponseSchemaName != "" {
+			responseFormat["json_schema"].(map[string]any)["name"] = req.ResponseSchemaName
+		}
+		if req.ResponseSchemaStrict {
+			responseFormat["json_schema"].(map[string]any)["strict"] = true
+		}
+		m["response_format"] = responseFormat
+	}
 
 	// Build tools array (function tools + built-in tools from metadata)
 	var tools []any
@@ -132,7 +167,19 @@ func convertToChatCompletionsRequest(req *ir.UnifiedChatRequest) ([]byte, error)
 		m["tools"] = tools
 	}
 
-	if req.ToolChoice != "" {
+	if req.ToolChoice == "function" && req.ToolChoiceFunction != "" {
+		toolChoiceObj := map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": req.ToolChoiceFunction,
+			},
+		}
+		// GPT-5+: Add allowed_tools if specified
+		if len(req.AllowedTools) > 0 {
+			toolChoiceObj["allowed_tools"] = req.AllowedTools
+		}
+		m["tool_choice"] = toolChoiceObj
+	} else if req.ToolChoice != "" {
 		m["tool_choice"] = req.ToolChoice
 	}
 	if req.ParallelToolCalls != nil {
@@ -239,6 +286,22 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 		m["input"] = input
 	}
 
+	if req.ResponseSchema != nil {
+		responseFormat := map[string]any{
+			"type": "json_schema",
+			"json_schema": map[string]any{
+				"schema": req.ResponseSchema,
+			},
+		}
+		if req.ResponseSchemaName != "" {
+			responseFormat["json_schema"].(map[string]any)["name"] = req.ResponseSchemaName
+		}
+		if req.ResponseSchemaStrict {
+			responseFormat["json_schema"].(map[string]any)["strict"] = true
+		}
+		m["response_format"] = responseFormat
+	}
+
 	if req.Thinking != nil && (req.Thinking.IncludeThoughts || req.Thinking.Effort != "" || req.Thinking.Summary != "") {
 		reasoning := map[string]any{}
 		if req.Thinking.Effort != "" {
@@ -320,7 +383,14 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 		}
 	}
 
-	if req.ToolChoice != "" {
+	if req.ToolChoice == "function" && req.ToolChoiceFunction != "" {
+		m["tool_choice"] = map[string]any{
+			"type": "function",
+			"function": map[string]any{
+				"name": req.ToolChoiceFunction,
+			},
+		}
+	} else if req.ToolChoice != "" {
 		m["tool_choice"] = req.ToolChoice
 	}
 	if req.ParallelToolCalls != nil {
@@ -469,6 +539,11 @@ func ToOpenAIChatCompletionCandidates(candidates []ir.CandidateResult, usage *ir
 		"id": responseID, "object": "chat.completion", "created": created, "model": model, "choices": []any{},
 	}
 
+	// Add service_tier if present
+	if meta != nil && meta.ServiceTier != "" {
+		response["service_tier"] = meta.ServiceTier
+	}
+
 	var choices []any
 	for _, candidate := range candidates {
 		if len(candidate.Messages) == 0 {
@@ -582,6 +657,11 @@ func ToOpenAIChatCompletionMeta(messages []ir.Message, usage *ir.Usage, model, m
 
 	response := map[string]any{
 		"id": responseID, "object": "chat.completion", "created": created, "model": model, "choices": []any{},
+	}
+
+	// Add service_tier if present
+	if meta != nil && meta.ServiceTier != "" {
+		response["service_tier"] = meta.ServiceTier
 	}
 
 	if msg := builder.GetLastMessage(); msg != nil {

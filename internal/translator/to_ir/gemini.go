@@ -212,6 +212,38 @@ func ParseGeminiRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 		}
 	}
 
+	// Parse toolConfig for function calling configuration
+	if tc := parsed.Get("toolConfig.functionCallingConfig"); tc.Exists() {
+		mode := tc.Get("mode").String()
+		if mode != "" {
+			// Map Gemini mode to IR ToolChoice
+			switch strings.ToUpper(mode) {
+			case "AUTO":
+				req.ToolChoice = "auto"
+			case "ANY":
+				req.ToolChoice = "required" // Gemini "ANY" = always call a function
+			case "NONE":
+				req.ToolChoice = "none"
+			case "VALIDATED":
+				req.ToolChoice = "validated" // Preserve for outbound
+			default:
+				req.ToolChoice = strings.ToLower(mode) // Forward-compatible
+			}
+		}
+		// Parse allowedFunctionNames
+		if afn := tc.Get("allowedFunctionNames"); afn.Exists() && afn.IsArray() {
+			for _, name := range afn.Array() {
+				req.AllowedTools = append(req.AllowedTools, name.String())
+			}
+		}
+		// Also check snake_case variant
+		if afn := tc.Get("allowed_function_names"); afn.Exists() && afn.IsArray() {
+			for _, name := range afn.Array() {
+				req.AllowedTools = append(req.AllowedTools, name.String())
+			}
+		}
+	}
+
 	return req, nil
 }
 
@@ -314,7 +346,7 @@ func parseGeminiContent(c gjson.Result) ir.Message {
 				} else if strings.HasPrefix(mimeType, "audio/") {
 					msg.Content = append(msg.Content, ir.ContentPart{
 						Type:  ir.ContentTypeAudio,
-						Audio: &ir.AudioPart{MimeType: mimeType, Data: uri}, // Store fileUri in Data
+						Audio: &ir.AudioPart{MimeType: mimeType, FileURI: uri},
 					})
 				} else if strings.HasPrefix(mimeType, "video/") {
 					msg.Content = append(msg.Content, ir.ContentPart{
@@ -452,12 +484,21 @@ func ParseGeminiResponseCandidates(rawJSON []byte, schemaCtx *ir.ToolSchemaConte
 			groundingMeta = parseGroundingMetadata(gm)
 		}
 
+		// Parse citation metadata if not already in grounding metadata
+		if cm := parseCitationMetadata(candidate); cm != nil {
+			if groundingMeta == nil {
+				groundingMeta = &ir.GroundingMetadata{}
+			}
+			groundingMeta.CitationMetadata = cm
+		}
+
 		results = append(results, ir.CandidateResult{
 			Index:             i,
 			Messages:          []ir.Message{*msg},
 			FinishReason:      finishReason,
 			Logprobs:          parseGeminiLogprobs(candidate),
 			GroundingMetadata: groundingMeta,
+			SafetyRatings:     parseGeminiSafetyRatings(candidate),
 		})
 	}
 
@@ -551,6 +592,9 @@ func ParseGeminiResponseMetaWithContext(rawJSON []byte, schemaCtx *ir.ToolSchema
 	} else if gm := parsed.Get("groundingMetadata"); gm.Exists() {
 		meta.GroundingMetadata = parseGroundingMetadata(gm)
 	}
+
+	// Parse prompt feedback
+	meta.PromptFeedback = parsePromptFeedback(parsed)
 
 	parts := candidates[0].Get("content.parts").Array()
 	if len(parts) == 0 {
@@ -821,6 +865,68 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 	return events, nil
 }
 
+// parseGeminiSafetyRatings parses safety ratings from a Gemini candidate
+func parseGeminiSafetyRatings(candidate gjson.Result) []*ir.SafetyRating {
+	ratings := candidate.Get("safetyRatings")
+	if !ratings.Exists() || !ratings.IsArray() {
+		return nil
+	}
+	var result []*ir.SafetyRating
+	for _, r := range ratings.Array() {
+		result = append(result, &ir.SafetyRating{
+			Category:    r.Get("category").String(),
+			Probability: r.Get("probability").String(),
+			Blocked:     r.Get("blocked").Bool(),
+			Severity:    r.Get("severity").String(),
+		})
+	}
+	return result
+}
+
+// parsePromptFeedback parses prompt-level safety feedback from Gemini response
+func parsePromptFeedback(parsed gjson.Result) *ir.PromptFeedback {
+	pf := parsed.Get("promptFeedback")
+	if !pf.Exists() {
+		return nil
+	}
+	feedback := &ir.PromptFeedback{
+		BlockReason: pf.Get("blockReason").String(),
+	}
+	if ratings := pf.Get("safetyRatings"); ratings.Exists() && ratings.IsArray() {
+		for _, r := range ratings.Array() {
+			feedback.SafetyRatings = append(feedback.SafetyRatings, &ir.SafetyRating{
+				Category:    r.Get("category").String(),
+				Probability: r.Get("probability").String(),
+			})
+		}
+	}
+	return feedback
+}
+
+// parseCitationMetadata parses citation metadata from a Gemini candidate
+func parseCitationMetadata(candidate gjson.Result) *ir.CitationMetadata {
+	cm := candidate.Get("citationMetadata")
+	if !cm.Exists() {
+		return nil
+	}
+	citations := cm.Get("citations")
+	if !citations.Exists() || !citations.IsArray() {
+		return nil
+	}
+	meta := &ir.CitationMetadata{}
+	for _, c := range citations.Array() {
+		meta.Citations = append(meta.Citations, &ir.Citation{
+			StartIndex:      int32(c.Get("startIndex").Int()),
+			EndIndex:        int32(c.Get("endIndex").Int()),
+			URI:             c.Get("uri").String(),
+			Title:           c.Get("title").String(),
+			License:         c.Get("license").String(),
+			PublicationDate: c.Get("publicationDate").String(),
+		})
+	}
+	return meta
+}
+
 // parseGroundingMetadata extracts search grounding information from Gemini response.
 func parseGroundingMetadata(gm gjson.Result) *ir.GroundingMetadata {
 	meta := &ir.GroundingMetadata{}
@@ -880,6 +986,38 @@ func parseGroundingMetadata(gm gjson.Result) *ir.GroundingMetadata {
 		}
 	}
 
+	// Parse retrievalMetadata
+	if rm := gm.Get("retrievalMetadata"); rm.Exists() {
+		meta.RetrievalMetadata = &ir.RetrievalMetadata{
+			GoogleSearchDynamicRetrievalScore: rm.Get("googleSearchDynamicRetrievalScore").Float(),
+		}
+	}
+
+	// Parse retrievalQueries
+	if rq := gm.Get("retrievalQueries"); rq.Exists() && rq.IsArray() {
+		for _, q := range rq.Array() {
+			meta.RetrievalQueries = append(meta.RetrievalQueries, q.String())
+		}
+	}
+
+	// Parse citation metadata
+	if cm := gm.Get("citationMetadata"); cm.Exists() {
+		citations := cm.Get("citations")
+		if citations.Exists() && citations.IsArray() {
+			meta.CitationMetadata = &ir.CitationMetadata{}
+			for _, c := range citations.Array() {
+				meta.CitationMetadata.Citations = append(meta.CitationMetadata.Citations, &ir.Citation{
+					StartIndex:      int32(c.Get("startIndex").Int()),
+					EndIndex:        int32(c.Get("endIndex").Int()),
+					URI:             c.Get("uri").String(),
+					Title:           c.Get("title").String(),
+					License:         c.Get("license").String(),
+					PublicationDate: c.Get("publicationDate").String(),
+				})
+			}
+		}
+	}
+
 	return meta
 }
 
@@ -894,6 +1032,9 @@ func parseGeminiMeta(parsed gjson.Result) *ir.OpenAIMeta {
 		if t, err := time.Parse(time.RFC3339Nano, ct.String()); err == nil {
 			meta.CreateTime = t.Unix()
 		}
+	}
+	if st := parsed.Get("service_tier"); st.Exists() {
+		meta.ServiceTier = st.String()
 	}
 	if candidates := parsed.Get("candidates").Array(); len(candidates) > 0 {
 		candidate := candidates[0]
@@ -977,6 +1118,15 @@ func convertGeminiLogprobsToOpenAI(lr gjson.Result) map[string]any {
 			tokenEntry := map[string]any{
 				"token":   chosen.Get("token").String(),
 				"logprob": chosen.Get("logProbability").Float(),
+			}
+
+			// Add bytes field for non-text tokens
+			if bytes := chosen.Get("bytes"); bytes.Exists() && bytes.IsArray() {
+				var byteSlice []int
+				for _, b := range bytes.Array() {
+					byteSlice = append(byteSlice, int(b.Int()))
+				}
+				tokenEntry["bytes"] = byteSlice
 			}
 
 			// Add top_logprobs if available

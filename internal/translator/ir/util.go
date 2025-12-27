@@ -12,6 +12,32 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// CopyMap recursively copies a map[string]any.
+func CopyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	result := make(map[string]any, len(m))
+	for k, v := range m {
+		if nested, ok := v.(map[string]any); ok {
+			result[k] = CopyMap(nested)
+		} else if arr, ok := v.([]any); ok {
+			newArr := make([]any, len(arr))
+			for i, item := range arr {
+				if nestedMap, ok := item.(map[string]any); ok {
+					newArr[i] = CopyMap(nestedMap)
+				} else {
+					newArr[i] = item
+				}
+			}
+			result[k] = newArr
+		} else {
+			result[k] = v
+		}
+	}
+	return result
+}
+
 func BytesToString(b []byte) string {
 	return string(b)
 }
@@ -172,7 +198,8 @@ func generateAlphanumeric(length int) string {
 	for i := range b {
 		b[i] = charset[int(b[i])%len(charset)]
 	}
-	return string(b)
+	result := string(b)
+	return result
 }
 
 func GenClaudeToolCallID() string {
@@ -278,12 +305,26 @@ func MapGeminiFinishReason(geminiReason string) FinishReason {
 	switch strings.ToUpper(geminiReason) {
 	case "STOP", "FINISH_REASON_UNSPECIFIED", "UNKNOWN":
 		return FinishReasonStop
-	case "MAX_TOKENS":
+	case "MAX_TOKENS", "LENGTH":
 		return FinishReasonMaxTokens
-	case "SAFETY", "RECITATION":
-		return FinishReasonContentFilter
-	case "MALFORMED_FUNCTION_CALL":
+	case "TOOL_CALLS", "FUNCTION_CALL":
 		return FinishReasonToolCalls
+	case "SAFETY":
+		return FinishReasonContentFilter
+	case "RECITATION":
+		return FinishReasonRecitation
+	case "BLOCKLIST":
+		return FinishReasonBlocklist
+	case "PROHIBITED_CONTENT":
+		return FinishReasonProhibitedContent
+	case "SPII":
+		return FinishReasonSPII
+	case "IMAGE_SAFETY":
+		return FinishReasonImageSafety
+	case "OTHER":
+		return FinishReasonContentFilter // Map OTHER to content_filter
+	case "MALFORMED_FUNCTION_CALL":
+		return FinishReasonToolCalls // Still try to parse the tool call
 	default:
 		return FinishReasonUnknown
 	}
@@ -453,22 +494,45 @@ func MapOpenAIFinishReason(openaiReason string) FinishReason {
 
 func MapFinishReasonToOpenAI(reason FinishReason) string {
 	switch reason {
+	case FinishReasonStop, FinishReasonStopSequence:
+		return "stop"
 	case FinishReasonMaxTokens:
 		return "length"
 	case FinishReasonToolCalls:
 		return "tool_calls"
-	case FinishReasonContentFilter:
+	case FinishReasonContentFilter, FinishReasonBlocklist,
+		FinishReasonProhibitedContent, FinishReasonSPII,
+		FinishReasonImageSafety, FinishReasonRecitation:
 		return "content_filter"
-	case FinishReasonStopSequence, FinishReasonStop:
-		return "stop"
+	case FinishReasonError:
+		return "error"
 	default:
 		return "stop"
 	}
 }
 
+func MapFinishReasonToClaude(reason FinishReason) string {
+	switch reason {
+	case FinishReasonStop:
+		return "end_turn"
+	case FinishReasonMaxTokens:
+		return "max_tokens"
+	case FinishReasonToolCalls:
+		return "tool_use"
+	case FinishReasonStopSequence:
+		return "stop_sequence"
+	case FinishReasonContentFilter, FinishReasonBlocklist,
+		FinishReasonProhibitedContent, FinishReasonSPII,
+		FinishReasonImageSafety, FinishReasonRecitation:
+		return "end_turn" // Claude doesn't have content_filter equivalent
+	default:
+		return "end_turn"
+	}
+}
+
 func MapStandardRole(role string) Role {
 	switch role {
-	case "system":
+	case "system", "developer":
 		return RoleSystem
 	case "assistant":
 		return RoleAssistant

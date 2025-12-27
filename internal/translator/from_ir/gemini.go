@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 
 	"github.com/nghyane/llm-mux/internal/json"
@@ -251,23 +252,26 @@ func (p *GeminiProvider) buildImagePart(img *ir.ImagePart) any {
 }
 
 func (p *GeminiProvider) buildAudioPart(audio *ir.AudioPart) any {
-	if audio == nil || audio.Data == "" {
+	if audio == nil {
 		return nil
 	}
-	if strings.HasPrefix(audio.Data, "files/") {
+	if audio.FileURI != "" {
 		return map[string]any{
 			"fileData": map[string]any{
 				"mimeType": audio.MimeType,
-				"fileUri":  audio.Data,
+				"fileUri":  audio.FileURI,
 			},
 		}
 	}
-	return map[string]any{
-		"inlineData": map[string]any{
-			"mimeType": audio.MimeType,
-			"data":     audio.Data,
-		},
+	if audio.Data != "" {
+		return map[string]any{
+			"inlineData": map[string]any{
+				"mimeType": audio.MimeType,
+				"data":     audio.Data,
+			},
+		}
 	}
+	return nil
 }
 
 func (p *GeminiProvider) buildVideoPart(video *ir.VideoPart) any {
@@ -494,7 +498,7 @@ func (p *GeminiProvider) applyTools(root map[string]any, req *ir.UnifiedChatRequ
 				// (including Antigravity/Vertex Claude models).
 				// Use CleanJsonSchemaForGemini to recursively remove unsupported fields like
 				// exclusiveMinimum, exclusiveMaximum, etc.
-				params := ir.CleanJsonSchemaForGemini(copyMap(t.Parameters))
+				params := ir.CleanJsonSchemaForGemini(ir.CopyMap(t.Parameters))
 				// Gemini requires parameters to have type "object"
 				// Handle nil, empty string, or invalid type values (e.g., "None" from some SDKs)
 				typeVal, hasType := params["type"].(string)
@@ -538,19 +542,36 @@ func (p *GeminiProvider) applyTools(root map[string]any, req *ir.UnifiedChatRequ
 	// call a function even when inappropriate (e.g., user says "hello").
 	if len(req.Tools) > 0 {
 		mode := "AUTO" // Default: let model decide
+		var allowedFunctionNames []string
 		switch req.ToolChoice {
 		case "none":
 			mode = "NONE"
 		case "required", "any":
 			mode = "ANY"
+		case "validated":
+			mode = "VALIDATED"
+		case "function":
+			if req.ToolChoiceFunction != "" {
+				mode = "ANY"
+				allowedFunctionNames = []string{req.ToolChoiceFunction}
+			} else {
+				// tool_choice="function" without function name - likely a caller bug.
+				// Falling back to AUTO to avoid breaking the request.
+				log.Warnf("gemini: tool_choice='function' but ToolChoiceFunction is empty, falling back to AUTO")
+				mode = "AUTO"
+			}
 		case "auto", "":
 			mode = "AUTO"
 		}
-		root["toolConfig"] = map[string]any{
+		toolConfig := map[string]any{
 			"functionCallingConfig": map[string]any{
 				"mode": mode,
 			},
 		}
+		if len(allowedFunctionNames) > 0 {
+			toolConfig["functionCallingConfig"].(map[string]any)["allowedFunctionNames"] = allowedFunctionNames
+		}
+		root["toolConfig"] = toolConfig
 	}
 
 	return nil

@@ -67,6 +67,17 @@ func CountTokensFromIR(model string, req *ir.UnifiedChatRequest) int64 {
 	return CountTiktokenTokens(model, req)
 }
 
+// CountGeminiTokensFromIR always uses Gemini tokenizer regardless of model name.
+// Use this when requests are translated to Gemini format (e.g., Claude via Antigravity/Vertex).
+// The backend (Gemini API) will tokenize using Gemini's tokenizer, so we must match that.
+func CountGeminiTokensFromIR(req *ir.UnifiedChatRequest) int64 {
+	if req == nil {
+		return 0
+	}
+	// Use a standard Gemini model for tokenization
+	return countGeminiTokens("gemini-2.0-flash", req)
+}
+
 // mediaCounts tracks non-text media elements for token estimation.
 type mediaCounts struct {
 	images int

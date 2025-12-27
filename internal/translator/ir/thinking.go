@@ -138,4 +138,4 @@ func IsValidThoughtSignature(ts []byte) bool {
 	return true
 }
 
-const DummyThoughtSignature = "context_engineering_is_the_way_to_go"
+const DummyThoughtSignature = "c2tpcF90aG91Z2h0X3NpZ25hdHVyZV92YWxpZGF0b3I=" // base64("skip_thought_signature_validator")

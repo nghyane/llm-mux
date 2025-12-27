@@ -8,29 +8,31 @@ import (
 )
 
 const (
-	ClaudeRoleUser             = "user"
-	ClaudeRoleAssistant        = "assistant"
-	ClaudeBlockText            = "text"
-	ClaudeBlockThinking        = "thinking"
-	ClaudeBlockImage           = "image"
-	ClaudeBlockDocument        = "document"
-	ClaudeBlockToolUse         = "tool_use"
-	ClaudeBlockToolResult      = "tool_result"
-	ClaudeSourceBase64         = "base64"
-	ClaudeStopEndTurn          = "end_turn"
-	ClaudeStopToolUse          = "tool_use"
-	ClaudeStopMaxTokens        = "max_tokens"
-	ClaudeSSEMessageStart      = "message_start"
-	ClaudeSSEContentBlockStart = "content_block_start"
-	ClaudeSSEContentBlockDelta = "content_block_delta"
-	ClaudeSSEContentBlockStop  = "content_block_stop"
-	ClaudeSSEMessageDelta      = "message_delta"
-	ClaudeSSEMessageStop       = "message_stop"
-	ClaudeSSEError             = "error"
-	ClaudeDeltaText            = "text_delta"
-	ClaudeDeltaThinking        = "thinking_delta"
-	ClaudeDeltaInputJSON       = "input_json_delta"
-	ClaudeDefaultMaxTokens     = 32000
+	ClaudeRoleUser              = "user"
+	ClaudeRoleAssistant         = "assistant"
+	ClaudeBlockText             = "text"
+	ClaudeBlockThinking         = "thinking"
+	ClaudeBlockImage            = "image"
+	ClaudeBlockDocument         = "document"
+	ClaudeBlockToolUse          = "tool_use"
+	ClaudeBlockToolResult       = "tool_result"
+	ClaudeBlockRedactedThinking = "redacted_thinking"
+	ClaudeDeltaRedactedThinking = "redacted_thinking_delta"
+	ClaudeSourceBase64          = "base64"
+	ClaudeStopEndTurn           = "end_turn"
+	ClaudeStopToolUse           = "tool_use"
+	ClaudeStopMaxTokens         = "max_tokens"
+	ClaudeSSEMessageStart       = "message_start"
+	ClaudeSSEContentBlockStart  = "content_block_start"
+	ClaudeSSEContentBlockDelta  = "content_block_delta"
+	ClaudeSSEContentBlockStop   = "content_block_stop"
+	ClaudeSSEMessageDelta       = "message_delta"
+	ClaudeSSEMessageStop        = "message_stop"
+	ClaudeSSEError              = "error"
+	ClaudeDeltaText             = "text_delta"
+	ClaudeDeltaThinking         = "thinking_delta"
+	ClaudeDeltaInputJSON        = "input_json_delta"
+	ClaudeDefaultMaxTokens      = 32000
 )
 
 // ClaudeStreamParserState tracks state for parsing Claude SSE stream with tool calls.
@@ -83,7 +85,32 @@ func ParseClaudeContentBlock(block gjson.Result, msg *Message) {
 	switch block.Get("type").String() {
 	case ClaudeBlockText:
 		if text := block.Get("text").String(); text != "" {
-			msg.Content = append(msg.Content, ContentPart{Type: ContentTypeText, Text: text})
+			part := ContentPart{Type: ContentTypeText, Text: text}
+			if citations := block.Get("citations"); citations.Exists() && citations.IsArray() {
+				for _, c := range citations.Array() {
+					citation := &TextCitation{
+						Type:           c.Get("type").String(),
+						DocumentIndex:  int(c.Get("document_index").Int()),
+						StartCharIndex: int(c.Get("start_char_index").Int()),
+						EndCharIndex:   int(c.Get("end_char_index").Int()),
+						URL:            c.Get("url").String(),
+						Title:          c.Get("title").String(),
+						// Extended fields for full Claude citation support
+						FileID:            c.Get("file_id").String(),
+						CitedText:         c.Get("cited_text").String(),
+						DocumentTitle:     c.Get("document_title").String(),
+						StartPageNumber:   int(c.Get("start_page_number").Int()),
+						EndPageNumber:     int(c.Get("end_page_number").Int()),
+						StartBlockIndex:   int(c.Get("start_block_index").Int()),
+						EndBlockIndex:     int(c.Get("end_block_index").Int()),
+						EncryptedIndex:    c.Get("encrypted_index").String(),
+						SearchResultIndex: int(c.Get("search_result_index").Int()),
+						Source:            c.Get("source").String(),
+					}
+					part.Citations = append(part.Citations, citation)
+				}
+			}
+			msg.Content = append(msg.Content, part)
 		}
 	case ClaudeBlockThinking:
 		if thinking := block.Get("thinking").String(); thinking != "" {
@@ -132,6 +159,14 @@ func ParseClaudeContentBlock(block gjson.Result, msg *Message) {
 				IsError:    block.Get("is_error").Bool(),
 			},
 		})
+	case ClaudeBlockRedactedThinking:
+		// Preserve encrypted redacted thinking data for protocol compliance (round-trip)
+		if data := block.Get("data").String(); data != "" {
+			msg.Content = append(msg.Content, ContentPart{
+				Type:         ContentTypeRedactedThinking,
+				RedactedData: data,
+			})
+		}
 	}
 }
 
@@ -173,14 +208,23 @@ func ParseClaudeStreamDeltaWithState(parsed gjson.Result, state *ClaudeStreamPar
 		}
 	case "signature_delta":
 		// Claude Extended Thinking: signature_delta arrives as separate event after thinking_delta
-		// Store in state for subsequent events OR emit as reasoning with just signature
+		// Store in state for subsequent events. Only emit if we have an active thinking context.
 		if sig := delta.Get("signature").String(); sig != "" {
 			if state != nil {
 				state.CurrentThinkingSignature = sig
 			}
-			// Emit as reasoning event with empty text but signature attached
-			// This ensures signature is preserved in the IR for round-trip
-			return []UnifiedEvent{{Type: EventTypeReasoning, Reasoning: "", ThoughtSignature: []byte(sig)}}
+			// Only emit signature event if it's meaningful (has associated thinking context in state)
+			// This prevents orphan signature events that would confuse downstream handlers
+			if state != nil && state.CurrentThinkingSignature != "" {
+				return []UnifiedEvent{{Type: EventTypeReasoning, Reasoning: "", ThoughtSignature: []byte(sig)}}
+			}
+		}
+	case ClaudeDeltaRedactedThinking:
+		if data := delta.Get("data").String(); data != "" {
+			return []UnifiedEvent{{
+				Type:         EventTypeReasoning,
+				RedactedData: data,
+			}}
 		}
 	case ClaudeDeltaInputJSON:
 		if state != nil {
@@ -210,6 +254,9 @@ func ParseClaudeContentBlockStart(parsed gjson.Result, state *ClaudeStreamParser
 		if sig := cb.Get("signature").String(); sig != "" {
 			state.CurrentThinkingSignature = sig
 		}
+	} else if cb.Get("type").String() == ClaudeBlockRedactedThinking {
+		// Redacted thinking block starts - will receive data in delta
+		return nil
 	}
 	return nil
 }

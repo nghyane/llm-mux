@@ -309,7 +309,10 @@ func TranslateToGeminiWithTokens(cfg *config.Config, from sdktranslator.Format, 
 		IR:      irReq,
 	}
 
-	// Count tokens for Claude format (needed for message_start event)
+	// Count tokens for Claude format.
+	// Use appropriate tokenizer based on target model:
+	// - Gemini models: Gemini tokenizer
+	// - Claude models: tiktoken (Claude on Vertex uses Claude's tokenizer)
 	if from.String() == "claude" {
 		result.EstimatedInputTokens = util.CountTokensFromIR(model, irReq)
 	}
@@ -346,6 +349,17 @@ func TranslateToGeminiCLIWithTokens(cfg *config.Config, from sdktranslator.Forma
 		irReq.Metadata[ir.MetaForceDisableThinking] = true
 	}
 
+	// Claude Vertex API requires valid cryptographic signatures for thinking blocks.
+	// If history has assistant messages with tool_use but no thinking blocks,
+	// we cannot inject fake signatures - must disable thinking for this request.
+	if isClaudeModel && irReq.Thinking != nil && hasToolUseWithoutThinking(irReq.Messages) {
+		irReq.Thinking = nil
+		if irReq.Metadata == nil {
+			irReq.Metadata = make(map[string]any)
+		}
+		irReq.Metadata[ir.MetaForceDisableThinking] = true
+	}
+
 	geminiJSON, err := (&from_ir.GeminiCLIProvider{}).ConvertRequest(irReq)
 	if err != nil {
 		return nil, err
@@ -356,7 +370,10 @@ func TranslateToGeminiCLIWithTokens(cfg *config.Config, from sdktranslator.Forma
 		IR:      irReq,
 	}
 
-	// Count tokens for Claude format
+	// Count tokens for Claude format.
+	// Use appropriate tokenizer based on target model:
+	// - Gemini models: Gemini tokenizer (request goes to Gemini API)
+	// - Claude models: tiktoken (request goes to Claude on Vertex/Antigravity)
 	if fromStr == "claude" {
 		result.EstimatedInputTokens = util.CountTokensFromIR(model, irReq)
 	}
@@ -790,6 +807,24 @@ func TranslateToClaude(cfg *config.Config, from sdktranslator.Format, model stri
 		return nil, err
 	}
 	return (&from_ir.ClaudeProvider{}).ConvertRequest(irReq)
+}
+
+// TranslateToClaudeForAntigravity converts request to Claude API format wrapped for Antigravity.
+// Antigravity routes Claude models to Claude Vertex API which uses native Claude format.
+func TranslateToClaudeForAntigravity(cfg *config.Config, from sdktranslator.Format, model string, payload []byte, streaming bool, metadata map[string]any) ([]byte, error) {
+	irReq, err := convertRequestToIR(from, model, payload, metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	claudeJSON, err := (&from_ir.ClaudeProvider{}).ConvertRequest(irReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Wrap in Antigravity envelope: {"request": <claude_request>}
+	result, _ := sjson.SetRawBytes([]byte(`{}`), "request", claudeJSON)
+	return result, nil
 }
 
 // TranslateToOpenAI converts request to OpenAI Chat Completions API format.
@@ -1589,4 +1624,28 @@ func TranslateOpenAIResponseNonStream(cfg *config.Config, to sdktranslator.Forma
 // translation doesn't require IR-based conversion.
 func TranslateTokenCount(ctx context.Context, to, from sdktranslator.Format, count int64, usageJSON []byte) string {
 	return sdktranslator.TranslateTokenCount(ctx, to, from, count, usageJSON)
+}
+
+// hasToolUseWithoutThinking checks if any assistant message has tool calls but no thinking content.
+// Claude Vertex API requires valid cryptographic signatures for thinking blocks in history.
+// If client doesn't provide thinking blocks with signatures, we must disable thinking.
+func hasToolUseWithoutThinking(messages []ir.Message) bool {
+	for i := range messages {
+		msg := &messages[i]
+		if msg.Role != ir.RoleAssistant || len(msg.ToolCalls) == 0 {
+			continue
+		}
+		// Check if this assistant message has thinking content
+		hasThinking := false
+		for j := range msg.Content {
+			if msg.Content[j].Type == ir.ContentTypeReasoning && msg.Content[j].Reasoning != "" {
+				hasThinking = true
+				break
+			}
+		}
+		if !hasThinking {
+			return true
+		}
+	}
+	return false
 }

@@ -298,6 +298,128 @@ func TestBudgetToEffort(t *testing.T) {
 	}
 }
 
+// ==================== ContentType Tests ====================
+
+func TestContentTypeRedactedThinking(t *testing.T) {
+	// Verify ContentTypeRedactedThinking constant is defined correctly
+	if ContentTypeRedactedThinking != "redacted_thinking" {
+		t.Errorf("ContentTypeRedactedThinking = %q, want %q", ContentTypeRedactedThinking, "redacted_thinking")
+	}
+}
+
+func TestContentPartRedactedData(t *testing.T) {
+	// Test that ContentPart can store redacted thinking data
+	encryptedData := "base64-encoded-encrypted-thinking-data"
+	part := ContentPart{
+		Type:         ContentTypeRedactedThinking,
+		RedactedData: encryptedData,
+	}
+
+	if part.Type != ContentTypeRedactedThinking {
+		t.Errorf("ContentPart.Type = %q, want %q", part.Type, ContentTypeRedactedThinking)
+	}
+	if part.RedactedData != encryptedData {
+		t.Errorf("ContentPart.RedactedData = %q, want %q", part.RedactedData, encryptedData)
+	}
+}
+
+// ==================== UnifiedEvent RedactedData Tests ====================
+
+func TestUnifiedEventRedactedData(t *testing.T) {
+	// Test that UnifiedEvent can carry redacted_thinking data in streaming
+	encryptedData := "encrypted-thinking-content"
+	event := UnifiedEvent{
+		Type:         EventTypeReasoning,
+		RedactedData: encryptedData,
+	}
+
+	if event.RedactedData != encryptedData {
+		t.Errorf("UnifiedEvent.RedactedData = %q, want %q", event.RedactedData, encryptedData)
+	}
+}
+
+// ==================== ThinkingConfig Tests ====================
+
+func TestThinkingConfig_DefaultValues(t *testing.T) {
+	// Test default ThinkingConfig creation
+	config := &ThinkingConfig{}
+
+	if config.IncludeThoughts != false {
+		t.Error("ThinkingConfig.IncludeThoughts should default to false")
+	}
+	if config.ThinkingBudget != nil {
+		t.Error("ThinkingConfig.ThinkingBudget should default to nil")
+	}
+	if config.ThinkingLevel != "" {
+		t.Errorf("ThinkingConfig.ThinkingLevel should default to empty, got %q", config.ThinkingLevel)
+	}
+}
+
+func TestThinkingConfig_WithBudget(t *testing.T) {
+	budget := int32(8192)
+	config := &ThinkingConfig{
+		IncludeThoughts: true,
+		ThinkingBudget:  &budget,
+		ThinkingLevel:   ThinkingLevelMedium,
+	}
+
+	if config.ThinkingBudget == nil {
+		t.Fatal("ThinkingConfig.ThinkingBudget should not be nil")
+	}
+	if *config.ThinkingBudget != budget {
+		t.Errorf("ThinkingConfig.ThinkingBudget = %d, want %d", *config.ThinkingBudget, budget)
+	}
+}
+
+func TestThinkingConfig_Effort(t *testing.T) {
+	tests := []struct {
+		effort       ReasoningEffort
+		expectedName string
+	}{
+		{ReasoningEffortNone, "none"},
+		{ReasoningEffortMinimal, "minimal"},
+		{ReasoningEffortLow, "low"},
+		{ReasoningEffortMedium, "medium"},
+		{ReasoningEffortHigh, "high"},
+		{ReasoningEffortXHigh, "xhigh"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expectedName, func(t *testing.T) {
+			config := &ThinkingConfig{
+				Effort: tt.effort,
+			}
+			if string(config.Effort) != tt.expectedName {
+				t.Errorf("ThinkingConfig.Effort = %q, want %q", config.Effort, tt.expectedName)
+			}
+		})
+	}
+}
+
+// ==================== ThinkingLevel Tests ====================
+
+func TestThinkingLevelConstants(t *testing.T) {
+	tests := []struct {
+		level    ThinkingLevel
+		expected string
+	}{
+		{ThinkingLevelUnspecified, "THINKING_LEVEL_UNSPECIFIED"},
+		{ThinkingLevelMinimal, "MINIMAL"},
+		{ThinkingLevelLow, "LOW"},
+		{ThinkingLevelMedium, "MEDIUM"},
+		{ThinkingLevelHigh, "HIGH"},
+		{ThinkingLevelOff, "OFF"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			if string(tt.level) != tt.expected {
+				t.Errorf("ThinkingLevel constant = %q, want %q", tt.level, tt.expected)
+			}
+		})
+	}
+}
+
 func TestThinkingLevelToBudget(t *testing.T) {
 	tests := []struct {
 		level    ThinkingLevel

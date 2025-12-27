@@ -3,66 +3,62 @@ name: llm-mux-test
 description: Test llm-mux IR translator - cross-format API translation
 ---
 
-## Quick Check
+## Quick Start
 
 ```bash
-PORT=8318; curl -s http://localhost:$PORT/v1/models | jq -r '.data[:3][].id'
+# Check server
+curl -s http://localhost:8318/v1/models | jq -r '.data[:3][].id'
+
+# SDK tests (install once)
+pip install openai anthropic
+python .opencode/skill/llm-mux-test/sdk_tests.py
 ```
 
-## Translation Matrix Tests
-
-Test các luồng translation thực tế trong hệ thống.
-
-### OpenAI Format -> Gemini Backend
+## SDK Test Commands
 
 ```bash
-PORT=8318
-# Chat
-curl -s http://localhost:$PORT/v1/chat/completions -H "Content-Type: application/json" \
+# All tests
+python sdk_tests.py
+
+# By SDK
+python sdk_tests.py openai
+python sdk_tests.py anthropic
+
+# By name pattern
+python sdk_tests.py tool_result
+python sdk_tests.py thinking
+python sdk_tests.py stream
+```
+
+## Key Test Cases
+
+| Test | What it validates |
+|------|-------------------|
+| `tool_result` | Multi-turn tool flow, role normalization |
+| `multi_tool_result` | Multiple tool_results in one message |
+| `thinking_auto_disable` | Auto-disable thinking when signature missing |
+| `*_backend` | Cross-format translation (OpenAI↔Claude↔Gemini) |
+
+## Manual curl Tests
+
+### OpenAI Format
+```bash
+curl -s http://localhost:8318/v1/chat/completions \
+  -H "Content-Type: application/json" \
   -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Hi"}]}' | jq -r '.choices[0].message.content'
-
-# Tool Call
-curl -s http://localhost:$PORT/v1/chat/completions -H "Content-Type: application/json" \
-  -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Weather Tokyo?"}],"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"location":{"type":"string"}}}}}]}' | jq '.choices[0].message.tool_calls[0].function'
 ```
 
-### Claude Format -> Gemini Backend
-
+### Claude Format
 ```bash
-PORT=8318
-# Note: Response may have thinking block first, so find text block
-curl -s http://localhost:$PORT/v1/messages -H "Content-Type: application/json" -H "anthropic-version: 2023-06-01" \
-  -d '{"model":"gemini-2.5-flash","max_tokens":50,"messages":[{"role":"user","content":"Hi"}]}' | jq -r '.content[] | select(.type=="text") | .text'
+curl -s http://localhost:8318/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"claude-sonnet-4","max_tokens":50,"messages":[{"role":"user","content":"Hi"}]}' | jq -r '.content[0].text'
 ```
 
-### Gemini Format -> Codex/GPT Backend
-
+### Gemini Format
 ```bash
-PORT=8318
-curl -s "http://localhost:$PORT/v1beta/models/gpt-5:generateContent" -H "Content-Type: application/json" \
+curl -s "http://localhost:8318/v1beta/models/gemini-2.5-flash:generateContent" \
+  -H "Content-Type: application/json" \
   -d '{"contents":[{"role":"user","parts":[{"text":"Hi"}]}]}' | jq -r '.candidates[0].content.parts[0].text'
-```
-
-### OpenAI Format -> Claude Backend
-
-```bash
-PORT=8318
-curl -s http://localhost:$PORT/v1/chat/completions -H "Content-Type: application/json" \
-  -d '{"model":"claude-sonnet-4","messages":[{"role":"user","content":"Hi"}]}' | jq -r '.choices[0].message.content'
-```
-
-## Streaming Test
-
-```bash
-PORT=8318
-curl -s http://localhost:$PORT/v1/chat/completions -H "Content-Type: application/json" \
-  -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Hi"}],"stream":true}' | head -3
-```
-
-## Thinking/Reasoning Test
-
-```bash
-PORT=8318
-curl -s http://localhost:$PORT/v1/chat/completions -H "Content-Type: application/json" \
-  -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"2+2=?"}],"reasoning_effort":"low"}' | jq '.choices[0].message | {content, reasoning: .reasoning_content[:100]}'
 ```

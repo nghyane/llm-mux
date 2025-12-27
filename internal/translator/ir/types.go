@@ -66,6 +66,12 @@ const (
 	FinishReasonStopSequence  FinishReason = "stop_sequence"  // Stop sequence matched (Claude-specific, maps to "stop" for OpenAI)
 	FinishReasonError         FinishReason = "error"          // Error occurred
 	FinishReasonUnknown       FinishReason = "unknown"        // Unknown/fallback
+	// Add new Gemini 2025 values:
+	FinishReasonBlocklist         FinishReason = "blocklist"          // Content matched blocklist
+	FinishReasonProhibitedContent FinishReason = "prohibited_content" // Prohibited content detected
+	FinishReasonSPII              FinishReason = "spii"               // Sensitive PII detected
+	FinishReasonImageSafety       FinishReason = "image_safety"       // Image safety issue
+	FinishReasonRecitation        FinishReason = "recitation"         // Recitation/copyright issue
 )
 
 // ThinkingLevel represents the level of thinking tokens for thinking models.
@@ -78,6 +84,7 @@ const (
 	ThinkingLevelLow         ThinkingLevel = "LOW"
 	ThinkingLevelMedium      ThinkingLevel = "MEDIUM" // Gemini 3 Flash only
 	ThinkingLevelHigh        ThinkingLevel = "HIGH"
+	ThinkingLevelOff         ThinkingLevel = "OFF" // Add this - explicitly disable thinking
 )
 
 // ReasoningEffort represents the effort level for reasoning/thinking modes.
@@ -142,6 +149,7 @@ type UnifiedEvent struct {
 	Logprobs          any          // Log probabilities (if requested)
 	ContentFilter     any          // Content filter results
 	SystemFingerprint string       // System fingerprint
+	RedactedData      string       // Encrypted data for redacted_thinking streaming
 }
 
 type Usage struct {
@@ -182,6 +190,22 @@ type OpenAIMeta struct {
 	ThoughtsTokenCount int32 // Matches SDK int32
 	Logprobs           any
 	GroundingMetadata  *GroundingMetadata // Google Search grounding metadata
+	PromptFeedback     *PromptFeedback    // Prompt-level safety feedback
+	ServiceTier        string             // OpenAI service tier used for the request
+}
+
+// SafetyRating represents content safety evaluation
+type SafetyRating struct {
+	Category    string // HarmCategory enum value
+	Probability string // NEGLIGIBLE, LOW, MEDIUM, HIGH
+	Blocked     bool   // Whether this category blocked generation
+	Severity    string // HarmSeverity (Vertex AI only)
+}
+
+// PromptFeedback contains prompt-level safety feedback
+type PromptFeedback struct {
+	BlockReason   string          // BlockReason enum
+	SafetyRatings []*SafetyRating // Ratings that caused block
 }
 
 // CandidateResult holds the result of a single candidate/choice from the model.
@@ -192,6 +216,7 @@ type CandidateResult struct {
 	FinishReason      FinishReason       // Why this candidate stopped
 	Logprobs          any                // Log probabilities for this candidate (OpenAI format)
 	GroundingMetadata *GroundingMetadata // Google Search grounding metadata for this candidate
+	SafetyRatings     []*SafetyRating    // Safety evaluation results
 }
 
 // ToolCall represents a request from the model to execute a tool.
@@ -216,15 +241,16 @@ const (
 type ContentType string
 
 const (
-	ContentTypeText           ContentType = "text"
-	ContentTypeReasoning      ContentType = "reasoning"
-	ContentTypeImage          ContentType = "image"
-	ContentTypeFile           ContentType = "file"
-	ContentTypeAudio          ContentType = "audio" // Audio content (OpenAI audio preview, Gemini Live)
-	ContentTypeVideo          ContentType = "video" // Video content (Gemini multimodal)
-	ContentTypeToolResult     ContentType = "tool_result"
-	ContentTypeExecutableCode ContentType = "executable_code"
-	ContentTypeCodeResult     ContentType = "code_result"
+	ContentTypeText             ContentType = "text"
+	ContentTypeReasoning        ContentType = "reasoning"
+	ContentTypeImage            ContentType = "image"
+	ContentTypeFile             ContentType = "file"
+	ContentTypeAudio            ContentType = "audio" // Audio content (OpenAI audio preview, Gemini Live)
+	ContentTypeVideo            ContentType = "video" // Video content (Gemini multimodal)
+	ContentTypeToolResult       ContentType = "tool_result"
+	ContentTypeExecutableCode   ContentType = "executable_code"
+	ContentTypeCodeResult       ContentType = "code_result"
+	ContentTypeRedactedThinking ContentType = "redacted_thinking"
 )
 
 // ContentPart represents a discrete part of a message (e.g., a block of text, an image).
@@ -239,6 +265,8 @@ type ContentPart struct {
 	Video            *VideoPart // Video content (Gemini)
 	ToolResult       *ToolResultPart
 	CodeExecution    *CodeExecutionPart
+	RedactedData     string          // Encrypted data for redacted_thinking (must round-trip exactly)
+	Citations        []*TextCitation // Citations for text content (Claude)
 }
 
 type ImagePart struct {
@@ -246,6 +274,7 @@ type ImagePart struct {
 	Data     string // Base64-encoded image data
 	URL      string // URL to image
 	FileID   string // File ID for Claude Files API
+	Detail   string // Vision quality control: auto, low, high
 }
 
 // FilePart represents a file input (PDF, etc.) for Responses API.
@@ -260,6 +289,7 @@ type FilePart struct {
 // AudioPart represents audio content for OpenAI audio preview and Gemini Live API.
 type AudioPart struct {
 	Data       string // Base64-encoded audio data
+	FileURI    string // Uploaded file URI reference (Gemini Files API)
 	Format     string // Audio format: "wav", "mp3", "pcm", "opus", "flac", "aac"
 	MimeType   string // MIME type (e.g., "audio/wav", "audio/mpeg", "audio/pcm")
 	Transcript string // Optional transcription of the audio
@@ -301,6 +331,7 @@ type GroundingMetadata struct {
 	WebSearchQueries  []string            `json:"webSearchQueries,omitempty"`
 	RetrievalQueries  []string            `json:"retrievalQueries,omitempty"`  // SDK field
 	RetrievalMetadata *RetrievalMetadata  `json:"retrievalMetadata,omitempty"` // SDK field
+	CitationMetadata  *CitationMetadata   `json:"citationMetadata,omitempty"`  // Citation information
 }
 
 // SearchEntryPoint contains the rendered search entry point.
@@ -350,6 +381,32 @@ type GroundingSegment struct {
 	EndIndex   int32  `json:"endIndex,omitempty"`   // int32 per SDK
 	PartIndex  int32  `json:"partIndex,omitempty"`  // SDK field
 	Text       string `json:"text,omitempty"`
+}
+
+// TextCitation represents a document citation in text content.
+// Supports all Claude citation types: char_location, page_location,
+// content_block_location, web_search_result_location, search_result_location
+type TextCitation struct {
+	Type           string // Citation type: "char_location", "page_location", "content_block_location", "web_search_result_location", "search_result_location"
+	DocumentIndex  int    // Index into documents array (char_location, page_location, content_block_location)
+	StartCharIndex int    // Start character position (char_location)
+	EndCharIndex   int    // End character position (char_location)
+	URL            string // For URL citations
+	Title          string // Document title
+
+	// Extended fields for full Claude citation support
+	FileID          string // Document file ID (char_location, page_location, content_block_location)
+	CitedText       string // The actual cited text (all types)
+	DocumentTitle   string // Title of the cited document (char_location, page_location, content_block_location)
+	StartPageNumber int    // Start page (page_location)
+	EndPageNumber   int    // End page (page_location)
+	StartBlockIndex int    // Start block index (content_block_location, search_result_location)
+	EndBlockIndex   int    // End block index (content_block_location, search_result_location)
+
+	// Web/Search citation fields
+	EncryptedIndex    string // Encrypted index (web_search_result_location)
+	SearchResultIndex int    // Search result index (search_result_location)
+	Source            string // Source identifier (search_result_location)
 }
 
 // CitationMetadata contains citation information for generated content.
@@ -402,6 +459,15 @@ type ToolDefinition struct {
 }
 
 // UnifiedChatRequest represents the unified chat request structure.
+type PredictionConfig struct {
+	Type    string // "content"
+	Content string // Predicted content for speculative decoding
+}
+
+type StreamOptionsConfig struct {
+	IncludeUsage bool // Include usage in final streaming chunk
+}
+
 type UnifiedChatRequest struct {
 	Model            string
 	Messages         []Message
@@ -426,17 +492,25 @@ type UnifiedChatRequest struct {
 	ServiceTier      ServiceTier
 
 	// Responses API specific fields
-	Instructions       string // System instructions (Responses API)
-	PreviousResponseID string
-	PromptID           string         // Prompt template ID (Responses API)
-	PromptVersion      string         // Prompt template version (Responses API)
-	PromptVariables    map[string]any // Variables for prompt template (Responses API)
-	PromptCacheKey     string         // Cache key for prompt caching (Responses API)
-	Store              *bool          // Whether to store the response (Responses API)
-	ParallelToolCalls  *bool          // Whether to allow parallel tool calls (Responses API)
-	ToolChoice         string         // Tool choice mode (Responses API)
-	ResponseSchema     map[string]any
-	FunctionCalling    *FunctionCallingConfig // Function calling configuration
+	Instructions         string // System instructions (Responses API)
+	PreviousResponseID   string
+	PromptID             string         // Prompt template ID (Responses API)
+	PromptVersion        string         // Prompt template version (Responses API)
+	PromptVariables      map[string]any // Variables for prompt template (Responses API)
+	PromptCacheKey       string         // Cache key for prompt caching (Responses API)
+	Store                *bool          // Whether to store the response (Responses API)
+	ParallelToolCalls    *bool          // Whether to allow parallel tool calls (Responses API)
+	ToolChoice           string         // Tool choice mode: "auto", "none", "required", "any"
+	ToolChoiceFunction   string         // Specific function name when tool_choice is object format
+	AllowedTools         []string       // GPT-5+: Subset of tools the model can use (allowed_tools)
+	ResponseSchema       map[string]any
+	ResponseSchemaName   string
+	ResponseSchemaStrict bool                   `json:"response_schema_strict,omitempty"`
+	FunctionCalling      *FunctionCallingConfig // Function calling configuration
+
+	// OpenAI high priority features
+	Prediction    *PredictionConfig    // Predicted output for speculative decoding
+	StreamOptions *StreamOptionsConfig // Stream configuration options
 }
 
 // FunctionCallingConfig controls function calling behavior.

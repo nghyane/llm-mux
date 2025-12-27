@@ -1,15 +1,13 @@
 package ir
 
-import "github.com/nghyane/llm-mux/internal/json"
-
 // ToClaudeToolID converts tool call ID to Claude format (toolu_...).
 // Optimized: avoids allocation if already in correct format.
 // Exported so it can be used by from_ir/claude.go
 func ToClaudeToolID(id string) string {
-	if len(id) > 5 && id[:6] == "toolu_" {
+	if len(id) >= 6 && id[:6] == "toolu_" {
 		return id // Already Claude format - fast path
 	}
-	if len(id) > 4 && id[:5] == "call_" {
+	if len(id) >= 5 && id[:5] == "call_" {
 		return "toolu_" + id[5:] // Replace call_ with toolu_
 	}
 	return "toolu_" + id
@@ -115,43 +113,8 @@ func (b *ResponseBuilder) BuildClaudeContentParts() []any {
 		return []any{}
 	}
 
-	// Pre-allocate with estimated capacity
-	capacity := len(msg.Content) + len(msg.ToolCalls)
-	parts := make([]any, 0, capacity)
-
-	// Add reasoning/thinking content first
-	for i := range msg.Content {
-		part := &msg.Content[i]
-		if part.Type == ContentTypeReasoning && part.Reasoning != "" {
-			parts = append(parts, map[string]any{"type": "thinking", "thinking": part.Reasoning})
-		}
-	}
-
-	// Add text content
-	for i := range msg.Content {
-		part := &msg.Content[i]
-		if part.Type == ContentTypeText && part.Text != "" {
-			parts = append(parts, map[string]any{"type": "text", "text": part.Text})
-		}
-	}
-
-	// Add tool calls
-	for i := range msg.ToolCalls {
-		tc := &msg.ToolCalls[i]
-		toolUse := map[string]any{
-			"type":  "tool_use",
-			"id":    ToClaudeToolID(tc.ID),
-			"name":  tc.Name,
-			"input": map[string]any{},
-		}
-		if tc.Args != "" && tc.Args != "{}" {
-			var argsObj any
-			if json.Unmarshal([]byte(tc.Args), &argsObj) == nil {
-				toolUse["input"] = argsObj
-			}
-		}
-		parts = append(parts, toolUse)
-	}
+	// Use the consolidated function with includeToolCalls=true and thinkingEnabled=false for responses
+	parts := BuildClaudeContentParts(*msg, true, false)
 
 	// Safety Check: Ensure response has content.
 	// This must be checked LAST, after processing all potential content types (thinking, text, tools).
@@ -238,6 +201,284 @@ func (b *ResponseBuilder) BuildGeminiContentParts() []any {
 			fcPart["thoughtSignature"] = string(tc.ThoughtSignature)
 		}
 		parts = append(parts, fcPart)
+	}
+
+	return parts
+}
+
+// BuildClaudeContentParts builds Claude-format content parts array from a message.
+// includeToolCalls: whether to include tool calls in the output
+// thinkingEnabled: whether thinking content is enabled (affects placeholder logic)
+func BuildClaudeContentParts(msg Message, includeToolCalls bool, thinkingEnabled bool) []any {
+	// Pre-allocate with estimated capacity
+	capacity := len(msg.Content)
+	if includeToolCalls {
+		capacity += len(msg.ToolCalls)
+	}
+	parts := make([]any, 0, capacity)
+
+	// Check if we have thinking content and text/tool content
+	hasThinking := false
+	hasTextOrImage := false
+	for i := range msg.Content {
+		switch msg.Content[i].Type {
+		case ContentTypeReasoning:
+			// Consider thinking present if we have text OR a valid signature
+			if msg.Content[i].Reasoning != "" || len(msg.Content[i].ThoughtSignature) > 0 {
+				hasThinking = true
+			}
+		case ContentTypeRedactedThinking:
+			if msg.Content[i].RedactedData != "" {
+				hasThinking = true
+			}
+		case ContentTypeText, ContentTypeImage:
+			hasTextOrImage = true
+		}
+	}
+
+	// NOTE: Thinking placeholder injection is handled at translator_wrapper level
+	// by disabling thinking when history has tool_use without thinking blocks.
+	// Claude Vertex API requires valid cryptographic signatures that we cannot fake.
+
+	for i := range msg.Content {
+		p := &msg.Content[i]
+		switch p.Type {
+		case ContentTypeReasoning:
+			if p.Reasoning != "" {
+				thinkingBlock := map[string]any{"type": ClaudeBlockThinking, "thinking": p.Reasoning}
+				if len(p.ThoughtSignature) > 0 {
+					thinkingBlock["signature"] = string(p.ThoughtSignature)
+				}
+				parts = append(parts, thinkingBlock)
+			}
+		case ContentTypeText:
+			if p.Text != "" {
+				textBlock := map[string]any{"type": ClaudeBlockText, "text": p.Text}
+				if len(p.Citations) > 0 {
+					citations := make([]any, len(p.Citations))
+					for i, c := range p.Citations {
+						citation := map[string]any{
+							"type": c.Type,
+						}
+						// Index fields - always include (0 is valid for first document/char/page/block)
+						// These are required for char_location, page_location, content_block_location types
+						switch c.Type {
+						case "char_location":
+							citation["document_index"] = c.DocumentIndex
+							citation["start_char_index"] = c.StartCharIndex
+							citation["end_char_index"] = c.EndCharIndex
+						case "page_location":
+							citation["document_index"] = c.DocumentIndex
+							citation["start_page_number"] = c.StartPageNumber
+							citation["end_page_number"] = c.EndPageNumber
+						case "content_block_location":
+							citation["document_index"] = c.DocumentIndex
+							citation["start_block_index"] = c.StartBlockIndex
+							citation["end_block_index"] = c.EndBlockIndex
+						case "web_search_result_location":
+							// Web search uses encrypted_index
+							if c.EncryptedIndex != "" {
+								citation["encrypted_index"] = c.EncryptedIndex
+							}
+						case "search_result_location":
+							citation["search_result_index"] = c.SearchResultIndex
+							citation["start_block_index"] = c.StartBlockIndex
+							citation["end_block_index"] = c.EndBlockIndex
+						}
+						// Optional string fields - only include if non-empty
+						if c.URL != "" {
+							citation["url"] = c.URL
+						}
+						if c.Title != "" {
+							citation["title"] = c.Title
+						}
+						if c.FileID != "" {
+							citation["file_id"] = c.FileID
+						}
+						if c.CitedText != "" {
+							citation["cited_text"] = c.CitedText
+						}
+						if c.DocumentTitle != "" {
+							citation["document_title"] = c.DocumentTitle
+						}
+						if c.Source != "" {
+							citation["source"] = c.Source
+						}
+						citations[i] = citation
+					}
+					textBlock["citations"] = citations
+				}
+				parts = append(parts, textBlock)
+			}
+		case ContentTypeImage:
+			if p.Image != nil {
+				imgBlock := map[string]any{"type": ClaudeBlockImage}
+				if p.Image.Data != "" {
+					// Base64-encoded image
+					imgBlock["source"] = map[string]any{
+						"type":       "base64",
+						"media_type": p.Image.MimeType,
+						"data":       p.Image.Data,
+					}
+				} else if p.Image.URL != "" {
+					// URL-referenced image
+					imgBlock["source"] = map[string]any{
+						"type": "url",
+						"url":  p.Image.URL,
+					}
+				} else if p.Image.FileID != "" {
+					// Claude Files API reference
+					imgBlock["source"] = map[string]any{
+						"type":    "file",
+						"file_id": p.Image.FileID,
+					}
+				}
+				if _, hasSource := imgBlock["source"]; hasSource {
+					parts = append(parts, imgBlock)
+				}
+			}
+		case ContentTypeFile:
+			if p.File != nil {
+				// Claude document block
+				docBlock := map[string]any{"type": ClaudeBlockDocument}
+				if p.File.Filename != "" {
+					docBlock["title"] = p.File.Filename
+				}
+				source := map[string]any{}
+				if p.File.FileData != "" {
+					source["type"] = "base64"
+					source["data"] = p.File.FileData
+					// Use stored MimeType or default to application/pdf
+					if p.File.MimeType != "" {
+						source["media_type"] = p.File.MimeType
+					} else {
+						source["media_type"] = "application/pdf"
+					}
+				} else if p.File.FileURL != "" {
+					source["type"] = "url"
+					source["url"] = p.File.FileURL
+				} else if p.File.FileID != "" {
+					source["type"] = "file"
+					source["file_id"] = p.File.FileID
+				}
+				if len(source) > 0 {
+					docBlock["source"] = source
+					parts = append(parts, docBlock)
+				}
+			}
+		case ContentTypeToolResult:
+			if p.ToolResult != nil {
+				// Build the tool_result block
+				toolResultBlock := map[string]any{
+					"type":        ClaudeBlockToolResult,
+					"tool_use_id": p.ToolResult.ToolCallID,
+				}
+				// Add is_error if tool execution failed
+				if p.ToolResult.IsError {
+					toolResultBlock["is_error"] = true
+				}
+
+				// Check if we have images or files
+				hasMedia := len(p.ToolResult.Images) > 0 || len(p.ToolResult.Files) > 0
+
+				if hasMedia {
+					// Build content array with text, images, and documents
+					var content []any
+
+					// Add text content if present
+					if p.ToolResult.Result != "" {
+						content = append(content, map[string]any{
+							"type": "text",
+							"text": p.ToolResult.Result,
+						})
+					}
+
+					// Add images if present
+					for _, img := range p.ToolResult.Images {
+						if img.Data != "" {
+							content = append(content, map[string]any{
+								"type": ClaudeBlockImage,
+								"source": map[string]any{
+									"type":       "base64",
+									"media_type": img.MimeType,
+									"data":       img.Data,
+								},
+							})
+						} else if img.URL != "" {
+							content = append(content, map[string]any{
+								"type": ClaudeBlockImage,
+								"source": map[string]any{
+									"type": "url",
+									"url":  img.URL,
+								},
+							})
+						} else if img.FileID != "" {
+							content = append(content, map[string]any{
+								"type": ClaudeBlockImage,
+								"source": map[string]any{
+									"type":    "file",
+									"file_id": img.FileID,
+								},
+							})
+						}
+					}
+
+					// Add files/documents if present
+					for _, file := range p.ToolResult.Files {
+						docBlock := map[string]any{"type": ClaudeBlockDocument}
+						if file.Filename != "" {
+							docBlock["title"] = file.Filename
+						}
+						source := map[string]any{}
+						if file.FileData != "" {
+							source["type"] = "base64"
+							source["data"] = file.FileData
+							if file.MimeType != "" {
+								source["media_type"] = file.MimeType
+							}
+						} else if file.FileURL != "" {
+							source["type"] = "url"
+							source["url"] = file.FileURL
+						} else if file.FileID != "" {
+							source["type"] = "file"
+							source["file_id"] = file.FileID
+						}
+						if len(source) > 0 {
+							docBlock["source"] = source
+							content = append(content, docBlock)
+						}
+					}
+
+					toolResultBlock["content"] = content
+				} else {
+					// No images/files, use simple string content
+					toolResultBlock["content"] = p.ToolResult.Result
+				}
+
+				parts = append(parts, toolResultBlock)
+			}
+		case ContentTypeRedactedThinking:
+			if p.RedactedData != "" {
+				parts = append(parts, map[string]any{
+					"type": ClaudeBlockRedactedThinking,
+					"data": p.RedactedData,
+				})
+			}
+		}
+	}
+	if includeToolCalls {
+		for i := range msg.ToolCalls {
+			tc := &msg.ToolCalls[i]
+			toolUse := map[string]any{"type": ClaudeBlockToolUse, "id": ToClaudeToolID(tc.ID), "name": tc.Name}
+			toolUse["input"] = ParseToolCallArgs(tc.Args)
+			parts = append(parts, toolUse)
+		}
+	}
+
+	// Client requirement: Response must have text or tool calls, not just thinking
+	// If we only have thinking content (no text, no tool calls), add text block with space
+	if hasThinking && !hasTextOrImage && len(msg.ToolCalls) == 0 {
+		parts = append(parts, map[string]any{"type": ClaudeBlockText, "text": " "})
 	}
 
 	return parts

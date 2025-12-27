@@ -188,11 +188,56 @@ func ParseClaudeRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 		// Note: nil Thinking means auto/default behavior
 	}
 
+	// Tool choice
+	if tc := parsed.Get("tool_choice"); tc.Exists() {
+		if tc.IsObject() {
+			tcType := tc.Get("type").String()
+			switch tcType {
+			case "auto":
+				req.ToolChoice = "auto"
+			case "any":
+				req.ToolChoice = "required" // Claude "any" = OpenAI "required"
+				// Parse disable_parallel_tool_use (Claude-specific, inverted to ParallelToolCalls)
+				if dptu := tc.Get("disable_parallel_tool_use"); dptu.Exists() {
+					b := !dptu.Bool() // Invert: disable_parallel_tool_use=true → ParallelToolCalls=false
+					req.ParallelToolCalls = &b
+				}
+			case "tool":
+				req.ToolChoice = "function"
+				req.ToolChoiceFunction = tc.Get("name").String()
+				// Parse disable_parallel_tool_use for specific tool choice too
+				if dptu := tc.Get("disable_parallel_tool_use"); dptu.Exists() {
+					b := !dptu.Bool()
+					req.ParallelToolCalls = &b
+				}
+			case "none":
+				req.ToolChoice = "none"
+			}
+		} else if tc.Type == gjson.String {
+			// String format: "auto", "any", "none"
+			switch tc.String() {
+			case "auto":
+				req.ToolChoice = "auto"
+			case "any":
+				req.ToolChoice = "required"
+			case "none":
+				req.ToolChoice = "none"
+			}
+		}
+	}
+
 	// Metadata
 	if metadata := parsed.Get("metadata"); metadata.Exists() && metadata.IsObject() {
 		var meta map[string]any
 		if err := json.Unmarshal([]byte(metadata.Raw), &meta); err == nil {
-			req.Metadata = meta
+			// FIX: Merge instead of overwrite
+			if req.Metadata == nil {
+				req.Metadata = meta
+			} else {
+				for k, v := range meta {
+					req.Metadata[k] = v
+				}
+			}
 		}
 	}
 
@@ -252,6 +297,12 @@ func parseClaudeMessage(m gjson.Result) ir.Message {
 					Type:             ir.ContentTypeReasoning,
 					Reasoning:        block.Get("text").String(),
 					ThoughtSignature: sig,
+				})
+			case "redacted_thinking":
+				// Preserve encrypted content for protocol compliance
+				msg.Content = append(msg.Content, ir.ContentPart{
+					Type:         ir.ContentTypeRedactedThinking,
+					RedactedData: block.Get("data").String(),
 				})
 			case "image":
 				// Claude image block supports base64, url, and file sources
@@ -410,7 +461,38 @@ func parseClaudeMessage(m gjson.Result) ir.Message {
 					Type:       ir.ContentTypeToolResult,
 					ToolResult: &ir.ToolResultPart{ToolCallID: block.Get("tool_use_id").String(), Result: resultStr},
 				})
+			case "server_tool_use":
+				// Server-side tool invocation (web search, etc.)
+				toolID := block.Get("id").String()
+				toolName := block.Get("name").String()
+				msg.ToolCalls = append(msg.ToolCalls, ir.ToolCall{
+					ID: toolID, Name: toolName, Args: block.Get("input").Raw,
+				})
+			case "web_search_tool_result":
+				// Web search results from server
+				msg.Content = append(msg.Content, ir.ContentPart{
+					Type: ir.ContentTypeToolResult,
+					ToolResult: &ir.ToolResultPart{
+						ToolCallID: block.Get("tool_use_id").String(),
+						Result:     block.Get("content").Raw, // Preserve full result
+					},
+				})
 			}
+		}
+	}
+
+	// Normalize role: if user message only contains tool_result parts, treat as RoleTool
+	// This ensures proper translation to OpenAI format where tool results are separate messages
+	if msg.Role == ir.RoleUser && len(msg.Content) > 0 {
+		allToolResults := true
+		for _, part := range msg.Content {
+			if part.Type != ir.ContentTypeToolResult {
+				allToolResults = false
+				break
+			}
+		}
+		if allToolResults {
+			msg.Role = ir.RoleTool
 		}
 	}
 
@@ -456,6 +538,8 @@ func ParseClaudeChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 	}
 
 	switch parsed.Get("type").String() {
+	case "ping":
+		return nil, nil // Heartbeat, ignore
 	case "content_block_delta":
 		return ir.ParseClaudeStreamDelta(parsed), nil
 	case "message_delta":

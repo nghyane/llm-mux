@@ -258,6 +258,11 @@ func CountTiktokenTokens(model string, req *ir.UnifiedChatRequest) int64 {
 	// Claude/OpenAI include tool definitions in input token count
 	totalTokens += countToolDefinitionsTokens(enc, req.Tools)
 
+	// Add reply priming overhead
+	// Claude/OpenAI APIs count tokens for the assistant response header.
+	// This is approximately 3 tokens for message framing.
+	totalTokens += 3
+
 	return totalTokens
 }
 
