@@ -19,16 +19,6 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
-const (
-	githubCopilotChatPath = "/chat/completions"
-	githubCopilotAuthType = "github-copilot"
-
-	copilotEditorVersion = "vscode/1.104.1"
-	copilotPluginVersion = "copilot/1.300.0"
-	copilotIntegrationID = "vscode-chat"
-	copilotOpenAIIntent  = "conversation-panel"
-)
-
 // GitHubCopilotExecutor handles requests to the GitHub Copilot API.
 type GitHubCopilotExecutor struct {
 	cfg     *config.Config
@@ -49,7 +39,7 @@ func NewGitHubCopilotExecutor(cfg *config.Config) *GitHubCopilotExecutor {
 	}
 }
 
-func (e *GitHubCopilotExecutor) Identifier() string { return githubCopilotAuthType }
+func (e *GitHubCopilotExecutor) Identifier() string { return GitHubCopilotAuthType }
 
 func (e *GitHubCopilotExecutor) PrepareRequest(_ *http.Request, _ *cliproxyauth.Auth) error {
 	return nil
@@ -73,7 +63,7 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.SetBytes(body, "stream", false)
 
-	url := GitHubCopilotDefaultBaseURL + githubCopilotChatPath
+	url := GitHubCopilotDefaultBaseURL + GitHubCopilotChatPath
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return resp, err
@@ -134,7 +124,7 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.SetBytes(body, "stream_options.include_usage", true)
 
-	url := GitHubCopilotDefaultBaseURL + githubCopilotChatPath
+	url := GitHubCopilotDefaultBaseURL + GitHubCopilotChatPath
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -160,8 +150,11 @@ func (e *GitHubCopilotExecutor) ExecuteStream(ctx context.Context, auth *cliprox
 		defer close(out)
 		defer func() { _ = httpResp.Body.Close() }()
 
+		buf := scannerBufferPool.Get().([]byte)
+		defer scannerBufferPool.Put(buf)
+
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(nil, DefaultStreamBufferSize)
+		scanner.Buffer(buf, DefaultStreamBufferSize)
 		messageID := uuid.NewString()
 		streamState := &OpenAIStreamState{}
 
@@ -299,10 +292,10 @@ func (e *GitHubCopilotExecutor) applyHeaders(r *http.Request, apiToken string) {
 	r.Header.Set("Authorization", "Bearer "+apiToken)
 	r.Header.Set("Accept", "application/json")
 	r.Header.Set("User-Agent", DefaultCopilotUserAgent)
-	r.Header.Set("Editor-Version", copilotEditorVersion)
-	r.Header.Set("Editor-Plugin-Version", copilotPluginVersion)
-	r.Header.Set("Openai-Intent", copilotOpenAIIntent)
-	r.Header.Set("Copilot-Integration-Id", copilotIntegrationID)
+	r.Header.Set("Editor-Version", CopilotEditorVersion)
+	r.Header.Set("Editor-Plugin-Version", CopilotPluginVersion)
+	r.Header.Set("Openai-Intent", CopilotOpenAIIntent)
+	r.Header.Set("Copilot-Integration-Id", CopilotIntegrationID)
 	r.Header.Set("X-Request-Id", uuid.NewString())
 }
 

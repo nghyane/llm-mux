@@ -37,15 +37,11 @@ import (
 // Buffer Pools for Performance
 // =============================================================================
 
-const (
-	defaultScannerBufferSize = 64 * 1024 // 64KB initial buffer
-)
-
 // scannerBufferPool pools scanner buffers to reduce allocations in hot path.
 // Each streaming request reuses a 64KB buffer instead of allocating new ones.
 var scannerBufferPool = sync.Pool{
 	New: func() any {
-		return make([]byte, defaultScannerBufferSize)
+		return make([]byte, DefaultScannerBufferSize)
 	},
 }
 

@@ -19,11 +19,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-const (
-	qwenXGoogAPIClient      = "gl-node/22.17.0"
-	qwenClientMetadataValue = "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI"
-)
-
 // QwenExecutor is a stateless executor for Qwen Code using OpenAI-compatible chat completions.
 // If access token is unavailable, it falls back to legacy via ClientAdapter.
 type QwenExecutor struct {
@@ -143,8 +138,10 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Aut
 				log.Errorf("qwen executor: close response body error: %v", errClose)
 			}
 		}()
+		buf := scannerBufferPool.Get().([]byte)
+		defer scannerBufferPool.Put(buf)
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(make([]byte, 64*1024), DefaultStreamBufferSize)
+		scanner.Buffer(buf, DefaultStreamBufferSize)
 		var streamState *OpenAIStreamState
 		for scanner.Scan() {
 			// Check context cancellation before processing each line
@@ -253,8 +250,8 @@ func applyQwenHeaders(r *http.Request, token string, stream bool) {
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Authorization", "Bearer "+token)
 	r.Header.Set("User-Agent", DefaultQwenUserAgent)
-	r.Header.Set("X-Goog-Api-Client", qwenXGoogAPIClient)
-	r.Header.Set("Client-Metadata", qwenClientMetadataValue)
+	r.Header.Set("X-Goog-Api-Client", QwenXGoogAPIClient)
+	r.Header.Set("Client-Metadata", QwenClientMetadataValue)
 	if stream {
 		r.Header.Set("Accept", "text/event-stream")
 		return

@@ -162,7 +162,9 @@ func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		}()
 
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(make([]byte, 64*1024), DefaultStreamBufferSize)
+		buf := scannerBufferPool.Get().([]byte)
+		defer scannerBufferPool.Put(buf)
+		scanner.Buffer(buf, DefaultStreamBufferSize)
 
 		// State for translator (tracks reasoning tokens)
 		streamState := &OpenAIStreamState{}

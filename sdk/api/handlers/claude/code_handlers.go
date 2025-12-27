@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/nghyane/llm-mux/internal/constant"
@@ -17,6 +18,15 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
+
+// gzipReaderPool reduces allocations for gzip decompression.
+// gzip.Reader can be reset and reused across requests.
+var gzipReaderPool = sync.Pool{
+	New: func() any {
+		// Return nil; will be initialized on first use with Reset()
+		return new(gzip.Reader)
+	},
+}
 
 type ClaudeCodeAPIHandler struct {
 	*handlers.BaseAPIHandler
@@ -108,12 +118,16 @@ func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSO
 	// Decompress gzipped responses - Claude API sometimes returns gzip without Content-Encoding header
 	// This fixes title generation and other non-streaming responses that arrive compressed
 	if len(resp) >= 2 && resp[0] == 0x1f && resp[1] == 0x8b {
-		gzReader, err := gzip.NewReader(bytes.NewReader(resp))
-		if err != nil {
-			log.Warnf("failed to decompress gzipped Claude response: %v", err)
+		gr := gzipReaderPool.Get().(*gzip.Reader)
+		if err := gr.Reset(bytes.NewReader(resp)); err != nil {
+			gzipReaderPool.Put(gr)
+			log.Warnf("failed to reset gzip reader: %v", err)
 		} else {
-			defer gzReader.Close()
-			if decompressed, err := io.ReadAll(gzReader); err != nil {
+			defer func() {
+				gr.Close()
+				gzipReaderPool.Put(gr)
+			}()
+			if decompressed, err := io.ReadAll(gr); err != nil {
 				log.Warnf("failed to read decompressed Claude response: %v", err)
 			} else {
 				resp = decompressed

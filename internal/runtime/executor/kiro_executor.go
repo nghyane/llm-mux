@@ -188,7 +188,11 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *coreauth.Auth, req cli
 }
 
 func (e *KiroExecutor) handleEventStreamResponse(body io.ReadCloser, model string) (cliproxyexecutor.Response, error) {
+	buf := scannerBufferPool.Get().([]byte)
+	defer scannerBufferPool.Put(buf)
+
 	scanner := bufio.NewScanner(body)
+	scanner.Buffer(buf, DefaultStreamBufferSize)
 	scanner.Split(splitAWSEventStream)
 	state := to_ir.NewKiroStreamState()
 
@@ -269,7 +273,11 @@ func (e *KiroExecutor) processStream(ctx context.Context, resp *http.Response, m
 	defer resp.Body.Close()
 	defer close(out)
 
+	buf := scannerBufferPool.Get().([]byte)
+	defer scannerBufferPool.Put(buf)
+
 	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(buf, DefaultStreamBufferSize)
 	scanner.Split(splitAWSEventStream)
 	state := to_ir.NewKiroStreamState()
 	messageID := "chatcmpl-" + uuid.New().String()

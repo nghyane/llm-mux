@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/nghyane/llm-mux/internal/constant"
 	"github.com/nghyane/llm-mux/internal/interfaces"
+	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/nghyane/llm-mux/sdk/api/handlers"
 	log "github.com/sirupsen/logrus"
@@ -54,8 +55,10 @@ func (h *GeminiCLIAPIHandler) CLIHandler(c *gin.Context) {
 	} else if requestRawURI == "/v1internal:streamGenerateContent" {
 		h.handleInternalStreamGenerateContent(c, rawJSON)
 	} else {
-		reqBody := bytes.NewBuffer(rawJSON)
-		req, err := http.NewRequest("POST", fmt.Sprintf("https://cloudcode-pa.googleapis.com%s", c.Request.URL.RequestURI()), reqBody)
+		buf := ir.GetBuffer()
+		defer ir.PutBuffer(buf)
+		buf.Write(rawJSON)
+		req, err := http.NewRequest("POST", fmt.Sprintf("https://cloudcode-pa.googleapis.com%s", c.Request.URL.RequestURI()), buf)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, handlers.ErrorResponse{
 				Error: handlers.ErrorDetail{

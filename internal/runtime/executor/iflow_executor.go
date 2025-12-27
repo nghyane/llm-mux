@@ -20,10 +20,6 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-const (
-	iflowDefaultEndpoint = "/chat/completions"
-)
-
 // IFlowExecutor executes OpenAI-compatible chat completions against the iFlow API using API keys derived from OAuth.
 type IFlowExecutor struct {
 	cfg *config.Config
@@ -59,7 +55,7 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	}
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 
-	endpoint := strings.TrimSuffix(baseURL, "/") + iflowDefaultEndpoint
+	endpoint := strings.TrimSuffix(baseURL, "/") + IFlowDefaultEndpoint
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -131,7 +127,7 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	}
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 
-	endpoint := strings.TrimSuffix(baseURL, "/") + iflowDefaultEndpoint
+	endpoint := strings.TrimSuffix(baseURL, "/") + IFlowDefaultEndpoint
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -162,7 +158,9 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 		}()
 
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(make([]byte, 64*1024), DefaultStreamBufferSize)
+		buf := scannerBufferPool.Get().([]byte)
+		defer scannerBufferPool.Put(buf)
+		scanner.Buffer(buf, DefaultStreamBufferSize)
 		var streamState *OpenAIStreamState
 		for scanner.Scan() {
 			// Check context cancellation before processing each line

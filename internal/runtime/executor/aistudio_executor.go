@@ -324,7 +324,7 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req cliproxyexecutor.Reque
 }
 
 func (e *AIStudioExecutor) buildEndpoint(model, action, alt string) string {
-	base := fmt.Sprintf("%s/%s/models/%s:%s", GeminiDefaultBaseURL, glAPIVersion, model, action)
+	base := fmt.Sprintf("%s/%s/models/%s:%s", GeminiDefaultBaseURL, GeminiGLAPIVersion, model, action)
 	if action == "streamGenerateContent" {
 		if alt == "" {
 			return base + "?alt=sse"

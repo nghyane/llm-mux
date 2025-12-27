@@ -27,11 +27,6 @@ import (
 	"golang.org/x/oauth2/google"
 )
 
-const (
-	// glAPIVersion is the API version used for Gemini requests.
-	glAPIVersion = "v1beta"
-)
-
 // GeminiExecutor is a stateless executor for the official Gemini API using API keys.
 type GeminiExecutor struct {
 	cfg *config.Config
@@ -88,7 +83,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 		}
 	}
 	baseURL := resolveGeminiBaseURL(auth)
-	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, req.Model, action)
+	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, GeminiGLAPIVersion, req.Model, action)
 	if opts.Alt != "" && action != "countTokens" {
 		url = url + fmt.Sprintf("?$alt=%s", opts.Alt)
 	}
@@ -161,7 +156,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	body = applyPayloadConfig(e.cfg, req.Model, body)
 
 	baseURL := resolveGeminiBaseURL(auth)
-	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, req.Model, "streamGenerateContent")
+	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, GeminiGLAPIVersion, req.Model, "streamGenerateContent")
 	if opts.Alt == "" {
 		url = url + "?alt=sse"
 	} else {
@@ -205,8 +200,10 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				log.Errorf("gemini executor: close response body error: %v", errClose)
 			}
 		}()
+		buf := scannerBufferPool.Get().([]byte)
+		defer scannerBufferPool.Put(buf)
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(make([]byte, 64*1024), DefaultStreamBufferSize)
+		scanner.Buffer(buf, DefaultStreamBufferSize)
 		streamState := &GeminiCLIStreamState{
 			ClaudeState: from_ir.NewClaudeStreamState(),
 		}
@@ -277,7 +274,7 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "safetySettings")
 
 	baseURL := resolveGeminiBaseURL(auth)
-	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, glAPIVersion, req.Model, "countTokens")
+	url := fmt.Sprintf("%s/%s/models/%s:%s", baseURL, GeminiGLAPIVersion, req.Model, "countTokens")
 
 	requestBody := bytes.NewReader(translatedReq)
 

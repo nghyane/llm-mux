@@ -8,6 +8,10 @@ import "time"
 // This size accommodates large tool call responses from LLM providers.
 const DefaultStreamBufferSize = 20 * 1024 * 1024
 
+// DefaultScannerBufferSize is 64KB - initial buffer size for scanner buffer pool.
+// Each streaming request reuses a 64KB buffer instead of allocating new ones.
+const DefaultScannerBufferSize = 64 * 1024
+
 const (
 	// DefaultClaudeUserAgent is the User-Agent header for Claude CLI requests.
 	DefaultClaudeUserAgent = "claude-cli/1.0.83 (external, cli)"
@@ -53,8 +57,29 @@ const (
 	// GitHubCopilotDefaultBaseURL is the default API endpoint for GitHub Copilot.
 	GitHubCopilotDefaultBaseURL = "https://api.githubcopilot.com"
 
+	// GitHubCopilotChatPath is the chat completions endpoint path for GitHub Copilot.
+	GitHubCopilotChatPath = "/chat/completions"
+
+	// GitHubCopilotAuthType is the authentication type identifier for GitHub Copilot.
+	GitHubCopilotAuthType = "github-copilot"
+
+	// CopilotEditorVersion is the editor version header for GitHub Copilot requests.
+	CopilotEditorVersion = "vscode/1.104.1"
+
+	// CopilotPluginVersion is the plugin version header for GitHub Copilot requests.
+	CopilotPluginVersion = "copilot/1.300.0"
+
+	// CopilotIntegrationID is the integration ID header for GitHub Copilot requests.
+	CopilotIntegrationID = "vscode-chat"
+
+	// CopilotOpenAIIntent is the OpenAI intent header for GitHub Copilot requests.
+	CopilotOpenAIIntent = "conversation-panel"
+
 	// KiroDefaultBaseURL is the default API endpoint for Kiro (Amazon Q).
 	KiroDefaultBaseURL = "https://codewhisperer.us-east-1.amazonaws.com/generateAssistantResponse"
+
+	// IFlowDefaultEndpoint is the default endpoint path for iFlow API requests.
+	IFlowDefaultEndpoint = "/chat/completions"
 )
 
 const (
@@ -92,4 +117,17 @@ const (
 
 	// AntigravityRetryMaxDelay is the maximum delay for Antigravity retries.
 	AntigravityRetryMaxDelay = 30 * time.Second
+)
+
+const (
+	// Provider-specific metadata constants
+
+	// GeminiGLAPIVersion is the API version used for Gemini requests.
+	GeminiGLAPIVersion = "v1beta"
+
+	// QwenXGoogAPIClient is the X-Goog-Api-Client header value for Qwen requests.
+	QwenXGoogAPIClient = "gl-node/22.17.0"
+
+	// QwenClientMetadataValue is the Client-Metadata header value for Qwen requests.
+	QwenClientMetadataValue = "ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI"
 )
