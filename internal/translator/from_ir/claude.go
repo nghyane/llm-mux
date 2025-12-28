@@ -632,6 +632,16 @@ func emitThinkingDeltaTo(result *strings.Builder, thinking string, signature []b
 
 			// If no thinking block is open yet, start one and then emit signature
 			// This handles the case where signature_delta arrives before thinking_delta
+			// Also handle the case where a different block type (e.g., text) is currently open
+			if state.TextBlockStarted && state.CurrentBlockType != ir.ClaudeBlockThinking {
+				// Close the current block (e.g., text block) and move to thinking block
+				result.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{
+					"type": ir.ClaudeSSEContentBlockStop, "index": state.TextBlockIndex,
+				}))
+				state.TextBlockStarted = false
+				state.TextBlockIndex++
+			}
+
 			idx := state.TextBlockIndex
 			if !state.TextBlockStarted {
 				state.TextBlockStarted = true
@@ -641,7 +651,7 @@ func emitThinkingDeltaTo(result *strings.Builder, thinking string, signature []b
 					"content_block": map[string]any{"type": ir.ClaudeBlockThinking, "thinking": ""},
 				}))
 			}
-			// Emit signature_delta to the newly opened thinking block
+			// Emit signature_delta to the thinking block
 			result.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{
 				"type": ir.ClaudeSSEContentBlockDelta, "index": idx,
 				"delta": map[string]any{"type": "signature_delta", "signature": string(signature)},
