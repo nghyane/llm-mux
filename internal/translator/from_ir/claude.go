@@ -629,7 +629,7 @@ func emitThinkingDeltaTo(result *strings.Builder, thinking string, signature []b
 				}))
 				return
 			}
-			
+
 			// If no thinking block is open yet, start one and then emit signature
 			// This handles the case where signature_delta arrives before thinking_delta
 			idx := state.TextBlockIndex
