@@ -618,17 +618,35 @@ func emitTextDeltaTo(result *strings.Builder, text string, state *ClaudeStreamSt
 // emitThinkingDeltaTo writes thinking delta SSE to builder.
 // If signature is non-empty, also emits signature_delta event.
 func emitThinkingDeltaTo(result *strings.Builder, thinking string, signature []byte, state *ClaudeStreamState) {
-	// Signature-only event (no thinking content): only emit signature_delta to existing block
-	// Don't start a new thinking block just for signature
+	// Signature-only event (no thinking content): emit signature_delta
 	if thinking == "" && len(signature) > 0 {
-		if state != nil && state.TextBlockStarted && state.CurrentBlockType == ir.ClaudeBlockThinking {
-			// Emit signature to existing thinking block
+		if state != nil {
+			// If thinking block is already open, emit signature to it
+			if state.TextBlockStarted && state.CurrentBlockType == ir.ClaudeBlockThinking {
+				result.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{
+					"type": ir.ClaudeSSEContentBlockDelta, "index": state.TextBlockIndex,
+					"delta": map[string]any{"type": "signature_delta", "signature": string(signature)},
+				}))
+				return
+			}
+			
+			// If no thinking block is open yet, start one and then emit signature
+			// This handles the case where signature_delta arrives before thinking_delta
+			idx := state.TextBlockIndex
+			if !state.TextBlockStarted {
+				state.TextBlockStarted = true
+				state.CurrentBlockType = ir.ClaudeBlockThinking
+				result.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{
+					"type": ir.ClaudeSSEContentBlockStart, "index": idx,
+					"content_block": map[string]any{"type": ir.ClaudeBlockThinking, "thinking": ""},
+				}))
+			}
+			// Emit signature_delta to the newly opened thinking block
 			result.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{
-				"type": ir.ClaudeSSEContentBlockDelta, "index": state.TextBlockIndex,
+				"type": ir.ClaudeSSEContentBlockDelta, "index": idx,
 				"delta": map[string]any{"type": "signature_delta", "signature": string(signature)},
 			}))
 		}
-		// If no thinking block is open, signature is dropped (this shouldn't happen in practice)
 		return
 	}
 
