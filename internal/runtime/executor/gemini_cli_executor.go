@@ -145,7 +145,8 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 		if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
 			reporter.publish(ctx, extractUsageFromGeminiResponse(data))
 
-			translatedResp, err := TranslateGeminiCLIResponseNonStream(e.cfg, from, data, attemptModel)
+			fromFormat := sdktranslator.FromString("gemini-cli")
+			translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, data, attemptModel)
 			if err != nil {
 				return resp, err
 			}

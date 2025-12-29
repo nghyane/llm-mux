@@ -163,7 +163,8 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 	reporter.publish(ctx, extractUsageFromGeminiResponse(data))
 
-	translatedResp, err := TranslateGeminiResponseNonStream(e.cfg, from, data, req.Model)
+	fromFormat := sdktranslator.FromString("gemini")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}

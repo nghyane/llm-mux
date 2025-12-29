@@ -13,6 +13,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
+	sdktranslator "github.com/nghyane/llm-mux/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -76,7 +77,8 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req
 	}
 	reporter.publish(ctx, extractUsageFromOpenAIResponse(data))
 
-	translatedResp, err := TranslateOpenAIResponseNonStream(e.cfg, from, data, req.Model)
+	fromOpenAI := sdktranslator.FromString("openai")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}

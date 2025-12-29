@@ -23,6 +23,7 @@ import (
 
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
+	sdktranslator "github.com/nghyane/llm-mux/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -195,7 +196,8 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *cliproxyauth.Au
 		case RetryActionSuccess:
 			// Success path - translate and return
 			reporter.publish(ctx, extractUsageFromGeminiResponse(bodyBytes))
-			translatedResp, errTranslateResp := TranslateGeminiCLIResponseNonStream(e.cfg, from, bodyBytes, req.Model)
+			fromFormat := sdktranslator.FromString("gemini-cli")
+			translatedResp, errTranslateResp := TranslateResponseNonStream(e.cfg, fromFormat, from, bodyBytes, req.Model)
 			if errTranslateResp != nil {
 				return resp, fmt.Errorf("failed to translate response: %w", errTranslateResp)
 			}

@@ -102,7 +102,8 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *cliproxyauth.A
 	reporter.ensurePublished(ctx)
 
 	// Translate response back to source format
-	translatedResp, err := TranslateOpenAIResponseNonStream(e.cfg, from, body, req.Model)
+	fromOpenAI := sdktranslator.FromString("openai")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, body, req.Model)
 	if err != nil {
 		return resp, err
 	}

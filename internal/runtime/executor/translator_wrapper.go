@@ -543,36 +543,6 @@ func TranslateToCodex(cfg *config.Config, from sdktranslator.Format, model strin
 	return from_ir.ToOpenAIRequestFmt(irReq, from_ir.FormatResponsesAPI)
 }
 
-// TranslateCodexResponseNonStream converts Codex (Responses API) non-streaming response to target format.
-// Returns nil if new translator is disabled (caller should use old translator as fallback).
-func TranslateCodexResponseNonStream(cfg *config.Config, to sdktranslator.Format, codexResponse []byte, model string) ([]byte, error) {
-	// Early passthrough for codex format
-	toStr := to.String()
-	if toStr == "codex" || toStr == "openai-response" {
-		return codexResponse, nil
-	}
-
-	// Step 1: Parse Codex response to IR (auto-detects Responses API format)
-	messages, usage, err := to_ir.ParseOpenAIResponse(codexResponse)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Convert IR to target format
-	messageID := "resp-" + model
-
-	switch toStr {
-	case "openai", "cline":
-		return from_ir.ToOpenAIChatCompletion(messages, usage, model, messageID)
-	case "claude":
-		return from_ir.ToClaudeResponse(messages, usage, model, messageID)
-	case "ollama":
-		return from_ir.ToOllamaChatResponse(messages, usage, model)
-	default:
-		return nil, nil
-	}
-}
-
 // TranslateToClaude converts request to Claude API format.
 func TranslateToClaude(cfg *config.Config, from sdktranslator.Format, model string, payload []byte, streaming bool, metadata map[string]any) ([]byte, error) {
 	// Note: We always parse to IR even for "claude" format to enable thinking block injection
@@ -634,145 +604,6 @@ func TranslateToGemini(cfg *config.Config, from sdktranslator.Format, model stri
 	return result.Payload, nil
 }
 
-// TranslateGeminiCLIResponseNonStream converts Gemini CLI non-streaming response to target format.
-func TranslateGeminiCLIResponseNonStream(cfg *config.Config, to sdktranslator.Format, geminiResponse []byte, model string) ([]byte, error) {
-	// Early passthrough for gemini formats
-	toStr := to.String()
-	if toStr == "gemini" || toStr == "gemini-cli" {
-		// Unwrap Antigravity envelope if present: {"response": {...}, "traceId": "..."}
-		if responseWrapper := gjson.GetBytes(geminiResponse, "response"); responseWrapper.Exists() {
-			return []byte(responseWrapper.Raw), nil
-		}
-		return geminiResponse, nil
-	}
-
-	// For multiple candidates, use the candidate parser (OpenAI format only)
-	if (toStr == "openai" || toStr == "cline") && hasMultipleCandidates(geminiResponse) {
-		candidates, usage, meta, err := to_ir.ParseGeminiResponseCandidates(geminiResponse, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		messageID := "chatcmpl-" + model
-		var openaiMeta *ir.OpenAIMeta
-		if meta != nil {
-			if meta.ResponseID != "" {
-				messageID = meta.ResponseID
-			}
-			openaiMeta = &ir.OpenAIMeta{
-				ResponseID:         meta.ResponseID,
-				CreateTime:         meta.CreateTime,
-				NativeFinishReason: meta.NativeFinishReason,
-				GroundingMetadata:  meta.GroundingMetadata,
-			}
-			if usage != nil {
-				openaiMeta.ThoughtsTokenCount = usage.ThoughtsTokenCount
-			}
-		}
-		return from_ir.ToOpenAIChatCompletionCandidates(candidates, usage, model, messageID, openaiMeta)
-	}
-
-	// Step 1: Parse Gemini CLI response to IR (single candidate) with meta for grounding
-	messages, usage, meta, err := to_ir.ParseGeminiResponseMetaWithContext(geminiResponse, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Convert IR to target format
-	messageID := "chatcmpl-" + model
-	var openaiMeta *ir.OpenAIMeta
-	if meta != nil {
-		if meta.ResponseID != "" {
-			messageID = meta.ResponseID
-		}
-		openaiMeta = meta
-	}
-
-	switch toStr {
-	case "openai", "cline":
-		return from_ir.ToOpenAIChatCompletionMeta(messages, usage, model, messageID, openaiMeta)
-	case "claude":
-		return from_ir.ToClaudeResponse(messages, usage, model, messageID)
-	case "ollama":
-		return from_ir.ToOllamaChatResponse(messages, usage, model)
-	default:
-		return nil, nil
-	}
-}
-
-// TranslateGeminiResponseNonStream converts Gemini (AI Studio) non-streaming response to target format.
-func TranslateGeminiResponseNonStream(cfg *config.Config, to sdktranslator.Format, geminiResponse []byte, model string) ([]byte, error) {
-	// Early passthrough for gemini format
-	toStr := to.String()
-	if toStr == "gemini" {
-		// Unwrap Antigravity envelope if present: {"response": {...}, "traceId": "..."}
-		if responseWrapper := gjson.GetBytes(geminiResponse, "response"); responseWrapper.Exists() {
-			return []byte(responseWrapper.Raw), nil
-		}
-		return geminiResponse, nil
-	}
-
-	// For multiple candidates, use the new candidate parser (OpenAI format only)
-	if (toStr == "openai" || toStr == "cline") && hasMultipleCandidates(geminiResponse) {
-		candidates, usage, meta, err := to_ir.ParseGeminiResponseCandidates(geminiResponse, nil)
-		if err != nil {
-			return nil, err
-		}
-
-		messageID := "chatcmpl-" + model
-		var openaiMeta *ir.OpenAIMeta
-		if meta != nil {
-			messageID = meta.ResponseID
-			openaiMeta = &ir.OpenAIMeta{
-				ResponseID:         meta.ResponseID,
-				CreateTime:         meta.CreateTime,
-				NativeFinishReason: meta.NativeFinishReason,
-				GroundingMetadata:  meta.GroundingMetadata,
-			}
-			if usage != nil {
-				openaiMeta.ThoughtsTokenCount = usage.ThoughtsTokenCount
-			}
-		}
-		return from_ir.ToOpenAIChatCompletionCandidates(candidates, usage, model, messageID, openaiMeta)
-	}
-
-	// Step 1: Parse Gemini response to IR with metadata (single candidate)
-	messages, usage, meta, err := to_ir.ParseGeminiResponseMeta(geminiResponse)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Convert IR to target format
-	messageID := "chatcmpl-" + model
-	if meta != nil && meta.ResponseID != "" {
-		messageID = meta.ResponseID
-	}
-
-	switch toStr {
-	case "openai", "cline":
-		var openaiMeta *ir.OpenAIMeta
-		if meta != nil {
-			openaiMeta = &ir.OpenAIMeta{
-				ResponseID:         meta.ResponseID,
-				CreateTime:         meta.CreateTime,
-				NativeFinishReason: meta.NativeFinishReason,
-				Logprobs:           meta.Logprobs,
-				GroundingMetadata:  meta.GroundingMetadata,
-			}
-			if usage != nil {
-				openaiMeta.ThoughtsTokenCount = usage.ThoughtsTokenCount
-			}
-		}
-		return from_ir.ToOpenAIChatCompletionMeta(messages, usage, model, messageID, openaiMeta)
-	case "claude":
-		return from_ir.ToClaudeResponse(messages, usage, model, messageID)
-	case "ollama":
-		return from_ir.ToOllamaChatResponse(messages, usage, model)
-	default:
-		return nil, nil
-	}
-}
-
 // hasMultipleCandidates checks if response has more than one candidate.
 // Uses gjson's efficient array traversal - stops after finding 2nd element.
 func hasMultipleCandidates(response []byte) bool {
@@ -780,31 +611,6 @@ func hasMultipleCandidates(response []byte) bool {
 	parsed, _ := ir.UnwrapAntigravityEnvelope(response)
 	// Check if candidates.1 exists (0-indexed, so .1 means 2nd element)
 	return parsed.Get("candidates.1").Exists()
-}
-
-func TranslateClaudeResponseNonStream(cfg *config.Config, to sdktranslator.Format, claudeResponse []byte, model string) ([]byte, error) {
-	// Step 1: Parse Claude response to IR
-	messages, usage, err := to_ir.ParseClaudeResponse(claudeResponse)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Convert IR to target format
-	toStr := to.String()
-	messageID := "msg-" + model // Simple ID generation
-
-	switch toStr {
-	case "openai", "cline":
-		return from_ir.ToOpenAIChatCompletion(messages, usage, model, messageID)
-	case "ollama":
-		return from_ir.ToOllamaChatResponse(messages, usage, model)
-	case "claude":
-		// Passthrough - already in Claude format
-		return claudeResponse, nil
-	default:
-		// Unsupported target format, return nil to trigger fallback
-		return nil, nil
-	}
 }
 
 // OpenAIStreamState maintains state for OpenAI → OpenAI streaming conversions.
@@ -883,33 +689,6 @@ func TranslateOpenAIResponseStreamWithUsage(cfg *config.Config, to sdktranslator
 	state.ReasoningCharsAccum = ss.ReasoningCharsAccum
 
 	return &StreamTranslationResult{Chunks: chunks, Usage: usage}, err
-}
-
-// TranslateOpenAIResponseNonStream converts OpenAI non-streaming response to target format.
-func TranslateOpenAIResponseNonStream(cfg *config.Config, to sdktranslator.Format, openaiResponse []byte, model string) ([]byte, error) {
-	// Step 1: Parse OpenAI response to IR
-	messages, usage, err := to_ir.ParseOpenAIResponse(openaiResponse)
-	if err != nil {
-		return nil, err
-	}
-
-	// Step 2: Convert IR to target format
-	toStr := to.String()
-	messageID := "chatcmpl-" + model // Simple ID generation
-
-	switch toStr {
-	case "openai", "cline":
-		return from_ir.ToOpenAIChatCompletion(messages, usage, model, messageID)
-	case "gemini", "gemini-cli":
-		return from_ir.ToGeminiResponse(messages, usage, model)
-	case "ollama":
-		return from_ir.ToOllamaChatResponse(messages, usage, model)
-	case "claude":
-		return from_ir.ToClaudeResponse(messages, usage, model, messageID)
-	default:
-		// Unsupported target format, return nil to trigger fallback
-		return nil, nil
-	}
 }
 
 // TranslateTokenCount converts token count response to target format.

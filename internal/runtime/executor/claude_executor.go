@@ -191,7 +191,8 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, r
 	}
 
 	// Translate response using canonical translator
-	translatedResp, err := TranslateClaudeResponseNonStream(e.cfg, from, data, req.Model)
+	claudeFrom := sdktranslator.FromString("claude")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, claudeFrom, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}

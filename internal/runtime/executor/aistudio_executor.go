@@ -72,7 +72,8 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth,
 	}
 	reporter.publish(ctx, extractUsageFromGeminiResponse(wsResp.Body))
 
-	translatedResp, err := TranslateGeminiResponseNonStream(e.cfg, opts.SourceFormat, wsResp.Body, req.Model)
+	fromFormat := sdktranslator.FromString("gemini")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, wsResp.Body, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -189,7 +190,8 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				}
 				return false
 			case wsrelay.MessageTypeHTTPResp:
-				translatedResp, err := TranslateGeminiResponseNonStream(e.cfg, opts.SourceFormat, event.Payload, req.Model)
+				fromFormat := sdktranslator.FromString("gemini")
+				translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, event.Payload, req.Model)
 				if err != nil {
 					out <- cliproxyexecutor.StreamChunk{Err: err}
 					return false

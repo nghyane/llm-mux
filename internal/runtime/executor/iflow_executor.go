@@ -15,6 +15,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/util"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
+	sdktranslator "github.com/nghyane/llm-mux/sdk/translator"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -90,7 +91,8 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	// Ensure usage is recorded even if upstream omits usage metadata.
 	reporter.ensurePublished(ctx)
 
-	translatedResp, err := TranslateOpenAIResponseNonStream(e.cfg, from, data, req.Model)
+	fromOpenAI := sdktranslator.FromString("openai")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}

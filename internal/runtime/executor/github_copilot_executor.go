@@ -15,6 +15,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
+	sdktranslator "github.com/nghyane/llm-mux/sdk/translator"
 	"github.com/tidwall/sjson"
 	"golang.org/x/sync/singleflight"
 )
@@ -96,7 +97,8 @@ func (e *GitHubCopilotExecutor) Execute(ctx context.Context, auth *cliproxyauth.
 	}
 
 	// Translate response back from OpenAI format to source format
-	translatedResp, errTranslate := TranslateOpenAIResponseNonStream(e.cfg, from, data, req.Model)
+	fromOpenAI := sdktranslator.FromString("openai")
+	translatedResp, errTranslate := TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
 	if errTranslate != nil {
 		return resp, errTranslate
 	}

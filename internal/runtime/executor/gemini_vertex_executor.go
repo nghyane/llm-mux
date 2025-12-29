@@ -269,7 +269,8 @@ func (e *GeminiVertexExecutor) executeWithStrategy(ctx context.Context, auth *cl
 	}
 	reporter.publish(ctx, extractUsageFromGeminiResponse(data))
 
-	translatedResp, err := TranslateGeminiResponseNonStream(e.cfg, from, data, req.Model)
+	fromFormat := sdktranslator.FromString("gemini")
+	translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}

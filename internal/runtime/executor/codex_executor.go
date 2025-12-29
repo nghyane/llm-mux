@@ -105,7 +105,8 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 			reporter.publish(ctx, detail)
 		}
 
-		translatedResp, err := TranslateCodexResponseNonStream(e.cfg, from, line, req.Model)
+		fromFormat := sdktranslator.FromString("codex")
+		translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, line, req.Model)
 		if err != nil {
 			return resp, err
 		}
