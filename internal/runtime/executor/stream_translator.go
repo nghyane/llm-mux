@@ -11,13 +11,14 @@ import (
 
 // StreamTranslator handles format conversion with integrated buffering
 type StreamTranslator struct {
-	cfg       *config.Config
-	from      sdktranslator.Format
-	to        string
-	model     string
-	messageID string
-	ctx       *StreamContext
-	buffer    ChunkBufferStrategy
+	cfg            *config.Config
+	from           sdktranslator.Format
+	to             string
+	model          string
+	messageID      string
+	ctx            *StreamContext
+	buffer         ChunkBufferStrategy
+	streamMetaSent bool
 }
 
 // NewStreamTranslator creates a translator with appropriate buffer strategy
@@ -44,6 +45,24 @@ func NewStreamTranslator(cfg *config.Config, from sdktranslator.Format, to, mode
 // Translate converts IR events to target format with buffering
 func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslationResult, error) {
 	var allChunks [][]byte
+
+	// Emit StreamMeta before first content event
+	if !t.streamMetaSent && len(events) > 0 {
+		t.streamMetaSent = true
+		metaEvent := ir.UnifiedEvent{
+			Type: ir.EventTypeStreamMeta,
+			StreamMeta: &ir.StreamMeta{
+				MessageID:            t.messageID,
+				Model:                t.model,
+				EstimatedInputTokens: t.ctx.EstimatedInputTokens,
+			},
+		}
+		if chunk, err := t.convertEvent(&metaEvent); err != nil {
+			return nil, err
+		} else if chunk != nil {
+			allChunks = append(allChunks, chunk)
+		}
+	}
 
 	for i := range events {
 		event := &events[i]
@@ -141,7 +160,7 @@ func (t *StreamTranslator) convertEvent(event *ir.UnifiedEvent) ([]byte, error) 
 		}
 		return from_ir.ToOpenAIChunk(*event, t.model, t.messageID, idx)
 	case "claude":
-		return from_ir.ToClaudeSSE(*event, t.model, t.messageID, t.ctx.ClaudeState)
+		return from_ir.ToClaudeSSE(*event, t.ctx.ClaudeState)
 	case "gemini", "gemini-cli":
 		return from_ir.ToGeminiChunk(*event, t.model)
 	case "ollama":

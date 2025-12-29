@@ -226,6 +226,9 @@ func ToOllamaGenerateResponse(ms []ir.Message, us *ir.Usage, model string) ([]by
 }
 
 func ToOllamaChatChunk(ev ir.UnifiedEvent, model string) ([]byte, error) {
+	if ev.Type == ir.EventTypeStreamMeta {
+		return nil, nil
+	}
 	res := map[string]any{"model": model, "created_at": time.Now().UTC().Format(time.RFC3339), "done": false, "message": map[string]any{"role": "assistant", "content": ""}}
 	switch ev.Type {
 	case ir.EventTypeToken:
@@ -250,6 +253,9 @@ func ToOllamaChatChunk(ev ir.UnifiedEvent, model string) ([]byte, error) {
 }
 
 func ToOllamaGenerateChunk(ev ir.UnifiedEvent, model string) ([]byte, error) {
+	if ev.Type == ir.EventTypeStreamMeta {
+		return nil, nil
+	}
 	res := map[string]any{"model": model, "created_at": time.Now().UTC().Format(time.RFC3339), "done": false, "response": ""}
 	switch ev.Type {
 	case ir.EventTypeToken:

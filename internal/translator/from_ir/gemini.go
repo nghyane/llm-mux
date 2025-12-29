@@ -417,6 +417,9 @@ func ToGeminiResponseMeta(messages []ir.Message, usage *ir.Usage, model string, 
 }
 
 func ToGeminiChunk(event ir.UnifiedEvent, model string) ([]byte, error) {
+	if event.Type == ir.EventTypeStreamMeta {
+		return nil, nil
+	}
 	candidate := map[string]any{"content": map[string]any{"role": "model", "parts": []any{}}}
 	chunk := map[string]any{"candidates": []any{}, "modelVersion": model}
 	switch event.Type {

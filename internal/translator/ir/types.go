@@ -37,13 +37,14 @@ const (
 type EventType string
 
 const (
+	EventTypeStreamMeta       EventType = "stream_meta"
 	EventTypeToken            EventType = "token"
 	EventTypeReasoning        EventType = "reasoning"
 	EventTypeReasoningSummary EventType = "reasoning_summary"
 	EventTypeToolCall         EventType = "tool_call"
 	EventTypeToolCallDelta    EventType = "tool_call_delta"
 	EventTypeImage            EventType = "image"
-	EventTypeAudio            EventType = "audio" // Audio response event
+	EventTypeAudio            EventType = "audio"
 	EventTypeCodeExecution    EventType = "code_execution"
 	EventTypeError            EventType = "error"
 	EventTypeFinish           EventType = "finish"
@@ -130,26 +131,33 @@ const (
 	OutcomeDeadlineExceeded Outcome = "OUTCOME_DEADLINE_EXCEEDED"
 )
 
+type StreamMeta struct {
+	MessageID            string
+	Model                string
+	EstimatedInputTokens int64
+}
+
 type UnifiedEvent struct {
 	Type              EventType
 	Content           string
 	Reasoning         string
 	ReasoningSummary  string
-	ThoughtSignature  []byte // Opaque signature for thought reuse (matches SDK []byte)
+	ThoughtSignature  []byte
 	ToolCall          *ToolCall
 	ToolCallIndex     int
 	Image             *ImagePart
-	Audio             *AudioPart // Audio response (OpenAI audio preview)
+	Audio             *AudioPart
 	CodeExecution     *CodeExecutionPart
 	GroundingMetadata *GroundingMetadata
+	StreamMeta        *StreamMeta
 	Error             error
 	Usage             *Usage
-	FinishReason      FinishReason // Why generation stopped (for EventTypeFinish)
-	Refusal           string       // Refusal message (if model refuses to answer)
-	Logprobs          any          // Log probabilities (if requested)
-	ContentFilter     any          // Content filter results
-	SystemFingerprint string       // System fingerprint
-	RedactedData      string       // Encrypted data for redacted_thinking streaming
+	FinishReason      FinishReason
+	Refusal           string
+	Logprobs          any
+	ContentFilter     any
+	SystemFingerprint string
+	RedactedData      string
 }
 
 type Usage struct {

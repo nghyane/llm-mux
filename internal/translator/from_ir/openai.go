@@ -555,6 +555,9 @@ type openaiTextChunk struct {
 }
 
 func ToOpenAIChunkMeta(ev ir.UnifiedEvent, model, mid string, ci int, meta *ir.OpenAIMeta) ([]byte, error) {
+	if ev.Type == ir.EventTypeStreamMeta {
+		return nil, nil
+	}
 	rid, cr := mid, time.Now().Unix()
 	if meta != nil {
 		if meta.ResponseID != "" {
@@ -857,6 +860,9 @@ func formatResponsesSSE(et string, jb []byte) string {
 }
 
 func ToResponsesAPIChunk(ev ir.UnifiedEvent, model string, s *ResponsesStreamState) ([]string, error) {
+	if ev.Type == ir.EventTypeStreamMeta {
+		return nil, nil
+	}
 	if s.ResponseID == "" {
 		s.ResponseID, s.Created = fmt.Sprintf("resp_%d", time.Now().UnixNano()), time.Now().Unix()
 	}

@@ -15,17 +15,16 @@ import (
 type ClaudeProvider struct{}
 
 type ClaudeStreamState struct {
-	MessageID            string
-	Model                string
-	MessageStartSent     bool
-	TextBlockStarted     bool
-	CurrentBlockType     string
-	TextBlockIndex       int
-	HasToolCalls         bool
-	HasTextContent       bool
-	FinishSent           bool
-	EstimatedInputTokens int64
-	ParserState          *ir.ClaudeStreamParserState
+	MessageID        string
+	Model            string
+	MessageStartSent bool
+	TextBlockStarted bool
+	CurrentBlockType string
+	TextBlockIndex   int
+	HasToolCalls     bool
+	HasTextContent   bool
+	FinishSent       bool
+	ParserState      *ir.ClaudeStreamParserState
 }
 
 func NewClaudeStreamState() *ClaudeStreamState {
@@ -276,14 +275,32 @@ func (p *ClaudeProvider) ParseStreamChunkWithState(cj []byte, state *ir.ClaudeSt
 	return nil, nil
 }
 
-func ToClaudeSSE(ev ir.UnifiedEvent, model, mid string, state *ClaudeStreamState) ([]byte, error) {
+func ToClaudeSSE(ev ir.UnifiedEvent, state *ClaudeStreamState) ([]byte, error) {
 	res := ir.GetStringBuilder()
 	defer ir.PutStringBuilder(res)
-	if state != nil && !state.MessageStartSent {
-		state.MessageStartSent, state.Model, state.MessageID = true, model, mid
-		res.WriteString(formatSSE(ir.ClaudeSSEMessageStart, map[string]any{"type": ir.ClaudeSSEMessageStart, "message": map[string]any{"id": mid, "type": "message", "role": ir.ClaudeRoleAssistant, "content": []any{}, "model": model, "usage": map[string]any{"input_tokens": state.EstimatedInputTokens, "output_tokens": int64(1), "cache_creation_input_tokens": int64(0), "cache_read_input_tokens": int64(0)}}}))
-	}
 	switch ev.Type {
+	case ir.EventTypeStreamMeta:
+		if state != nil && !state.MessageStartSent && ev.StreamMeta != nil {
+			state.MessageStartSent = true
+			state.Model = ev.StreamMeta.Model
+			state.MessageID = ev.StreamMeta.MessageID
+			res.WriteString(formatSSE(ir.ClaudeSSEMessageStart, map[string]any{
+				"type": ir.ClaudeSSEMessageStart,
+				"message": map[string]any{
+					"id":      ev.StreamMeta.MessageID,
+					"type":    "message",
+					"role":    ir.ClaudeRoleAssistant,
+					"content": []any{},
+					"model":   ev.StreamMeta.Model,
+					"usage": map[string]any{
+						"input_tokens":                ev.StreamMeta.EstimatedInputTokens,
+						"output_tokens":               int64(1),
+						"cache_creation_input_tokens": int64(0),
+						"cache_read_input_tokens":     int64(0),
+					},
+				},
+			}))
+		}
 	case ir.EventTypeToken:
 		emitTextDeltaTo(res, ev.Content, state)
 	case ir.EventTypeReasoning:

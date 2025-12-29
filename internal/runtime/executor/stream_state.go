@@ -14,8 +14,6 @@ type StreamContext struct {
 	ReasoningCharsAccum  int
 	ToolSchemaCtx        *ir.ToolSchemaContext
 	EstimatedInputTokens int64
-	PendingGeminiChunk   []byte
-	PendingFinishEvent   *ir.UnifiedEvent
 }
 
 func NewStreamContext() *StreamContext {
