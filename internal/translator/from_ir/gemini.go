@@ -105,7 +105,18 @@ func (p *GeminiProvider) applyGenerationConfig(root map[string]any, req *ir.Unif
 		}
 	}
 
-	if v, ok := gc["maxOutputTokens"].(int); !ok || v < 1 {
+	currentMax := 0
+	switch v := gc["maxOutputTokens"].(type) {
+	case int:
+		currentMax = v
+	case int32:
+		currentMax = int(v)
+	case int64:
+		currentMax = int(v)
+	case float64:
+		currentMax = int(v)
+	}
+	if currentMax < 1 {
 		gc["maxOutputTokens"] = ir.DefaultMaxOutputTokens
 	}
 
@@ -639,6 +650,10 @@ func (p *GeminiProvider) adjustMaxTokensForThinking(gc map[string]any, req *ir.U
 	case int:
 		cm = v
 	case int32:
+		cm = int(v)
+	case int64:
+		cm = int(v)
+	case float64:
 		cm = int(v)
 	default:
 		if req.MaxTokens != nil {
