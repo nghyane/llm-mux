@@ -197,25 +197,36 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 
 // geminiCLIStreamProcessor processes Gemini CLI SSE stream lines.
 type geminiCLIStreamProcessor struct {
-	cfg       *config.Config
-	from      sdktranslator.Format
-	model     string
-	messageID string
-	state     *GeminiCLIStreamState
+	translator *StreamTranslator
 }
 
 // ProcessLine implements StreamProcessor.ProcessLine for Gemini CLI streams.
 func (p *geminiCLIStreamProcessor) ProcessLine(payload []byte) ([][]byte, *ir.Usage, error) {
-	result, err := TranslateGeminiCLIResponseStreamWithUsage(p.cfg, p.from, payload, p.model, p.messageID, p.state)
+	// Parse Gemini CLI chunk to IR events
+	var events []ir.UnifiedEvent
+	var err error
+	if p.translator.ctx.ToolSchemaCtx != nil {
+		events, err = (&from_ir.GeminiCLIProvider{}).ParseStreamChunkWithContext(payload, p.translator.ctx.ToolSchemaCtx)
+	} else {
+		events, err = (&from_ir.GeminiCLIProvider{}).ParseStreamChunk(payload)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(events) == 0 {
+		return nil, nil, nil
+	}
+
+	result, err := p.translator.Translate(events)
 	if err != nil {
 		return nil, nil, err
 	}
 	return result.Chunks, result.Usage, nil
 }
 
-// ProcessDone implements StreamProcessor.ProcessDone - flushes any pending Gemini chunk.
+// ProcessDone implements StreamProcessor.ProcessDone - flushes any pending chunks.
 func (p *geminiCLIStreamProcessor) ProcessDone() ([][]byte, error) {
-	return flushPendingGeminiChunk(p.state), nil
+	return p.translator.Flush(), nil
 }
 
 // =============================================================================
@@ -330,18 +341,13 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 		}
 
 		// Success - create stream processor and run SSE stream
-		streamState := &GeminiCLIStreamState{
-			ClaudeState: from_ir.NewClaudeStreamState(),
-		}
-		streamState.ClaudeState.EstimatedInputTokens = estimatedInputTokens
+		streamCtx := NewStreamContext()
+		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + attemptModel
 
+		translator := NewStreamTranslator(e.cfg, from, from.String(), attemptModel, messageID, streamCtx)
 		processor := &geminiCLIStreamProcessor{
-			cfg:       e.cfg,
-			from:      from,
-			model:     attemptModel,
-			messageID: messageID,
-			state:     streamState,
+			translator: translator,
 		}
 
 		stream = RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{

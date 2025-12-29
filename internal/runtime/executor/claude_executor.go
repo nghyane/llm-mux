@@ -14,7 +14,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/registry"
-	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -40,47 +39,50 @@ type ClaudeExecutor struct {
 
 // claudeStreamProcessor processes Claude SSE stream lines with translation.
 type claudeStreamProcessor struct {
-	cfg       *config.Config
-	from      sdktranslator.Format
-	model     string
-	messageID string
-	state     *from_ir.ClaudeStreamState
+	translator *StreamTranslator
 }
 
 // ProcessLine implements StreamProcessor.ProcessLine for Claude streams.
 func (p *claudeStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	result, err := TranslateClaudeResponseStreamWithUsage(p.cfg, p.from, line, p.model, p.messageID, p.state)
+	// Parse Claude chunk to IR events
+	var parserState *ir.ClaudeStreamParserState
+	if p.translator.ctx.ClaudeState != nil {
+		parserState = p.translator.ctx.ClaudeState.ParserState
+	}
+	events, err := to_ir.ParseClaudeChunkWithState(line, parserState)
 	if err != nil {
 		return nil, nil, err
 	}
-	if result == nil {
+	if len(events) == 0 {
 		return nil, nil, nil
+	}
+
+	result, err := p.translator.Translate(events)
+	if err != nil {
+		return nil, nil, err
 	}
 	return result.Chunks, result.Usage, nil
 }
 
 // ProcessDone implements StreamProcessor.ProcessDone (no-op for Claude).
 func (p *claudeStreamProcessor) ProcessDone() ([][]byte, error) {
-	return nil, nil
+	return p.translator.Flush(), nil
 }
 
 // claudePassthroughProcessor handles Claude-to-Claude passthrough mode.
 // It extracts usage for tracking but passes through the raw SSE lines.
-type claudePassthroughProcessor struct {
-	cfg   *config.Config
-	from  sdktranslator.Format
-	model string
-}
+type claudePassthroughProcessor struct{}
 
 // ProcessLine implements StreamProcessor.ProcessLine for passthrough mode.
 // Returns nil chunks to trigger PassthroughOnEmpty behavior in RunSSEStream.
 func (p *claudePassthroughProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	// Extract usage even in passthrough mode
-	result, _ := TranslateClaudeResponseStreamWithUsage(p.cfg, p.from, line, p.model, "msg-dummy", nil)
-	if result != nil && result.Usage != nil {
-		return nil, result.Usage, nil
+	// Parse to IR and extract usage (no translation needed for passthrough)
+	events, err := to_ir.ParseClaudeChunk(line)
+	if err != nil {
+		return nil, nil, nil // Ignore parse errors in passthrough mode
 	}
-	return nil, nil, nil
+	usage := extractUsageFromEvents(events)
+	return nil, usage, nil
 }
 
 // ProcessDone implements StreamProcessor.ProcessDone (no-op for passthrough).
@@ -273,11 +275,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	// Use RunSSEStream with appropriate processor based on source format
 	if from.String() == "claude" {
 		// Claude → Claude passthrough mode
-		processor := &claudePassthroughProcessor{
-			cfg:   e.cfg,
-			from:  from,
-			model: req.Model,
-		}
+		processor := &claudePassthroughProcessor{}
 		return RunSSEStream(ctx, decodedBody, reporter, processor, StreamConfig{
 			ExecutorName:       "claude",
 			PassthroughOnEmpty: true, // Forward raw lines when no chunks are returned
@@ -285,12 +283,10 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 	}
 
 	// For other formats, use translation processor
+	streamCtx := NewStreamContext()
+	translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, "msg-"+req.Model, streamCtx)
 	processor := &claudeStreamProcessor{
-		cfg:       e.cfg,
-		from:      from,
-		model:     req.Model,
-		messageID: "msg-" + req.Model,
-		state:     from_ir.NewClaudeStreamState(),
+		translator: translator,
 	}
 	return RunSSEStream(ctx, decodedBody, reporter, processor, StreamConfig{
 		ExecutorName: "claude",

@@ -16,7 +16,8 @@ import (
 
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/registry"
-	"github.com/nghyane/llm-mux/internal/translator/from_ir"
+	"github.com/nghyane/llm-mux/internal/translator/ir"
+	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
@@ -40,6 +41,31 @@ type GeminiExecutor struct {
 // Returns:
 //   - *GeminiExecutor: A new Gemini executor instance
 func NewGeminiExecutor(cfg *config.Config) *GeminiExecutor { return &GeminiExecutor{cfg: cfg} }
+
+type geminiStreamProcessor struct {
+	translator *StreamTranslator
+}
+
+func (p *geminiStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
+	// Parse Gemini chunk to IR events
+	events, err := to_ir.ParseGeminiChunk(line)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(events) == 0 {
+		return nil, nil, nil
+	}
+
+	result, err := p.translator.Translate(events)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.Chunks, result.Usage, nil
+}
+
+func (p *geminiStreamProcessor) ProcessDone() ([][]byte, error) {
+	return p.translator.Flush(), nil
+}
 
 // Identifier returns the executor identifier for Gemini.
 func (e *GeminiExecutor) Identifier() string { return "gemini" }
@@ -232,11 +258,13 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 		defer scannerBufferPool.Put(buf)
 		scanner := bufio.NewScanner(httpResp.Body)
 		scanner.Buffer(buf, DefaultStreamBufferSize)
-		streamState := &GeminiCLIStreamState{
-			ClaudeState: from_ir.NewClaudeStreamState(),
+		streamCtx := NewStreamContext()
+		streamCtx.EstimatedInputTokens = estimatedInputTokens
+		messageID := "chatcmpl-" + req.Model
+		translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
+		processor := &geminiStreamProcessor{
+			translator: translator,
 		}
-		// Set pre-calculated input tokens for message_start
-		streamState.ClaudeState.EstimatedInputTokens = estimatedInputTokens
 
 		for scanner.Scan() {
 			// Check context cancellation before processing each line
@@ -253,8 +281,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				continue
 			}
 
-			messageID := "chatcmpl-" + req.Model
-			result, err := TranslateGeminiResponseStreamWithUsage(e.cfg, from, bytes.Clone(payload), req.Model, messageID, streamState)
+			chunks, usage, err := processor.ProcessLine(bytes.Clone(payload))
 			if err != nil {
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Err: err}:
@@ -262,10 +289,10 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.A
 				}
 				return
 			}
-			if result.Usage != nil {
-				reporter.publish(ctx, result.Usage)
+			if usage != nil {
+				reporter.publish(ctx, usage)
 			}
-			for _, chunk := range result.Chunks {
+			for _, chunk := range chunks {
 				select {
 				case out <- cliproxyexecutor.StreamChunk{Payload: chunk}:
 				case <-ctx.Done():

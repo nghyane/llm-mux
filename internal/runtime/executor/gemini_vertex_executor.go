@@ -36,8 +36,8 @@ import (
 	vertexauth "github.com/nghyane/llm-mux/internal/auth/vertex"
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/registry"
-	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
+	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
@@ -342,17 +342,12 @@ func (e *GeminiVertexExecutor) executeStreamWithStrategy(ctx context.Context, au
 		return nil, result.Error
 	}
 
-	// Create stream processor
+	streamCtx := NewStreamContext()
+	streamCtx.EstimatedInputTokens = translation.EstimatedInputTokens
+	translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, "chatcmpl-"+req.Model, streamCtx)
 	processor := &vertexStreamProcessor{
-		cfg:       e.cfg,
-		from:      from,
-		model:     req.Model,
-		messageID: "chatcmpl-" + req.Model,
-		streamState: &GeminiCLIStreamState{
-			ClaudeState: from_ir.NewClaudeStreamState(),
-		},
+		translator: translator,
 	}
-	processor.streamState.ClaudeState.EstimatedInputTokens = translation.EstimatedInputTokens
 
 	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
 		ExecutorName:     "vertex executor",
@@ -439,16 +434,27 @@ func (e *GeminiVertexExecutor) Refresh(_ context.Context, auth *cliproxyauth.Aut
 
 // vertexStreamProcessor implements StreamProcessor for Vertex AI streams.
 type vertexStreamProcessor struct {
-	cfg         *config.Config
-	from        sdktranslator.Format
-	model       string
-	messageID   string
-	streamState *GeminiCLIStreamState
+	translator *StreamTranslator
 }
 
 // ProcessLine implements StreamProcessor.ProcessLine.
 func (p *vertexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	result, err := TranslateGeminiResponseStreamWithUsage(p.cfg, p.from, bytes.Clone(line), p.model, p.messageID, p.streamState)
+	// Parse Gemini chunk to IR events
+	var events []ir.UnifiedEvent
+	var err error
+	if p.translator.ctx.ToolSchemaCtx != nil {
+		events, err = to_ir.ParseGeminiChunkWithContext(line, p.translator.ctx.ToolSchemaCtx)
+	} else {
+		events, err = to_ir.ParseGeminiChunk(line)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(events) == 0 {
+		return nil, nil, nil
+	}
+
+	result, err := p.translator.Translate(events)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -457,11 +463,7 @@ func (p *vertexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, e
 
 // ProcessDone implements StreamProcessor.ProcessDone.
 func (p *vertexStreamProcessor) ProcessDone() ([][]byte, error) {
-	result, err := TranslateGeminiResponseStreamWithUsage(p.cfg, p.from, []byte("[DONE]"), p.model, p.messageID, p.streamState)
-	if err != nil {
-		return nil, err
-	}
-	return result.Chunks, nil
+	return p.translator.Flush(), nil
 }
 
 // =============================================================================

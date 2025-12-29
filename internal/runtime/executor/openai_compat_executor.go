@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -165,73 +164,15 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *cliproxy
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
-	out := make(chan cliproxyexecutor.StreamChunk, 8)
-	stream = out
-	go func() {
-		defer close(out)
-		defer func() {
-			if errClose := httpResp.Body.Close(); errClose != nil {
-				log.Errorf("openai compat executor: close response body error: %v", errClose)
-			}
-		}()
-		scanner := bufio.NewScanner(httpResp.Body)
-		buf := scannerBufferPool.Get().([]byte)
-		defer scannerBufferPool.Put(buf)
-		scanner.Buffer(buf, DefaultStreamBufferSize)
-		streamState := &OpenAIStreamState{}
-		messageID := "chatcmpl-" + req.Model
-		for scanner.Scan() {
-			// Check context cancellation before processing each line
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
 
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-			// Translate OpenAI stream chunks to target format and extract usage
-			result, errTranslate := TranslateOpenAIResponseStreamWithUsage(e.cfg, from, bytes.Clone(line), req.Model, messageID, streamState)
-			if errTranslate != nil {
-				select {
-				case out <- cliproxyexecutor.StreamChunk{Err: errTranslate}:
-				case <-ctx.Done():
-				}
-				return
-			}
-			if result.Usage != nil {
-				reporter.publish(ctx, result.Usage)
-			}
-			if len(result.Chunks) > 0 {
-				for _, chunk := range result.Chunks {
-					select {
-					case out <- cliproxyexecutor.StreamChunk{Payload: chunk}:
-					case <-ctx.Done():
-						return
-					}
-				}
-			} else {
-				// passthrough
-				select {
-				case out <- cliproxyexecutor.StreamChunk{Payload: line}:
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-		if errScan := scanner.Err(); errScan != nil {
-			reporter.publishFailure(ctx)
-			select {
-			case out <- cliproxyexecutor.StreamChunk{Err: errScan}:
-			case <-ctx.Done():
-			}
-		}
-		// Ensure we record the request if no usage chunk was ever seen
-		reporter.ensurePublished(ctx)
-	}()
-	return stream, nil
+	messageID := "chatcmpl-" + req.Model
+	processor := NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+		ExecutorName:     "openai-compat",
+		Preprocessor:     DataTagPreprocessor(),
+		HandleDoneSignal: true,
+		EnsurePublished:  true,
+	}), nil
 }
 
 func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {

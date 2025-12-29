@@ -11,7 +11,8 @@ import (
 
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/registry"
-	"github.com/nghyane/llm-mux/internal/translator/from_ir"
+	"github.com/nghyane/llm-mux/internal/translator/ir"
+	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
@@ -143,13 +144,14 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 	go func(first wsrelay.StreamEvent, inputTokens int64) {
 		defer close(out)
 
-		// State for new translator (tracks reasoning tokens)
-		streamState := &GeminiCLIStreamState{
-			ClaudeState: from_ir.NewClaudeStreamState(),
-		}
-		// Set pre-calculated input tokens for message_start
-		streamState.ClaudeState.EstimatedInputTokens = inputTokens
+		// Create new unified streaming components
+		streamCtx := NewStreamContext()
+		streamCtx.EstimatedInputTokens = inputTokens
 		messageID := "chatcmpl-" + req.Model
+		translator := NewStreamTranslator(e.cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
+		processor := &aistudioStreamProcessor{
+			translator: translator,
+		}
 
 		processEvent := func(event wsrelay.StreamEvent) bool {
 			if event.Err != nil {
@@ -163,20 +165,28 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 				if len(event.Payload) > 0 {
 					filtered := FilterSSEUsageMetadata(event.Payload)
 
-					result, err := TranslateGeminiResponseStreamWithUsage(e.cfg, opts.SourceFormat, bytes.Clone(filtered), req.Model, messageID, streamState)
+					chunks, usage, err := processor.ProcessLine(bytes.Clone(filtered))
 					if err != nil {
 						out <- cliproxyexecutor.StreamChunk{Err: err}
 						return false
 					}
-					if result.Usage != nil {
-						reporter.publish(ctx, result.Usage)
+					if usage != nil {
+						reporter.publish(ctx, usage)
 					}
-					for _, chunk := range result.Chunks {
+					for _, chunk := range chunks {
 						out <- cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(chunk)}
 					}
 					break
 				}
 			case wsrelay.MessageTypeStreamEnd:
+				if chunks, err := processor.ProcessDone(); err != nil {
+					out <- cliproxyexecutor.StreamChunk{Err: err}
+					return false
+				} else {
+					for _, chunk := range chunks {
+						out <- cliproxyexecutor.StreamChunk{Payload: ensureColonSpacedJSON(chunk)}
+					}
+				}
 				return false
 			case wsrelay.MessageTypeHTTPResp:
 				translatedResp, err := TranslateGeminiResponseNonStream(e.cfg, opts.SourceFormat, event.Payload, req.Model)
@@ -255,6 +265,37 @@ type translatedPayload struct {
 	payload  []byte
 	action   string
 	toFormat sdktranslator.Format
+}
+
+type aistudioStreamProcessor struct {
+	translator *StreamTranslator
+}
+
+func (p *aistudioStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
+	// Parse Gemini chunk to IR events
+	var events []ir.UnifiedEvent
+	var err error
+	if p.translator.ctx.ToolSchemaCtx != nil {
+		events, err = to_ir.ParseGeminiChunkWithContext(line, p.translator.ctx.ToolSchemaCtx)
+	} else {
+		events, err = to_ir.ParseGeminiChunk(line)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(events) == 0 {
+		return nil, nil, nil
+	}
+
+	result, err := p.translator.Translate(events)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.Chunks, result.Usage, nil
+}
+
+func (p *aistudioStreamProcessor) ProcessDone() ([][]byte, error) {
+	return p.translator.Flush(), nil
 }
 
 func (e *AIStudioExecutor) translateRequest(req cliproxyexecutor.Request, opts cliproxyexecutor.Options, stream bool) ([]byte, translatedPayload, error) {

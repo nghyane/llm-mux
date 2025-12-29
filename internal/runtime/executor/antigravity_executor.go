@@ -17,9 +17,9 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/oauth"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/util"
-	sdktranslator "github.com/nghyane/llm-mux/sdk/translator"
 
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
@@ -80,28 +80,36 @@ func (e *AntigravityExecutor) PrepareRequest(_ *http.Request, _ *cliproxyauth.Au
 
 // antigravityStreamProcessor processes Antigravity SSE stream lines.
 type antigravityStreamProcessor struct {
-	cfg       *config.Config
-	from      sdktranslator.Format
-	model     string
-	messageID string
-	state     *GeminiCLIStreamState
+	translator *StreamTranslator
 }
 
 // ProcessLine implements StreamProcessor.ProcessLine for Antigravity streams.
 func (p *antigravityStreamProcessor) ProcessLine(payload []byte) ([][]byte, *ir.Usage, error) {
-	result, err := TranslateGeminiCLIResponseStreamWithUsage(p.cfg, p.from, payload, p.model, p.messageID, p.state)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to translate chunk: %w", err)
+	// Parse Gemini CLI chunk to IR events
+	var events []ir.UnifiedEvent
+	var err error
+	if p.translator.ctx.ToolSchemaCtx != nil {
+		events, err = (&from_ir.GeminiCLIProvider{}).ParseStreamChunkWithContext(payload, p.translator.ctx.ToolSchemaCtx)
+	} else {
+		events, err = (&from_ir.GeminiCLIProvider{}).ParseStreamChunk(payload)
 	}
-	if result == nil {
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse chunk: %w", err)
+	}
+	if len(events) == 0 {
 		return nil, nil, nil
+	}
+
+	result, err := p.translator.Translate(events)
+	if err != nil {
+		return nil, nil, err
 	}
 	return result.Chunks, result.Usage, nil
 }
 
-// ProcessDone implements StreamProcessor.ProcessDone - flushes any pending Gemini chunk.
+// ProcessDone implements StreamProcessor.ProcessDone - flushes any pending chunks.
 func (p *antigravityStreamProcessor) ProcessDone() ([][]byte, error) {
-	return flushPendingGeminiChunk(p.state), nil
+	return p.translator.Flush(), nil
 }
 
 // =============================================================================
@@ -334,16 +342,13 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *cliproxya
 		}
 
 		// Success - create stream processor and run SSE stream
-		streamState := NewAntigravityStreamState(opts.OriginalRequest)
-		streamState.ClaudeState.EstimatedInputTokens = estimatedInputTokens
+		streamCtx := NewStreamContextWithTools(opts.OriginalRequest)
+		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 
+		translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
 		processor := &antigravityStreamProcessor{
-			cfg:       e.cfg,
-			from:      from,
-			model:     req.Model,
-			messageID: messageID,
-			state:     streamState,
+			translator: translator,
 		}
 
 		stream = RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{

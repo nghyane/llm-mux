@@ -14,6 +14,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
+	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
 	cliproxyauth "github.com/nghyane/llm-mux/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
@@ -169,11 +170,10 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 
 	// Create stream processor for Codex
 	messageID := "resp-" + req.Model
+	streamCtx := NewStreamContext()
+	translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
 	processor := &codexStreamProcessor{
-		cfg:       e.cfg,
-		from:      from,
-		model:     req.Model,
-		messageID: messageID,
+		translator: translator,
 	}
 
 	// Use RunSSEStream for unified streaming with buffer pooling
@@ -185,37 +185,30 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 
 // codexStreamProcessor implements StreamProcessor for Codex SSE streams.
 type codexStreamProcessor struct {
-	cfg       *config.Config
-	from      sdktranslator.Format
-	model     string
-	messageID string
-	state     *CodexStreamState
+	translator *StreamTranslator
 }
 
 // ProcessLine processes a single SSE line from Codex.
 func (p *codexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	var usage *ir.Usage
-
-	// Extract usage from response.completed events
-	if bytes.HasPrefix(line, dataTag) {
-		data := bytes.TrimSpace(line[len(dataTag):])
-		if gjson.GetBytes(data, "type").String() == "response.completed" {
-			usage = extractUsageFromOpenAIResponse(data)
-		}
-	}
-
-	// Translate the line
-	chunks, err := TranslateCodexResponseStream(p.cfg, p.from, line, p.model, p.messageID, p.state)
+	// Parse OpenAI/Codex chunk to IR events
+	events, err := to_ir.ParseOpenAIChunk(line)
 	if err != nil {
 		return nil, nil, err
 	}
+	if len(events) == 0 {
+		return nil, nil, nil
+	}
 
-	return chunks, usage, nil
+	result, err := p.translator.Translate(events)
+	if err != nil {
+		return nil, nil, err
+	}
+	return result.Chunks, result.Usage, nil
 }
 
-// ProcessDone handles the [DONE] signal (no-op for Codex).
+// ProcessDone handles the [DONE] signal.
 func (p *codexStreamProcessor) ProcessDone() ([][]byte, error) {
-	return nil, nil
+	return p.translator.Flush(), nil
 }
 
 func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
