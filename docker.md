@@ -68,11 +68,11 @@ cp -r ~/.config/llm-mux/auth/* ./auths/
 
 **Option 2: API keys only** (no OAuth needed)
 ```yaml
-openai-compatibility:
-  - name: "openai"
+providers:
+  - type: openai
+    name: "openai"
     base-url: "https://api.openai.com/v1"
-    api-key-entries:
-      - api-key: "sk-..."
+    api-key: "sk-..."
     models:
       - name: "gpt-4o"
 ```

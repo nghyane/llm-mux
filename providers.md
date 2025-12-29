@@ -28,7 +28,6 @@ llm-mux --antigravity-login
 **Available Models:**
 - `gemini-2.5-pro`
 - `gemini-2.5-flash`
-- `gemini-3-pro-preview`
 
 **Alternative login (legacy):**
 ```bash
@@ -145,13 +144,23 @@ llm-mux --iflow-cookie
 
 ## Vertex AI
 
-Import a Google Cloud service account for Vertex AI access.
+For Vertex AI access, configure via the providers array in `config.yaml`:
 
-```bash
-llm-mux --vertex-import /path/to/service-account.json
+```yaml
+providers:
+  - type: vertex-compat
+    name: "vertex-ai"
+    base-url: "https://us-central1-aiplatform.googleapis.com/v1"
+    api-key: "your-service-account-token"
+    models:
+      - name: "gemini-2.5-pro"
 ```
 
-This imports the service account key and configures Vertex AI access.
+For service account authentication, use Google Cloud SDK to generate tokens:
+
+```bash
+gcloud auth application-default print-access-token
+```
 
 ---
 

@@ -155,15 +155,91 @@ GITSTORE_GIT_TOKEN=ghp_...
 
 ---
 
+## Quota Handling
+
+```yaml
+quota-exceeded:
+  switch-project: true      # Switch to another account on quota limit
+  switch-preview-model: true  # Fallback to preview models
+```
+
+---
+
+## Usage Statistics
+
+```yaml
+usage-statistics-enabled: true
+
+usage-persistence:
+  enabled: true
+  db-path: "~/.config/llm-mux/usage.db"
+  batch-size: 100           # Records per batch write
+  flush-interval: 60        # Seconds between flushes
+  retention-days: 30        # Days to keep records
+```
+
+---
+
+## OAuth Model Exclusions
+
+Exclude specific models from OAuth providers:
+
+```yaml
+oauth-excluded-models:
+  gemini:
+    - "gemini-1.0-*"
+    - "*-vision"
+  claude:
+    - "claude-2*"
+```
+
+---
+
+## Amp CLI Integration
+
+For Amp CLI compatibility:
+
+```yaml
+ampcode:
+  upstream-url: ""          # Optional upstream proxy
+  upstream-api-key: ""
+  restrict-management-to-localhost: true
+  model-mappings:
+    - from: "claude-opus-4.5"
+      to: "claude-sonnet-4"
+```
+
+---
+
+## Payload Rules
+
+Apply default or override parameters to specific models:
+
+```yaml
+payload:
+  default:
+    - models:
+        - name: "gemini-*"
+          protocol: "gemini"
+      params:
+        temperature: 0.7
+  override:
+    - models:
+        - name: "claude-*"
+          protocol: "anthropic"
+      params:
+        max_tokens: 8192
+```
+
+---
+
 ## Advanced
 
 ```yaml
 remote-management:
   allow-remote: false       # Management API from non-localhost
-  secret-key: "admin"       # Management API key
 
 ws-auth: false              # WebSocket authentication
-usage-statistics-enabled: true
 use-canonical-translator: true  # IR translator (recommended)
 ```
 
