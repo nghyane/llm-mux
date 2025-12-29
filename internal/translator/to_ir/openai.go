@@ -11,7 +11,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
-// ParseOpenAIRequest parses incoming OpenAI request from client into unified format.
 func ParseOpenAIRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 	root, err := ir.ParseAndValidateJSON(rawJSON)
 	if err != nil {

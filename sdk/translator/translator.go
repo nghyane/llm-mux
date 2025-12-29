@@ -1,8 +1,6 @@
 // Package translator provides format definitions for request/response translation.
 package translator
 
-import "context"
-
 // Format identifies a request/response schema used inside the proxy.
 type Format string
 
@@ -25,9 +23,3 @@ const (
 	FormatCodex       Format = "codex"
 	FormatAntigravity Format = "antigravity"
 )
-
-// TranslateTokenCount is a passthrough - returns rawJSON as-is.
-// Legacy registry-based translation was never populated.
-func TranslateTokenCount(_ context.Context, _, _ Format, _ int64, rawJSON []byte) string {
-	return string(rawJSON)
-}

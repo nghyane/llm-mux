@@ -333,9 +333,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Aut
 	if err != nil {
 		return cliproxyexecutor.Response{}, err
 	}
-	count := gjson.GetBytes(data, "input_tokens").Int()
-	out := sdktranslator.TranslateTokenCount(ctx, formatClaude, from, count, data)
-	return cliproxyexecutor.Response{Payload: []byte(out)}, nil
+	return cliproxyexecutor.Response{Payload: data}, nil
 }
 
 func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {

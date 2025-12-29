@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"context"
 	"fmt"
 	"github.com/nghyane/llm-mux/internal/json"
 	"strings"
@@ -374,21 +373,6 @@ func TranslateToClaude(cfg *config.Config, from sdktranslator.Format, model stri
 	return (&from_ir.ClaudeProvider{}).ConvertRequest(irReq)
 }
 
-func TranslateToClaudeForAntigravity(cfg *config.Config, from sdktranslator.Format, model string, payload []byte, streaming bool, metadata map[string]any) ([]byte, error) {
-	irReq, err := convertRequestToIR(from, model, payload, metadata)
-	if err != nil {
-		return nil, err
-	}
-
-	claudeJSON, err := (&from_ir.ClaudeProvider{}).ConvertRequest(irReq)
-	if err != nil {
-		return nil, err
-	}
-
-	result, _ := sjson.SetRawBytes([]byte(`{}`), "request", claudeJSON)
-	return result, nil
-}
-
 func TranslateToOpenAI(cfg *config.Config, from sdktranslator.Format, model string, payload []byte, streaming bool, metadata map[string]any) ([]byte, error) {
 	fromStr := from.String()
 	if fromStr == "openai" || fromStr == "cline" {
@@ -417,8 +401,4 @@ func TranslateToGemini(cfg *config.Config, from sdktranslator.Format, model stri
 func hasMultipleCandidates(response []byte) bool {
 	parsed, _ := ir.UnwrapAntigravityEnvelope(response)
 	return parsed.Get("candidates.1").Exists()
-}
-
-func TranslateTokenCount(ctx context.Context, to, from sdktranslator.Format, count int64, usageJSON []byte) string {
-	return sdktranslator.TranslateTokenCount(ctx, to, from, count, usageJSON)
 }

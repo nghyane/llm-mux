@@ -7,10 +7,8 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
-// KiroProvider handles conversion from unified format to Kiro API format.
 type KiroProvider struct{}
 
-// ConvertRequest converts UnifiedChatRequest to Kiro API JSON format.
 func (p *KiroProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 	tools := extractTools(req.Tools)
 	systemPrompt := extractSystemPrompt(req.Messages)

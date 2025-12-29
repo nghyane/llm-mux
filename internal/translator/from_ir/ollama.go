@@ -11,7 +11,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 )
 
-// ToOllamaRequest converts unified request to Ollama API format.
 func ToOllamaRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 	if req.Metadata != nil {
 		if ep, ok := req.Metadata["ollama_endpoint"].(string); ok && ep == "generate" {

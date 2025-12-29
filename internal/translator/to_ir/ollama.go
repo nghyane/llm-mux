@@ -7,7 +7,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
-// ParseOllamaRequest parses incoming Ollama API request into unified format.
 func ParseOllamaRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 	root, err := ir.ParseAndValidateJSON(rawJSON)
 	if err != nil {

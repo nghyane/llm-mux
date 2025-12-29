@@ -266,6 +266,5 @@ func CountTokensForOpenAIProvider(
 	}
 
 	usageJSON := buildOpenAIUsageJSON(count)
-	translated := sdktranslator.TranslateTokenCount(ctx, formatOpenAI, from, count, usageJSON)
-	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
+	return cliproxyexecutor.Response{Payload: usageJSON}, nil
 }

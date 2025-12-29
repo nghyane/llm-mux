@@ -20,7 +20,6 @@ import (
 	cliproxyexecutor "github.com/nghyane/llm-mux/sdk/cliproxy/executor"
 	sdktranslator "github.com/nghyane/llm-mux/sdk/translator"
 	log "github.com/sirupsen/logrus"
-	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -341,10 +340,7 @@ func (e *GeminiVertexExecutor) countTokensWithStrategy(ctx context.Context, auth
 	if errRead != nil {
 		return cliproxyexecutor.Response{}, errRead
 	}
-	count := gjson.GetBytes(data, "totalTokens").Int()
-	to := formatGemini
-	out := sdktranslator.TranslateTokenCount(ctx, to, from, count, data)
-	return cliproxyexecutor.Response{Payload: []byte(out)}, nil
+	return cliproxyexecutor.Response{Payload: data}, nil
 }
 
 func (e *GeminiVertexExecutor) Refresh(_ context.Context, auth *cliproxyauth.Auth) (*cliproxyauth.Auth, error) {

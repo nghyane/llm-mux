@@ -1,4 +1,3 @@
-// Package from_ir converts unified request format to provider-specific formats.
 package from_ir
 
 import (

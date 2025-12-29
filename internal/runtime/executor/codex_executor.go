@@ -226,9 +226,7 @@ func (e *CodexExecutor) CountTokens(ctx context.Context, auth *cliproxyauth.Auth
 	}
 
 	usageJSON := fmt.Sprintf(`{"response":{"usage":{"input_tokens":%d,"output_tokens":0,"total_tokens":%d}}}`, count, count)
-	to := formatCodex
-	translated := sdktranslator.TranslateTokenCount(ctx, to, from, count, []byte(usageJSON))
-	return cliproxyexecutor.Response{Payload: []byte(translated)}, nil
+	return cliproxyexecutor.Response{Payload: []byte(usageJSON)}, nil
 }
 
 type reasoningModelConfig struct {

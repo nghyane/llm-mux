@@ -1,4 +1,3 @@
-// Package to_ir converts provider-specific API formats into unified format.
 package to_ir
 
 import (
@@ -14,7 +13,6 @@ import (
 
 var debugToolCalls = os.Getenv("DEBUG_TOOL_CALLS") == "1"
 
-// ParseGeminiRequest converts raw Gemini JSON to unified format.
 func ParseGeminiRequest(rawJSON []byte) (*ir.UnifiedChatRequest, error) {
 	parsed, err := ir.ParseAndValidateJSON(rawJSON)
 	if err != nil {
@@ -831,8 +829,6 @@ func parseGeminiInlineImage(part gjson.Result) *ir.ImagePart {
 	return &ir.ImagePart{MimeType: mimeType, Data: data.Get("data").String()}
 }
 
-// MergeConsecutiveModelThinking merges consecutive assistant messages that contain
-// only thinking content into a single message.
 func MergeConsecutiveModelThinking(messages []ir.Message) []ir.Message {
 	if len(messages) < 2 {
 		return messages

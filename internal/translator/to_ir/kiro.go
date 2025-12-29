@@ -7,7 +7,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ParseKiroResponse converts a non-streaming Kiro API response to unified format.
 func ParseKiroResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
 	parsed, err := ir.ParseAndValidateJSON(rawJSON)
 	if err != nil {
@@ -65,7 +64,6 @@ func ParseKiroResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
 	return []ir.Message{*msg}, usage, nil
 }
 
-// KiroStreamState tracks state for Kiro streaming response parsing.
 type KiroStreamState struct {
 	AccumulatedContent string
 	ToolCalls          []ir.ToolCall
@@ -77,7 +75,6 @@ func NewKiroStreamState() *KiroStreamState {
 	return &KiroStreamState{ToolCalls: make([]ir.ToolCall, 0)}
 }
 
-// ProcessChunk processes a Kiro stream chunk and returns events.
 func (s *KiroStreamState) ProcessChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 	if len(rawJSON) == 0 {
 		return nil, nil
@@ -197,7 +194,6 @@ func (s *KiroStreamState) DetermineFinishReason() ir.FinishReason {
 	return ir.FinishReasonStop
 }
 
-// Finalize builds the final message from accumulated streaming state.
 func (s *KiroStreamState) Finalize() *ir.Message {
 	msg := &ir.Message{Role: ir.RoleAssistant}
 
