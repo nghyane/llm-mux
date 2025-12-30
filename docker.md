@@ -3,6 +3,9 @@
 ## Quick Start
 
 ```bash
+# Create auth directory for OAuth tokens
+mkdir -p auths
+
 docker run -d \
   --name llm-mux \
   -p 8317:8317 \
@@ -63,6 +66,7 @@ OAuth requires a browser. Options:
 **Option 1: Copy tokens from host**
 ```bash
 llm-mux --antigravity-login          # Login on host
+mkdir -p auths
 cp -r ~/.config/llm-mux/auth/* ./auths/
 ```
 
