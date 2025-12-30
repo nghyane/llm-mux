@@ -99,6 +99,7 @@ types/interfaces → separate file
 make build    # Build binary
 make test     # Run tests
 make clean    # Remove artifacts
+make release  # Show release options
 ```
 
 ## Release

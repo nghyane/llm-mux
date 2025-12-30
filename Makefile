@@ -1,4 +1,4 @@
-.PHONY: build test clean
+.PHONY: build test clean release help
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
@@ -13,3 +13,12 @@ test:
 
 clean:
 	@rm -rf llm-mux dist/
+
+release:
+	@./scripts/release.sh help || true
+
+help:
+	@echo "make build   - Build binary"
+	@echo "make test    - Run tests"
+	@echo "make clean   - Remove artifacts"
+	@echo "make release - Show release options"
