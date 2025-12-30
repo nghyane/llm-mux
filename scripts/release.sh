@@ -55,11 +55,6 @@ preflight_check() {
         exit 1
     fi
     
-    # Check docker login
-    if ! docker info 2>/dev/null | grep -q "Username"; then
-        log_warn "Docker not logged in. Run: docker login"
-    fi
-    
     log_success "All checks passed"
 }
 
