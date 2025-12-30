@@ -342,7 +342,8 @@ func main() {
 		configFilePath = configPath
 
 		// Auto-init on first run: create config from template if using default path and doesn't exist
-		if configPath == expandPath(DefaultConfigPath) {
+		defaultExpanded, _ := util.ResolveAuthDir(DefaultConfigPath)
+		if configPath == defaultExpanded {
 			if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
 				autoInitConfig(configPath)
 			}
@@ -450,37 +451,6 @@ func main() {
 	}
 }
 
-// expandPath expands $XDG_CONFIG_HOME and ~ to actual paths (XDG-compliant)
-func expandPath(path string) string {
-	// Handle $XDG_CONFIG_HOME prefix
-	if strings.HasPrefix(path, "$XDG_CONFIG_HOME") {
-		xdg := os.Getenv("XDG_CONFIG_HOME")
-		if xdg == "" {
-			// Fallback to ~/.config if XDG_CONFIG_HOME not set
-			if home, err := os.UserHomeDir(); err == nil {
-				xdg = filepath.Join(home, ".config")
-			}
-		}
-		if xdg != "" {
-			remainder := strings.TrimPrefix(path, "$XDG_CONFIG_HOME")
-			remainder = strings.TrimLeft(remainder, "/\\")
-			if remainder == "" {
-				return filepath.Clean(xdg)
-			}
-			normalized := strings.ReplaceAll(remainder, "\\", "/")
-			return filepath.Clean(filepath.Join(xdg, filepath.FromSlash(normalized)))
-		}
-	}
-
-	// Handle ~ prefix (legacy support)
-	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
-		}
-	}
-	return path
-}
-
 // autoInitConfig silently creates config on first run
 func autoInitConfig(configPath string) {
 	dir := filepath.Dir(configPath)
@@ -500,7 +470,7 @@ func autoInitConfig(configPath string) {
 // - Credentials missing → create credentials (uses XDG_CONFIG_HOME or ~/.config/llm-mux/)
 // - Both exist → show current key (use --force to regenerate)
 func doInitConfig(configPath string, force bool) {
-	configPath = expandPath(configPath)
+	configPath, _ = util.ResolveAuthDir(configPath)
 	dir := filepath.Dir(configPath)
 	credPath := config.CredentialsFilePath()
 
