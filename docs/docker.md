@@ -90,6 +90,15 @@ docker exec llm-mux ./llm-mux --init
 
 ## Build from Source
 
+### Using Helper Script
+
+```bash
+./scripts/docker-build.sh      # macOS/Linux
+./scripts/docker-build.ps1     # Windows
+```
+
+### Manual Build
+
 ```bash
 git clone https://github.com/nghyane/llm-mux.git && cd llm-mux
 docker build -t llm-mux:local .

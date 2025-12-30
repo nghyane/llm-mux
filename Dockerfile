@@ -20,6 +20,17 @@ RUN CGO_ENABLED=0 go build \
 # Stage 2: Runtime stage
 FROM alpine:3.23
 
+ARG VERSION=dev
+ARG COMMIT=none
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="llm-mux" \
+      org.opencontainers.image.description="AI Gateway for Subscription-Based LLMs" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/nghyane/llm-mux"
+
 RUN apk add --no-cache tzdata ca-certificates
 
 RUN addgroup -g 1000 llm-mux && \

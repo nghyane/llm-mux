@@ -184,6 +184,7 @@ build_binaries() {
 build_docker() {
     local push="${1:-false}"
     local tag_latest="${2:-true}"
+    local dev_mode="${3:-false}"
     
     cd "$PROJECT_DIR"
     get_version_info
@@ -201,9 +202,15 @@ build_docker() {
         log_warn "Building for local only (single platform)"
     fi
     
-    local tags="-t $DOCKERHUB_REPO:$VERSION"
-    if [ "$tag_latest" = "true" ] && [ "$push" = "true" ]; then
-        tags="$tags -t $DOCKERHUB_REPO:latest"
+    local tags=""
+    if [ "$dev_mode" = "true" ]; then
+        tags="-t $DOCKERHUB_REPO:edge"
+        VERSION="edge"
+    else
+        tags="-t $DOCKERHUB_REPO:$VERSION"
+        if [ "$tag_latest" = "true" ] && [ "$push" = "true" ]; then
+            tags="$tags -t $DOCKERHUB_REPO:latest"
+        fi
     fi
     
     if [ "$push" = "true" ]; then
@@ -276,15 +283,15 @@ full_release() {
 dev_release() {
     show_status
     
-    log_info "Starting dev release (Docker only, no Homebrew)"
+    log_info "Starting dev release (Docker :edge tag, overwrites previous)"
     echo ""
     
-    if ! confirm "This will push Docker image with dev version (no latest tag). Continue?"; then
+    if ! confirm "This will push Docker image as :edge (overwrites previous). Continue?"; then
         log_warn "Aborted"
         exit 0
     fi
     
-    build_docker "true" "false"
+    build_docker "true" "false" "true"
     
     echo ""
     log_success "Dev release complete!"
@@ -306,9 +313,9 @@ usage() {
     echo "  binaries-only       Build and publish binaries (skip Homebrew)"
     echo "  docker              Build Docker image locally"
     echo "  docker-push         Build and push Docker image (with :latest)"
-    echo "  docker-dev          Build and push Docker dev image (no :latest)"
+    echo "  docker-dev          Build and push Docker :edge tag (overwrites previous)"
     echo "  release <version>   Full release: tag + binaries + Homebrew + docker"
-    echo "  dev                 Dev release: Docker only (no Homebrew, no :latest)"
+    echo "  dev                 Dev release: Docker :edge tag only (overwrites previous)"
     echo ""
     echo "Options:"
     echo "  --yes, -y           Skip confirmation prompts"
@@ -389,7 +396,7 @@ main() {
         docker-dev)
             preflight_check
             show_status
-            build_docker "true" "false"
+            build_docker "true" "false" "true"
             ;;
         release)
             if [ -z "$version_arg" ]; then
