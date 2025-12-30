@@ -67,17 +67,14 @@ detect_platform() {
     case "$uname_s" in
         Darwin*)                    OS="darwin" ;;
         Linux*)                     OS="linux" ;;
-        FreeBSD*)                   OS="freebsd" ;;
         MINGW*|MSYS*|CYGWIN*)       OS="windows" ;;
-        *)                          error "Unsupported OS: $uname_s. Supported: macOS, Linux, FreeBSD, Windows (via WSL/Git Bash)" ;;
+        *)                          error "Unsupported OS: $uname_s. Supported: macOS, Linux, Windows (via WSL/Git Bash)" ;;
     esac
 
     case "$uname_m" in
         x86_64|amd64)               ARCH="amd64" ;;
         arm64|aarch64)              ARCH="arm64" ;;
-        armv7l|armv6l)              ARCH="arm" ;;
-        i386|i686)                  ARCH="386" ;;
-        *)                          error "Unsupported architecture: $uname_m. Supported: x86_64, arm64, armv7l, i386" ;;
+        *)                          error "Unsupported architecture: $uname_m. Supported: x86_64 (amd64), arm64" ;;
     esac
 }
 
@@ -520,7 +517,7 @@ setup_service() {
         linux)
             service_linux_install
             ;;
-        freebsd|*)
+        *)
             service_generic_install
             ;;
     esac
@@ -649,9 +646,8 @@ Examples:
 
 Supported platforms:
     - macOS (Intel & Apple Silicon)
-    - Linux (x86_64, arm64, armv7)
+    - Linux (x86_64, arm64)
     - Windows (via WSL or Git Bash)
-    - FreeBSD
 
 Requirements:
     - curl or wget

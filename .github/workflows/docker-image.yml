@@ -1,9 +1,17 @@
 name: docker-image
 
 on:
-  push:
-    tags:
-      - v*
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v2.0.17 or dev)'
+        required: true
+        type: string
+      push_latest:
+        description: 'Also tag as latest'
+        required: false
+        type: boolean
+        default: true
 
 env:
   APP_NAME: llm-mux
@@ -26,9 +34,17 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Generate Build Metadata
         run: |
-          echo VERSION=`git describe --tags --always --dirty` >> $GITHUB_ENV
+          echo VERSION=${{ inputs.version }} >> $GITHUB_ENV
           echo COMMIT=`git rev-parse --short HEAD` >> $GITHUB_ENV
           echo BUILD_DATE=`date -u +%Y-%m-%dT%H:%M:%SZ` >> $GITHUB_ENV
+      - name: Determine tags
+        id: tags
+        run: |
+          if [ "${{ inputs.push_latest }}" = "true" ]; then
+            echo "tags=${{ env.DOCKERHUB_REPO }}:latest,${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}" >> $GITHUB_OUTPUT
+          else
+            echo "tags=${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}" >> $GITHUB_OUTPUT
+          fi
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -41,6 +57,4 @@ jobs:
             VERSION=${{ env.VERSION }}
             COMMIT=${{ env.COMMIT }}
             BUILD_DATE=${{ env.BUILD_DATE }}
-          tags: |
-            ${{ env.DOCKERHUB_REPO }}:latest
-            ${{ env.DOCKERHUB_REPO }}:${{ env.VERSION }}
+          tags: ${{ steps.tags.outputs.tags }}

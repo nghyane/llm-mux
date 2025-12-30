@@ -1,9 +1,12 @@
 name: goreleaser
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v2.0.17)'
+        required: true
+        type: string
 
 permissions:
   contents: write
