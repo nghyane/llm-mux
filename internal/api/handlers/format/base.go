@@ -29,18 +29,29 @@ type ErrorDetail struct {
 type BaseAPIHandler struct {
 	AuthManager           *provider.Manager
 	Cfg                   *config.SDKConfig
+	Routing               *config.RoutingConfig
 	OpenAICompatProviders []string
 }
 
-func NewBaseAPIHandlers(cfg *config.SDKConfig, authManager *provider.Manager, openAICompatProviders []string) *BaseAPIHandler {
+func NewBaseAPIHandlers(cfg *config.SDKConfig, routing *config.RoutingConfig, authManager *provider.Manager, openAICompatProviders []string) *BaseAPIHandler {
 	return &BaseAPIHandler{
 		Cfg:                   cfg,
+		Routing:               routing,
 		AuthManager:           authManager,
 		OpenAICompatProviders: openAICompatProviders,
 	}
 }
 
 func (h *BaseAPIHandler) UpdateClients(cfg *config.SDKConfig) { h.Cfg = cfg }
+
+func (h *BaseAPIHandler) UpdateRouting(routing *config.RoutingConfig) { h.Routing = routing }
+
+func (h *BaseAPIHandler) getFallbackChain(model string) []string {
+	if h.Routing == nil {
+		return nil
+	}
+	return h.Routing.GetFallbackChain(model)
+}
 
 // Models returns all available models as maps from the global registry.
 func (h *BaseAPIHandler) Models() []map[string]any {
@@ -151,11 +162,25 @@ func (h *BaseAPIHandler) ExecuteWithAuthManager(ctx context.Context, handlerType
 	}
 	req, opts := buildRequestOpts(normalizedModel, rawJSON, metadata, handlerType, alt, false)
 	resp, err := h.AuthManager.Execute(ctx, providers, req, opts)
-	if err != nil {
-		status, addon := extractErrorDetails(err)
-		return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+	if err == nil {
+		return resp.Payload, nil
 	}
-	return resp.Payload, nil
+
+	fallbacks := h.getFallbackChain(normalizedModel)
+	for _, fallbackModel := range fallbacks {
+		fbProviders, fbNormalizedModel, fbMetadata, _ := h.getRequestDetails(fallbackModel)
+		if len(fbProviders) == 0 {
+			continue
+		}
+		fbReq, fbOpts := buildRequestOpts(fbNormalizedModel, rawJSON, fbMetadata, handlerType, alt, false)
+		fbResp, fbErr := h.AuthManager.Execute(ctx, fbProviders, fbReq, fbOpts)
+		if fbErr == nil {
+			return fbResp.Payload, nil
+		}
+	}
+
+	status, addon := extractErrorDetails(err)
+	return nil, &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
 }
 
 func (h *BaseAPIHandler) ExecuteCountWithAuthManager(ctx context.Context, handlerType, modelName string, rawJSON []byte, alt string) ([]byte, *interfaces.ErrorMessage) {
@@ -182,14 +207,31 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 	}
 	req, opts := buildRequestOpts(normalizedModel, rawJSON, metadata, handlerType, alt, true)
 	chunks, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
-	if err != nil {
-		errChan := make(chan *interfaces.ErrorMessage, 1)
-		status, addon := extractErrorDetails(err)
-		errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
-		close(errChan)
-		return nil, errChan
+	if err == nil {
+		return h.wrapStreamChannel(chunks)
 	}
 
+	fallbacks := h.getFallbackChain(normalizedModel)
+	for _, fallbackModel := range fallbacks {
+		fbProviders, fbNormalizedModel, fbMetadata, _ := h.getRequestDetails(fallbackModel)
+		if len(fbProviders) == 0 {
+			continue
+		}
+		fbReq, fbOpts := buildRequestOpts(fbNormalizedModel, rawJSON, fbMetadata, handlerType, alt, true)
+		fbChunks, fbErr := h.AuthManager.ExecuteStream(ctx, fbProviders, fbReq, fbOpts)
+		if fbErr == nil {
+			return h.wrapStreamChannel(fbChunks)
+		}
+	}
+
+	errChan := make(chan *interfaces.ErrorMessage, 1)
+	status, addon := extractErrorDetails(err)
+	errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+	close(errChan)
+	return nil, errChan
+}
+
+func (h *BaseAPIHandler) wrapStreamChannel(chunks <-chan provider.StreamChunk) (<-chan []byte, <-chan *interfaces.ErrorMessage) {
 	dataChan := make(chan []byte, 8) // Buffered to reduce blocking
 	errChan := make(chan *interfaces.ErrorMessage, 1)
 	go func() {
@@ -236,6 +278,11 @@ func (h *BaseAPIHandler) getRequestDetails(modelName string) (providers []string
 	resolvedModelName := util.ResolveAutoModel(modelName)
 	specifiedProvider := util.ExtractProviderFromPrefixedModelID(resolvedModelName)
 	cleanModelName := util.NormalizeIncomingModelID(resolvedModelName)
+
+	if h.Routing != nil {
+		cleanModelName = h.Routing.ResolveModelAlias(cleanModelName)
+	}
+
 	providerName, extractedModelName, isDynamic := h.parseDynamicModel(cleanModelName)
 	normalizedModel, metadata = util.NormalizeGeminiThinkingModel(cleanModelName)
 

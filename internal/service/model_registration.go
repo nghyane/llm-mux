@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/nghyane/llm-mux/internal/config"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
-	log "github.com/nghyane/llm-mux/internal/logging"
 )
 
 // registerModelsForAuth (re)binds provider models in the global registry using the core auth ID as client identifier.
@@ -140,6 +140,7 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 		if key == "" {
 			key = strings.ToLower(strings.TrimSpace(a.Provider))
 		}
+		models = applyProviderPriority(models, key, cfg)
 		log.Debugf("registerModelsForAuth: registering %d models for client=%s, key=%s", len(models), a.ID, key)
 		GlobalModelRegistry().RegisterClient(a.ID, key, models)
 		return
@@ -214,6 +215,7 @@ func handleOpenAICompatProvider(a *provider.Auth, compatProviderKey, compatDispl
 				if providerKey == "" {
 					providerKey = "openai-compatibility"
 				}
+				ms = applyProviderPriority(ms, providerKey, cfg)
 				GlobalModelRegistry().RegisterClient(a.ID, providerKey, ms)
 			} else {
 				GlobalModelRegistry().UnregisterClient(a.ID)
@@ -264,4 +266,20 @@ func oauthExcludedModels(providerName, authKind string, cfg *config.Config) []st
 		return nil
 	}
 	return cfg.OAuthExcludedModels[providerKey]
+}
+
+func applyProviderPriority(models []*ModelInfo, providerName string, cfg *config.Config) []*ModelInfo {
+	if cfg == nil || !cfg.Routing.HasProviderPriority() || len(models) == 0 {
+		return models
+	}
+	priority, ok := cfg.Routing.ProviderPriority[providerName]
+	if !ok || priority <= 0 {
+		return models
+	}
+	for _, m := range models {
+		if m.Priority == 0 {
+			m.Priority = priority
+		}
+	}
+	return models
 }

@@ -25,11 +25,11 @@ import (
 	ampmodule "github.com/nghyane/llm-mux/internal/api/modules/amp"
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/logging"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
 	"github.com/nghyane/llm-mux/internal/usage"
 	"github.com/nghyane/llm-mux/internal/util"
-	log "github.com/nghyane/llm-mux/internal/logging"
 	"gopkg.in/yaml.v3"
 )
 
@@ -196,7 +196,7 @@ func NewServer(cfg *config.Config, authManager *provider.Manager, accessManager 
 	}
 	s := &Server{
 		engine:         engine,
-		handlers:       format.NewBaseAPIHandlers(&cfg.SDKConfig, authManager, providerNames),
+		handlers:       format.NewBaseAPIHandlers(&cfg.SDKConfig, &cfg.Routing, authManager, providerNames),
 		cfg:            cfg,
 		accessManager:  accessManager,
 		requestLogger:  requestLogger,

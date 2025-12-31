@@ -127,6 +127,7 @@ type Config struct {
 	AmpCode             AmpCode             `yaml:"ampcode" json:"ampcode"`
 	OAuthExcludedModels map[string][]string `yaml:"oauth-excluded-models,omitempty" json:"oauth-excluded-models,omitempty"`
 	Payload             PayloadConfig       `yaml:"payload" json:"payload"`
+	Routing             RoutingConfig       `yaml:"routing,omitempty" json:"routing,omitempty"`
 
 	// UseCanonicalTranslator enables the unified IR translator architecture (default: true).
 	UseCanonicalTranslator bool `yaml:"use-canonical-translator" json:"use-canonical-translator" default:"true"`
@@ -204,6 +205,65 @@ type PayloadRule struct {
 type PayloadModelRule struct {
 	Name     string `yaml:"name" json:"name"`
 	Protocol string `yaml:"protocol" json:"protocol"`
+}
+
+// RoutingConfig defines provider routing and priority settings.
+type RoutingConfig struct {
+	// ProviderPriority maps provider names to their routing priority.
+	// Lower values have higher priority (1 = highest).
+	// Provider names must match executor identifiers exactly:
+	// claude, antigravity, gemini-cli, vertex, aistudio, codex,
+	// github-copilot, qwen, iflow, cline, kiro, gemini
+	ProviderPriority map[string]int `yaml:"provider-priority,omitempty" json:"provider-priority,omitempty"`
+
+	// Aliases maps user-facing model names to canonical internal names.
+	// Handles naming inconsistencies across providers (e.g., "." vs "-").
+	// Example: "claude-sonnet-4.5" -> "claude-sonnet-4-5"
+	Aliases map[string]string `yaml:"aliases,omitempty" json:"aliases,omitempty"`
+
+	// Fallbacks defines ordered fallback chains when a model is unavailable.
+	// Supports tier downgrades and cross-vendor fallbacks.
+	// Example: "claude-opus-4-5" -> ["claude-sonnet-4-5", "gpt-4o"]
+	Fallbacks map[string][]string `yaml:"fallbacks,omitempty" json:"fallbacks,omitempty"`
+
+	hasAliases   bool
+	hasFallbacks bool
+	hasPriority  bool
+}
+
+func (r *RoutingConfig) Init() {
+	if r == nil {
+		return
+	}
+	r.hasAliases = len(r.Aliases) > 0
+	r.hasFallbacks = len(r.Fallbacks) > 0
+	r.hasPriority = len(r.ProviderPriority) > 0
+}
+
+// ResolveModelAlias returns the canonical model name for the given input.
+// If no alias is defined, returns the original model name.
+func (r *RoutingConfig) ResolveModelAlias(model string) string {
+	if r == nil || !r.hasAliases {
+		return model
+	}
+	if alias, ok := r.Aliases[model]; ok {
+		return alias
+	}
+	return model
+}
+
+// GetFallbackChain returns the fallback models for the given model.
+// Returns nil if no fallbacks are defined.
+func (r *RoutingConfig) GetFallbackChain(model string) []string {
+	if r == nil || !r.hasFallbacks {
+		return nil
+	}
+	return r.Fallbacks[model]
+}
+
+// HasProviderPriority returns true if provider priority is configured.
+func (r *RoutingConfig) HasProviderPriority() bool {
+	return r != nil && r.hasPriority
 }
 
 // NewDefaultConfig creates a new Config with sensible defaults.
@@ -293,6 +353,8 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 
 	// Normalize OAuth provider model exclusion map.
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
+
+	cfg.Routing.Init()
 
 	// Return the populated configuration struct.
 	return &cfg, nil

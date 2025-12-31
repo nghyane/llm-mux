@@ -165,6 +165,54 @@ quota-exceeded:
 
 ---
 
+## Routing
+
+Control provider priority, model aliases, and fallback chains:
+
+```yaml
+routing:
+  # Provider priority (lower = higher priority)
+  provider-priority:
+    claude: 1           # Primary
+    antigravity: 2      # Fallback
+    gemini-cli: 3
+    github-copilot: 4
+
+  # Model name aliases (normalize across providers)
+  aliases:
+    "claude-sonnet-4.5": "claude-sonnet-4-5"
+    "claude-opus-4.5": "claude-opus-4-5"
+    "gpt-4": "gpt-4o"
+
+  # Model fallback chains (when all providers fail)
+  fallbacks:
+    "claude-opus-4-5":
+      - "claude-sonnet-4-5"
+      - "gpt-4o"
+    "gpt-5":
+      - "gpt-4o"
+      - "gemini-2.5-pro"
+```
+
+### Valid Provider Names
+
+| Provider | Name |
+|----------|------|
+| Claude Pro/Max | `claude` |
+| Antigravity | `antigravity` |
+| Gemini CLI | `gemini-cli` |
+| Gemini API | `gemini` |
+| Vertex AI | `vertex` |
+| AI Studio | `aistudio` |
+| OpenAI Codex | `codex` |
+| GitHub Copilot | `github-copilot` |
+| Qwen | `qwen` |
+| iFlow | `iflow` |
+| Cline | `cline` |
+| Kiro | `kiro` |
+
+---
+
 ## Usage Statistics
 
 ```yaml
