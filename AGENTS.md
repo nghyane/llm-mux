@@ -129,6 +129,85 @@ Test with skill: **llm-mux-test**
 - Each sub-agent: read → edit → verify build
 - Report back: files changed, build status
 
+## Agent Orchestration Pattern
+
+For complex tasks (large refactorings, multi-file changes), **Sisyphus acts as coordinator** rather than direct implementer.
+
+### Principles
+1. **Coordinator, Not Implementer** — Sisyphus plans, delegates, verifies; never writes code directly
+2. **Parallel Execution** — Launch multiple background agents concurrently for independent tasks
+3. **Atomic Tasks** — Each agent receives one specific task with clear deliverables
+4. **Continuous Tracking** — Use TodoWrite to track real-time progress
+
+### Detailed Workflow
+
+```
+1. ANALYZE
+   ├── Launch explore/librarian agents (parallel, background)
+   ├── Read files directly with Read/Grep tools
+   └── Synthesize findings
+
+2. PLAN  
+   ├── Create TodoWrite with detailed phases
+   ├── Identify dependencies between tasks
+   └── Group independent tasks for parallel execution
+
+3. EXECUTE (per phase)
+   ├── Launch background_task agents for each task
+   ├── Each agent prompt MUST include:
+   │   - TASK: Specific description
+   │   - LOCATION: File paths
+   │   - CHANGES: Code to create/modify
+   │   - VERIFICATION: Build command
+   │   - RETURN: Expected output format
+   └── Collect results with background_output
+
+4. VERIFY
+   ├── Check build passes
+   ├── Run tests
+   └── Review agent results
+```
+
+### Agent Prompt Template
+
+```
+TASK: [Brief description]
+
+LOCATION: /path/to/file.go
+
+CONTEXT: [Background information]
+
+CHANGES TO MAKE:
+1. [Change 1]
+2. [Change 2]
+
+CONSTRAINTS:
+- [What NOT to do]
+
+VERIFICATION:
+- Run `go build ./...`
+
+RETURN:
+- Lines changed
+- Build status
+```
+
+### When to Use This Pattern
+
+| Scenario | Approach |
+|----------|----------|
+| Single file, < 50 lines | Direct edit |
+| Multi-file, same pattern | 1 background agent |
+| Multi-file, different patterns | Parallel background agents |
+| Complex refactoring (5+ files) | **Full orchestration** |
+| Research/analysis | explore/librarian agents |
+
+### Tips
+- **Don't Wait** — Launch agents then continue other work
+- **Batch Collection** — Gather results when needed, don't poll continuously
+- **Fallback** — If agent times out/fails, implement directly
+- **Clean Up** — `background_cancel(all=true)` before finishing
+
 ## CI/CD
 
 | Workflow | Trigger | Action |
