@@ -74,12 +74,13 @@ func (m *Manager) closestCooldownWait(providers []string, model string) (time.Du
 }
 
 // shouldRetryAfterError determines if execution should be retried after an error.
+// Returns (0, true) to retry immediately, (0, false) to fail fast.
+// Manager no longer waits for cooldowns - fails fast and lets client retry.
 func (m *Manager) shouldRetryAfterError(err error, attempt, maxAttempts int, providers []string, model string, maxWait time.Duration) (time.Duration, bool) {
 	if err == nil || attempt >= maxAttempts-1 {
 		return 0, false
 	}
 
-	// Get error category - don't retry user errors or permanent auth failures
 	category := categoryFromError(err)
 	if !category.ShouldFallback() {
 		return 0, false
@@ -89,17 +90,11 @@ func (m *Manager) shouldRetryAfterError(err error, attempt, maxAttempts int, pro
 		return 0, false
 	}
 
-	// Check if there's a cooldown wait needed
-	wait, found := m.closestCooldownWait(providers, model)
-	if found && wait > maxWait {
-		// Cooldown exists but exceeds max wait - don't retry
+	_, found := m.closestCooldownWait(providers, model)
+	if found {
 		return 0, false
 	}
-	if !found {
-		// No cooldown needed - retry immediately with next provider
-		return 0, true
-	}
-	return wait, true
+	return 0, true
 }
 
 // categoryFromError extracts ErrorCategory from error.

@@ -45,9 +45,10 @@ const (
 
 const (
 	RateLimitBaseDelay        = 1 * time.Second
-	RateLimitMaxDelay         = 20 * time.Second
-	AntigravityRetryBaseDelay = 2 * time.Second
-	AntigravityRetryMaxDelay  = 30 * time.Second
+	RateLimitMaxDelay         = 5 * time.Second
+	AntigravityRetryBaseDelay = 1 * time.Second
+	AntigravityRetryMaxDelay  = 5 * time.Second
+	MaxQuotaRetryDelay        = 30 * time.Second
 )
 
 const (
