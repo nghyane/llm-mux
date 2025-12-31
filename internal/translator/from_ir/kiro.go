@@ -249,9 +249,13 @@ func buildMergedToolResultMessage(msgs []ir.Message, tools []any, modelID string
 }
 
 func buildToolResultItem(tr *ir.ToolResultPart) map[string]any {
+	status := "success"
+	if tr.IsError {
+		status = "error"
+	}
 	return map[string]any{
 		"content": []any{map[string]any{"text": ir.SanitizeText(tr.Result)}},
-		"status":  "success", "toolUseId": tr.ToolCallID,
+		"status":  status, "toolUseId": tr.ToolCallID,
 	}
 }
 

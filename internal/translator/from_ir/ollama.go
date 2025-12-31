@@ -23,6 +23,14 @@ func ToOllamaRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 func convertToOllamaChatRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 	m := map[string]any{"model": req.Model, "messages": []any{}, "stream": req.Metadata["stream"] == true, "options": buildOllamaOptions(req)}
 	for _, msg := range req.Messages {
+		if msg.Role == ir.RoleTool {
+			for _, p := range msg.Content {
+				if p.Type == ir.ContentTypeToolResult && p.ToolResult != nil {
+					m["messages"] = append(m["messages"].([]any), map[string]any{"role": "tool", "tool_call_id": p.ToolResult.ToolCallID, "content": p.ToolResult.Result})
+				}
+			}
+			continue
+		}
 		if mo := convertMessageToOllama(msg); mo != nil {
 			m["messages"] = append(m["messages"].([]any), mo)
 		}
@@ -124,8 +132,6 @@ func convertMessageToOllama(m ir.Message) map[string]any {
 		return buildOllamaUserMessage(m)
 	case ir.RoleAssistant:
 		return buildOllamaAssistantMessage(m)
-	case ir.RoleTool:
-		return buildOllamaToolMessage(m)
 	}
 	return nil
 }
@@ -173,15 +179,6 @@ func buildOllamaAssistantMessage(m ir.Message) map[string]any {
 		res["tool_calls"] = tcs
 	}
 	return res
-}
-
-func buildOllamaToolMessage(m ir.Message) map[string]any {
-	for _, p := range m.Content {
-		if p.Type == ir.ContentTypeToolResult && p.ToolResult != nil {
-			return map[string]any{"role": "tool", "tool_call_id": p.ToolResult.ToolCallID, "content": p.ToolResult.Result}
-		}
-	}
-	return nil
 }
 
 func ToOllamaChatResponse(ms []ir.Message, us *ir.Usage, model string) ([]byte, error) {

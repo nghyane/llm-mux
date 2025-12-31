@@ -673,8 +673,7 @@ func convertMessageToOpenAI(msg ir.Message) map[string]any {
 		res = buildOpenAIUserMessage(msg)
 	case ir.RoleAssistant:
 		res = buildOpenAIAssistantMessage(msg)
-	case ir.RoleTool:
-		res = buildOpenAIToolMessage(msg)
+
 	}
 	if res != nil && msg.CacheControl != nil {
 		cc := map[string]any{"type": msg.CacheControl.Type}
@@ -745,15 +744,6 @@ func buildOpenAIAssistantMessage(msg ir.Message) map[string]any {
 		res["refusal"] = msg.Refusal
 	}
 	return res
-}
-
-func buildOpenAIToolMessage(msg ir.Message) map[string]any {
-	for _, p := range msg.Content {
-		if p.Type == ir.ContentTypeToolResult && p.ToolResult != nil {
-			return map[string]any{"role": "tool", "tool_call_id": p.ToolResult.ToolCallID, "content": p.ToolResult.Result}
-		}
-	}
-	return nil
 }
 
 func ToResponsesAPIResponse(ms []ir.Message, us *ir.Usage, model string, meta *ir.OpenAIMeta) ([]byte, error) {
