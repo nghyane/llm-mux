@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/nghyane/llm-mux/internal/registry"
 )
 
 const (
@@ -43,6 +45,10 @@ func (m *Manager) closestCooldownWait(providers []string, model string) (time.Du
 		}
 		providerSet[key] = struct{}{}
 	}
+
+	modelKey := strings.TrimSpace(model)
+	registryRef := registry.GetGlobalRegistry()
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var (
@@ -50,11 +56,14 @@ func (m *Manager) closestCooldownWait(providers []string, model string) (time.Du
 		minWait time.Duration
 	)
 	for _, auth := range m.auths {
-		if auth == nil {
+		if auth == nil || auth.Disabled {
 			continue
 		}
 		providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
 		if _, ok := providerSet[providerKey]; !ok {
+			continue
+		}
+		if modelKey != "" && registryRef != nil && !registryRef.ClientSupportsModel(auth.ID, modelKey) {
 			continue
 		}
 		blocked, reason, next := isAuthBlockedForModel(auth, model, now)
@@ -74,39 +83,91 @@ func (m *Manager) closestCooldownWait(providers []string, model string) (time.Du
 }
 
 // shouldRetryAfterError determines if execution should be retried after an error.
-// Returns (0, true) to retry immediately, (0, false) to fail fast.
-// Manager no longer waits for cooldowns - fails fast and lets client retry.
-func (m *Manager) shouldRetryAfterError(err error, attempt, maxAttempts int, providers []string, model string, maxWait time.Duration) (time.Duration, bool) {
+// Returns true if retry should be attempted (after waiting for available auth).
+func (m *Manager) shouldRetryAfterError(err error, attempt, maxAttempts int, providers []string, model string) bool {
 	if err == nil || attempt >= maxAttempts-1 {
-		return 0, false
+		return false
 	}
 
 	category := categoryFromError(err)
 	if !category.ShouldFallback() {
-		return 0, false
+		return false
 	}
 
 	if status := statusCodeFromError(err); status == http.StatusOK {
-		return 0, false
+		return false
 	}
 
-	_, found := m.closestCooldownWait(providers, model)
-	if found {
-		return 0, false
+	if m.hasAvailableAuth(providers, model) {
+		return true
 	}
-	return 0, true
+
+	if _, found := m.closestCooldownWait(providers, model); found {
+		return true
+	}
+
+	return false
+}
+
+// hasAvailableAuth checks if any auth for the given providers/model is available (not blocked).
+// This is used to determine if a retry would be useful.
+func (m *Manager) hasAvailableAuth(providers []string, model string) bool {
+	if m == nil || len(providers) == 0 {
+		return false
+	}
+
+	now := time.Now()
+	providerSet := make(map[string]struct{}, len(providers))
+	for _, p := range providers {
+		key := strings.ToLower(strings.TrimSpace(p))
+		if key != "" {
+			providerSet[key] = struct{}{}
+		}
+	}
+
+	modelKey := strings.TrimSpace(model)
+	registryRef := registry.GetGlobalRegistry()
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, auth := range m.auths {
+		if auth == nil || auth.Disabled {
+			continue
+		}
+
+		providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
+		if _, ok := providerSet[providerKey]; !ok {
+			continue
+		}
+
+		// Check if auth supports the model (same filter as pickNext)
+		if modelKey != "" && registryRef != nil && !registryRef.ClientSupportsModel(auth.ID, modelKey) {
+			continue
+		}
+
+		// Check if auth is blocked for this model
+		blocked, _, _ := isAuthBlockedForModel(auth, model, now)
+		if !blocked {
+			return true
+		}
+	}
+
+	return false
 }
 
 // categoryFromError extracts ErrorCategory from error.
+// Uses errors.As to properly unwrap wrapped errors.
 func categoryFromError(err error) ErrorCategory {
 	if err == nil {
 		return CategoryUnknown
 	}
-	// Check if error has Category() method
+	// Check if error has Category() method using errors.As to unwrap
 	type categorizer interface {
 		Category() ErrorCategory
 	}
-	if c, ok := err.(categorizer); ok {
+	var c categorizer
+	if errors.As(err, &c) && c != nil {
 		return c.Category()
 	}
 	// Fallback to status code classification
@@ -163,6 +224,39 @@ func waitForCooldown(ctx context.Context, wait time.Duration) error {
 		return ctx.Err()
 	case <-timer.C:
 		return nil
+	}
+}
+
+// errCooldownTimeout is returned when waitForAvailableAuth times out waiting for an available auth.
+var errCooldownTimeout = errors.New("timeout waiting for available auth")
+
+const cooldownPollInterval = 500 * time.Millisecond
+
+func (m *Manager) waitForAvailableAuth(ctx context.Context, providers []string, model string, maxWait time.Duration) error {
+	if maxWait <= 0 {
+		return nil
+	}
+
+	if m.hasAvailableAuth(providers, model) {
+		return nil
+	}
+
+	deadline := time.Now().Add(maxWait)
+	ticker := time.NewTicker(cooldownPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case now := <-ticker.C:
+			if m.hasAvailableAuth(providers, model) {
+				return nil
+			}
+			if now.After(deadline) {
+				return errCooldownTimeout
+			}
+		}
 	}
 }
 

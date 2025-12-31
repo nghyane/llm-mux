@@ -151,8 +151,8 @@ func applyAuthFailureState(auth *Auth, resultErr *Error, retryAfter *time.Durati
 
 	// Use category-based decision making
 	category := CategoryUnknown
-	if resultErr != nil && resultErr.Category != CategoryUnknown {
-		category = resultErr.Category
+	if resultErr != nil && resultErr.ErrCategory != CategoryUnknown {
+		category = resultErr.ErrCategory
 	} else {
 		// Fallback to status code + message classification
 		statusCode := statusCodeFromResult(resultErr)

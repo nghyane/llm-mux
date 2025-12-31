@@ -288,12 +288,11 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req Request, 
 		m.recordProviderResult(lastProvider, req.Model, false, latency)
 		lastErr = errExec
 
-		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, attempts, selected, req.Model, maxWait)
-		if !shouldRetry {
+		if !m.shouldRetryAfterError(errExec, attempt, attempts, selected, req.Model) {
 			break
 		}
-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
-			return Response{}, errWait
+		if errWait := m.waitForAvailableAuth(ctx, selected, req.Model, maxWait); errWait != nil {
+			break
 		}
 	}
 	if lastErr != nil {
@@ -335,12 +334,11 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req Requ
 		m.recordProviderResult(lastProvider, req.Model, false, latency)
 		lastErr = errExec
 
-		wait, shouldRetry := m.shouldRetryAfterError(errExec, attempt, attempts, selected, req.Model, maxWait)
-		if !shouldRetry {
+		if !m.shouldRetryAfterError(errExec, attempt, attempts, selected, req.Model) {
 			break
 		}
-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
-			return Response{}, errWait
+		if errWait := m.waitForAvailableAuth(ctx, selected, req.Model, maxWait); errWait != nil {
+			break
 		}
 	}
 	if lastErr != nil {
@@ -381,12 +379,11 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req Req
 		m.recordProviderResult(lastProvider, req.Model, false, time.Since(start))
 		lastErr = errStream
 
-		wait, shouldRetry := m.shouldRetryAfterError(errStream, attempt, attempts, selected, req.Model, maxWait)
-		if !shouldRetry {
+		if !m.shouldRetryAfterError(errStream, attempt, attempts, selected, req.Model) {
 			break
 		}
-		if errWait := waitForCooldown(ctx, wait); errWait != nil {
-			return nil, errWait
+		if errWait := m.waitForAvailableAuth(ctx, selected, req.Model, maxWait); errWait != nil {
+			break
 		}
 	}
 	if lastErr != nil {

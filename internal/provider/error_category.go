@@ -57,11 +57,6 @@ func (c ErrorCategory) String() string {
 	}
 }
 
-// ShouldRetry returns true if error category allows retry
-func (c ErrorCategory) ShouldRetry() bool {
-	return c == CategoryTransient
-}
-
 // ShouldFallback returns true if should try another auth/provider
 func (c ErrorCategory) ShouldFallback() bool {
 	return c == CategoryQuotaError || c == CategoryTransient || c == CategoryAuthError
