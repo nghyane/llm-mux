@@ -57,19 +57,19 @@ func DefaultRetryConfig() RetryConfig {
 		MaxRetries:       1,
 		BaseDelay:        RateLimitBaseDelay,
 		MaxDelay:         RateLimitMaxDelay,
-		RetryStatusCodes: []int{429},
-		FallbackCodes:    []int{429, 503},
+		RetryStatusCodes: []int{500},
+		FallbackCodes:    []int{429, 502, 503, 504},
 		RetryOnErrors:    true,
 	}
 }
 
 func AntigravityRetryConfig() RetryConfig {
 	return RetryConfig{
-		MaxRetries:       2,
+		MaxRetries:       1,
 		BaseDelay:        AntigravityRetryBaseDelay,
 		MaxDelay:         AntigravityRetryMaxDelay,
-		RetryStatusCodes: []int{429, 503, 500},
-		FallbackCodes:    []int{429, 503},
+		RetryStatusCodes: []int{500},
+		FallbackCodes:    []int{429, 502, 503, 504},
 		RetryOnErrors:    true,
 	}
 }
@@ -85,10 +85,10 @@ func NewRetryHandler(cfg RetryConfig) *RetryHandler {
 		cfg.MaxDelay = RateLimitMaxDelay
 	}
 	if len(cfg.RetryStatusCodes) == 0 {
-		cfg.RetryStatusCodes = []int{429}
+		cfg.RetryStatusCodes = []int{500}
 	}
 	if len(cfg.FallbackCodes) == 0 {
-		cfg.FallbackCodes = []int{429, 503}
+		cfg.FallbackCodes = []int{429, 502, 503, 504}
 	}
 
 	return &RetryHandler{
@@ -105,11 +105,20 @@ func (h *RetryHandler) HandleResponse(ctx context.Context, statusCode int, body 
 	isRetryable := h.isRetryableStatus(statusCode)
 	isFallbackCode := h.isFallbackCode(statusCode)
 
-	if isFallbackCode && hasNextTarget {
-		log.Debugf("retry_handler: status %d, falling back to next target", statusCode)
-		return RetryActionContinueNext, nil
+	// Fallback codes (429, 503) should immediately try next target if available.
+	// This allows Provider Manager to handle cross-auth/cross-provider fallback.
+	if isFallbackCode {
+		if hasNextTarget {
+			log.Debugf("retry_handler: status %d, falling back to next target", statusCode)
+			return RetryActionContinueNext, nil
+		}
+		// No next target - fail immediately so Provider Manager can try other auths.
+		// Do NOT retry with delay here; that blocks the request unnecessarily.
+		log.Debugf("retry_handler: status %d, no fallback target, failing to allow provider-level fallback", statusCode)
+		return RetryActionFail, nil
 	}
 
+	// For non-fallback retryable codes (e.g., 500 without 503), retry with delay
 	if isRetryable && h.retrier.retryCount < h.config.MaxRetries {
 		delay := h.calculateDelay(body)
 		h.retrier.retryCount++
@@ -321,28 +330,29 @@ func ParseQuotaRetryDelay(errorBody []byte) *time.Duration {
 			retryDelay := detail.Get("retryDelay").String()
 			if retryDelay != "" {
 				if duration, err := time.ParseDuration(retryDelay); err == nil && duration > 0 {
-					return &duration
+					capped := capQuotaDelay(duration)
+					return &capped
 				}
 			}
 		}
 
 		if typeVal == "type.googleapis.com/google.rpc.ErrorInfo" {
-			// Try quotaResetDelay first (duration string like "30s")
 			quotaDelay := detail.Get("metadata.quotaResetDelay").String()
 			if quotaDelay != "" {
 				if duration, err := time.ParseDuration(quotaDelay); err == nil && duration > 0 {
-					quotaResetDelay = &duration
+					capped := capQuotaDelay(duration)
+					quotaResetDelay = &capped
 				}
 			}
 
-			// Also try quotaInfo.resetTime (ISO timestamp from gcli2api pattern)
 			if quotaResetDelay == nil {
 				resetTime := detail.Get("metadata.quotaInfo.resetTime").String()
 				if resetTime != "" {
 					if parsed, err := time.Parse(time.RFC3339, resetTime); err == nil {
 						duration := time.Until(parsed)
 						if duration > 0 {
-							quotaResetDelay = &duration
+							capped := capQuotaDelay(duration)
+							quotaResetDelay = &capped
 						}
 					}
 				}
@@ -351,4 +361,11 @@ func ParseQuotaRetryDelay(errorBody []byte) *time.Duration {
 	}
 
 	return quotaResetDelay
+}
+
+func capQuotaDelay(d time.Duration) time.Duration {
+	if d > MaxQuotaRetryDelay {
+		return MaxQuotaRetryDelay
+	}
+	return d
 }
