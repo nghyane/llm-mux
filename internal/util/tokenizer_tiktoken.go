@@ -19,12 +19,11 @@ var (
 	roleTokenCacheMu sync.RWMutex
 )
 
-const ImageTokenCostOpenAI = 255
-
 const (
-	DocTokenCost   = 500
-	AudioTokenCost = 300
-	VideoTokenCost = 2000
+	ImageTokenCostTiktoken = 255
+	DocTokenCostTiktoken   = 500
+	AudioTokenCostTiktoken = 300
+	VideoTokenCostTiktoken = 2000
 )
 
 const maxPooledBuilderCap = 256 * 1024
@@ -156,7 +155,7 @@ func CountTiktokenTokens(model string, req *ir.UnifiedChatRequest) int64 {
 
 			case ir.ContentTypeImage:
 				if part.Image != nil {
-					totalTokens += ImageTokenCostOpenAI
+					totalTokens += ImageTokenCostTiktoken
 				}
 
 			case ir.ContentTypeFile:
@@ -174,7 +173,7 @@ func CountTiktokenTokens(model string, req *ir.UnifiedChatRequest) int64 {
 							hasContentToCount = true
 						}
 					} else if part.File.FileURL != "" || part.File.FileID != "" {
-						totalTokens += DocTokenCost
+						totalTokens += DocTokenCostTiktoken
 					}
 				}
 
@@ -184,12 +183,12 @@ func CountTiktokenTokens(model string, req *ir.UnifiedChatRequest) int64 {
 						sb.WriteString(part.Audio.Transcript)
 						hasContentToCount = true
 					}
-					totalTokens += AudioTokenCost
+					totalTokens += AudioTokenCostTiktoken
 				}
 
 			case ir.ContentTypeVideo:
 				if part.Video != nil {
-					totalTokens += VideoTokenCost
+					totalTokens += VideoTokenCostTiktoken
 				}
 
 			case ir.ContentTypeToolResult:
@@ -224,9 +223,8 @@ func CountTiktokenTokens(model string, req *ir.UnifiedChatRequest) int64 {
 						sb.WriteString(part.ToolResult.Result)
 						hasContentToCount = true
 					}
-					totalTokens += int64(len(part.ToolResult.Images) * ImageTokenCostOpenAI)
-					// Count files in tool results
-					totalTokens += int64(len(part.ToolResult.Files) * DocTokenCost)
+					totalTokens += int64(len(part.ToolResult.Images) * ImageTokenCostTiktoken)
+					totalTokens += int64(len(part.ToolResult.Files) * DocTokenCostTiktoken)
 				}
 
 			case ir.ContentTypeRedactedThinking:
@@ -294,13 +292,28 @@ func CountTiktokenTokens(model string, req *ir.UnifiedChatRequest) int64 {
 
 	}
 
-	// Count tool definitions (schema)
-	// Claude/OpenAI include tool definitions in input token count
 	totalTokens += countToolDefinitionsTokens(enc, req.Tools)
 
-	// Add reply priming overhead
-	// Claude/OpenAI APIs count tokens for the assistant response header.
-	// This is approximately 3 tokens for message framing.
+	if req.ResponseSchema != nil {
+		if data, err := json.Marshal(req.ResponseSchema); err == nil {
+			totalTokens += countJSONDataTokens(enc, data, ToolTokenCache)
+		}
+	}
+
+	if len(req.MCPServers) > 0 {
+		if data, err := json.Marshal(req.MCPServers); err == nil {
+			totalTokens += countJSONDataTokens(enc, data, ToolTokenCache)
+		}
+	}
+
+	if req.Prediction != nil && req.Prediction.Content != "" {
+		if len(req.Prediction.Content) > TokenEstimationThreshold {
+			totalTokens += estimateTokens(req.Prediction.Content)
+		} else {
+			totalTokens += countTokens(enc, req.Prediction.Content)
+		}
+	}
+
 	totalTokens += 3
 
 	return totalTokens
@@ -477,9 +490,6 @@ func getTiktokenEncodingName(model string) tokenizer.Encoding {
 	}
 }
 
-// countToolDefinitionsTokens counts tokens from tool definitions using tiktoken.
-// Tools schema is typically small, so tokenizing overhead is negligible.
-// Accuracy: ~88% (tiktoken on Claude), better than heuristic (~80%).
 func countToolDefinitionsTokens(enc tokenizer.Codec, tools []ir.ToolDefinition) int64 {
 	if len(tools) == 0 {
 		return 0
@@ -488,18 +498,25 @@ func countToolDefinitionsTokens(enc tokenizer.Codec, tools []ir.ToolDefinition) 
 	if err != nil {
 		return 0
 	}
+	return countJSONDataTokens(enc, data, ToolTokenCache)
+}
+
+func countJSONDataTokens(enc tokenizer.Codec, data []byte, cache *TokenCache) int64 {
 	dataStr := string(data)
-	if cached, ok := ToolTokenCache.Get(dataStr); ok {
-		return int64(cached)
+	if cache != nil {
+		if cached, ok := cache.Get(dataStr); ok {
+			return int64(cached)
+		}
 	}
-	// Use estimation for very large schemas (rare)
+	var tokens int64
 	if len(data) > TokenEstimationThreshold {
-		tokens := int64(float64(len(data)) / 3.5)
-		ToolTokenCache.Set(dataStr, int(tokens))
-		return tokens
+		tokens = int64(float64(len(data)) / 4.0)
+	} else {
+		ids, _, _ := enc.Encode(dataStr)
+		tokens = int64(len(ids))
 	}
-	ids, _, _ := enc.Encode(dataStr)
-	tokens := int64(len(ids))
-	ToolTokenCache.Set(dataStr, int(tokens))
+	if cache != nil {
+		cache.Set(dataStr, int(tokens))
+	}
 	return tokens
 }

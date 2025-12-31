@@ -133,7 +133,25 @@ func countGeminiTokens(model string, req *ir.UnifiedChatRequest) int64 {
 	// Count tool definition tokens
 	toolTokens := countToolTokensFromIR(tok, req.Tools)
 
-	total := contentTokens + toolTokens + media.total()
+	// Count ResponseSchema tokens (structured output JSON schema)
+	schemaTokens := countSchemaTokensFromIR(tok, req.ResponseSchema)
+
+	// Count MCPServers tokens (Claude MCP configs, also relevant for translation)
+	mcpTokens := countMCPServersTokensFromIR(tok, req.MCPServers)
+
+	// Count Prediction content tokens
+	var predictionTokens int64
+	if req.Prediction != nil && req.Prediction.Content != "" {
+		predictionContent := &genai.Content{
+			Role:  "user",
+			Parts: []*genai.Part{genai.NewPartFromText(req.Prediction.Content)},
+		}
+		if result, err := tok.CountTokens([]*genai.Content{predictionContent}, nil); err == nil {
+			predictionTokens = int64(result.TotalTokens)
+		}
+	}
+
+	total := contentTokens + toolTokens + schemaTokens + mcpTokens + predictionTokens + media.total()
 
 	return total
 }
@@ -410,6 +428,50 @@ func countToolTokensFromIR(tok *tokenizer.LocalTokenizer, tools []ir.ToolDefinit
 
 	tokens := int(result.TotalTokens)
 	ToolTokenCache.Set(toolsJSONStr, tokens)
+	return int64(tokens)
+}
+
+func countSchemaTokensFromIR(tok *tokenizer.LocalTokenizer, schema map[string]any) int64 {
+	if schema == nil {
+		return 0
+	}
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		return 0
+	}
+	return countGeminiJSONBytes(tok, schemaJSON, ToolTokenCache)
+}
+
+func countMCPServersTokensFromIR(tok *tokenizer.LocalTokenizer, servers []ir.MCPServer) int64 {
+	if len(servers) == 0 {
+		return 0
+	}
+	serversJSON, err := json.Marshal(servers)
+	if err != nil {
+		return 0
+	}
+	return countGeminiJSONBytes(tok, serversJSON, ToolTokenCache)
+}
+
+func countGeminiJSONBytes(tok *tokenizer.LocalTokenizer, data []byte, cache *TokenCache) int64 {
+	dataStr := string(data)
+	if cache != nil {
+		if cached, ok := cache.Get(dataStr); ok {
+			return int64(cached)
+		}
+	}
+	content := &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{genai.NewPartFromText(dataStr)},
+	}
+	result, err := tok.CountTokens([]*genai.Content{content}, nil)
+	if err != nil {
+		return 0
+	}
+	tokens := int(result.TotalTokens)
+	if cache != nil {
+		cache.Set(dataStr, tokens)
+	}
 	return int64(tokens)
 }
 
