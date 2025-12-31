@@ -109,8 +109,9 @@ var geminiContentsSpec = &FieldSpec{
 	Type:     FieldTypeArray,
 	Required: true,
 	Items: objectField(false, map[string]*FieldSpec{
-		"role":  stringField(true),
-		"parts": arrayField(true, objectField(false, geminiContentsPartSpec)),
+		"role":         stringField(true),
+		"parts":        arrayField(true, objectField(false, geminiContentsPartSpec)),
+		"cacheControl": objectField(false, map[string]*FieldSpec{"type": stringField(true), "ttl": numberField(false)}),
 	}),
 }
 
@@ -294,21 +295,19 @@ var AntigravityWrapperSpec = &PayloadSpec{
 
 // GetRequestSpecForModel returns the appropriate request spec based on model name.
 func GetRequestSpecForModel(modelName string) *PayloadSpec {
-	if isClaudeModel(modelName) {
+	if IsClaudeModel(modelName) {
 		return VertexClaudeRequestSpec
 	}
 	return VertexGeminiRequestSpec
 }
 
-// isClaudeModel checks if a model name indicates a Claude model.
-func isClaudeModel(modelName string) bool {
-	// Check for common Claude model patterns
+// IsClaudeModel checks if a model name indicates a Claude model.
+func IsClaudeModel(modelName string) bool {
 	for _, pattern := range []string{"claude", "anthropic"} {
 		for i := 0; i <= len(modelName)-len(pattern); i++ {
 			match := true
 			for j := 0; j < len(pattern); j++ {
 				c := modelName[i+j]
-				// Case-insensitive comparison
 				if c != pattern[j] && c != pattern[j]-32 && c != pattern[j]+32 {
 					match = false
 					break
