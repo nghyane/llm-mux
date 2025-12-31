@@ -1,13 +1,10 @@
 package from_ir
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
 
-	"github.com/google/uuid"
 	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
@@ -32,10 +29,10 @@ func NewClaudeStreamState() *ClaudeStreamState {
 }
 
 func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
-	u1, _ := uuid.NewRandom()
-	u2, _ := uuid.NewRandom()
-	sum := sha256.Sum256([]byte(u1.String() + u2.String()))
-	userID := fmt.Sprintf("user_%s_account_%s_session_%s", hex.EncodeToString(sum[:]), u1.String(), u2.String())
+	userID := "llm-mux-user"
+	if v, ok := req.Metadata[ir.MetaOpenAIUser].(string); ok && v != "" {
+		userID = v
+	}
 
 	root := map[string]any{"model": req.Model, "max_tokens": ir.ClaudeDefaultMaxTokens, "metadata": map[string]any{"user_id": userID}, "messages": []any{}}
 	if req.MaxTokens != nil {
