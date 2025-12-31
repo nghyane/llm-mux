@@ -264,13 +264,14 @@ var VertexClaudeRequestSpec = &PayloadSpec{
 		"systemInstruction": objectField(false, geminiSystemInstructionSpec),
 		"generationConfig":  objectField(false, claudeGenerationConfigSpec),
 		"tools":             claudeToolsSpec,
-		"toolConfig":        objectField(false, geminiToolConfigSpec),
+		// toolConfig with mode:"VALIDATED" is NOT supported by Claude on Antigravity
 		// Session management
 		"sessionId": stringField(false),
 		// These are explicitly NOT allowed for Claude:
 		// - safetySettings (Gemini-specific)
 		// - cachedContent (Gemini caching format)
 		// - labels (Gemini-specific)
+		// - toolConfig (mode:"VALIDATED" not supported)
 	},
 }
 

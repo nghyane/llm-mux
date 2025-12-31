@@ -9,10 +9,11 @@ import (
 	"strings"
 
 	"github.com/nghyane/llm-mux/internal/config"
+	"github.com/nghyane/llm-mux/internal/logging"
 )
 
 func SetLogLevel(cfg *config.Config) {
-	currentLevel := slog.LevelInfo
+	currentLevel := logging.GetLevel()
 	var newLevel slog.Level
 	if cfg.Debug {
 		newLevel = slog.LevelDebug
@@ -21,6 +22,7 @@ func SetLogLevel(cfg *config.Config) {
 	}
 
 	if currentLevel != newLevel {
+		logging.SetLevel(newLevel)
 		slog.Info(fmt.Sprintf("log level changed to %s (debug=%t)", newLevel, cfg.Debug))
 	}
 }
