@@ -27,6 +27,18 @@ const VideoTokenCostGemini = 2000
 // DocTokenCostGemini is the estimated token cost for file references.
 const DocTokenCostGemini = 500
 
+// Token estimation constants for Claude via Antigravity.
+// Based on observed differences between local estimate and actual API response.
+const (
+	AntigravityBaseOverhead   = 7    // Server-side wrapper tokens
+	AntigravityPerMsgOverhead = 0    // Per-message overhead (included in base for simple cases)
+	AntigravityScalingFactor  = 0.08 // 8% buffer for large inputs
+	LargeInputThreshold       = 100  // Apply scaling above this threshold
+)
+
+// ThinkingModeOverhead is added when thinking/reasoning mode is enabled.
+const ThinkingModeOverhead = 29
+
 // tokenizerCache caches LocalTokenizer instances by normalized model name.
 // This avoids repeated tokenizer initialization which is expensive.
 var (
@@ -72,12 +84,21 @@ func CountTokensFromIR(model string, req *ir.UnifiedChatRequest) int64 {
 // CountGeminiTokensFromIR always uses Gemini tokenizer regardless of model name.
 // Use this when requests are translated to Gemini format (e.g., Claude via Antigravity/Vertex).
 // The backend (Gemini API) will tokenize using Gemini's tokenizer, so we must match that.
+// Adds AntigravityOverhead to account for server-side system prompt/wrapper tokens.
 func CountGeminiTokensFromIR(req *ir.UnifiedChatRequest) int64 {
 	if req == nil {
 		return 0
 	}
-	// Use a standard Gemini model for tokenization
-	return countGeminiTokens("gemini-2.0-flash", req)
+	baseTokens := countGeminiTokens("gemini-2.0-flash", req)
+	msgCount := int64(len(req.Messages))
+
+	overhead := int64(AntigravityBaseOverhead) + (msgCount * AntigravityPerMsgOverhead)
+
+	if baseTokens > LargeInputThreshold {
+		overhead += int64(float64(baseTokens) * AntigravityScalingFactor)
+	}
+
+	return baseTokens + overhead
 }
 
 // mediaCounts tracks non-text media elements for token estimation.
