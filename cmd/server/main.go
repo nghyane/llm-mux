@@ -25,11 +25,11 @@ import (
 	"github.com/nghyane/llm-mux/internal/cmd"
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/logging"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/store"
 	"github.com/nghyane/llm-mux/internal/usage"
 	"github.com/nghyane/llm-mux/internal/util"
-	log "github.com/nghyane/llm-mux/internal/logging"
 	flag "github.com/spf13/pflag"
 )
 
@@ -333,11 +333,10 @@ func main() {
 			log.Infof("git-backed token store enabled, repository path: %s", gitStoreRoot)
 		}
 	} else if configPath != "" {
-		// Expand ~ to home directory
-		if strings.HasPrefix(configPath, "~/") {
-			if home, errHome := os.UserHomeDir(); errHome == nil {
-				configPath = filepath.Join(home, configPath[2:])
-			}
+		// Expand environment variables and ~ to absolute path
+		// This handles $XDG_CONFIG_HOME (with fallback to ~/.config) and ~/
+		if resolved, errResolve := util.ResolveAuthDir(configPath); errResolve == nil {
+			configPath = resolved
 		}
 		configFilePath = configPath
 
