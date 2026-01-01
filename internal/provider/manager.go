@@ -108,12 +108,15 @@ type Manager struct {
 
 	breakerMu sync.RWMutex
 	breakers  map[string]*resilience.CircuitBreaker
+
+	retryBudget *resilience.RetryBudget
 }
 
 // NewManager constructs a manager with optional custom selector and hook.
+// If no selector is provided, uses QuotaAwareSelector with 5-hour window.
 func NewManager(store Store, selector Selector, hook Hook) *Manager {
 	if selector == nil {
-		selector = &RoundRobinSelector{}
+		selector = NewQuotaAwareSelector(defaultQuotaWindow)
 	}
 	if hook == nil {
 		hook = NoopHook{}
@@ -126,6 +129,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		auths:         make(map[string]*Auth),
 		providerStats: NewProviderStats(),
 		breakers:      make(map[string]*resilience.CircuitBreaker),
+		retryBudget:   resilience.NewRetryBudget(100), // Allow up to 100 concurrent retries
 	}
 	if lc, ok := selector.(SelectorLifecycle); ok {
 		lc.Start()
@@ -271,6 +275,14 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req Request, 
 	var lastErr error
 	var lastProvider string
 	for attempt := 0; attempt < attempts; attempt++ {
+		// Acquire retry budget for non-first attempts to prevent retry storms
+		if attempt > 0 {
+			if !m.retryBudget.TryAcquire() {
+				break
+			}
+			defer m.retryBudget.Release()
+		}
+
 		start := time.Now()
 		resp, errExec := m.executeProvidersOnce(ctx, selected, func(execCtx context.Context, provider string) (Response, error) {
 			lastProvider = provider
@@ -319,6 +331,14 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req Requ
 	var lastErr error
 	var lastProvider string
 	for attempt := 0; attempt < attempts; attempt++ {
+		// Acquire retry budget for non-first attempts to prevent retry storms
+		if attempt > 0 {
+			if !m.retryBudget.TryAcquire() {
+				break
+			}
+			defer m.retryBudget.Release()
+		}
+
 		start := time.Now()
 		resp, errExec := m.executeProvidersOnce(ctx, selected, func(execCtx context.Context, provider string) (Response, error) {
 			lastProvider = provider
@@ -365,6 +385,14 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req Req
 	var lastErr error
 	var lastProvider string
 	for attempt := 0; attempt < attempts; attempt++ {
+		// Acquire retry budget for non-first attempts to prevent retry storms
+		if attempt > 0 {
+			if !m.retryBudget.TryAcquire() {
+				break
+			}
+			defer m.retryBudget.Release()
+		}
+
 		start := time.Now()
 		chunks, errStream := m.executeStreamProvidersOnce(ctx, selected, func(execCtx context.Context, provider string) (<-chan StreamChunk, error) {
 			lastProvider = provider
@@ -538,6 +566,12 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 		registry.GetGlobalRegistry().ResumeClientModel(result.AuthID, result.Model)
 	} else if shouldSuspendModel {
 		registry.GetGlobalRegistry().SuspendClientModel(result.AuthID, result.Model, suspendReason)
+	}
+
+	if result.Error != nil && result.Error.HTTPStatus == 429 {
+		if qs, ok := m.selector.(*QuotaAwareSelector); ok {
+			qs.RecordLimitHit(result.AuthID, result.Provider, result.Model, result.RetryAfter)
+		}
 	}
 
 	m.hook.OnResult(ctx, result)
@@ -795,4 +829,12 @@ func (m *Manager) BreakerState(provider string) gobreaker.State {
 		return gobreaker.StateClosed
 	}
 	return cb.State()
+}
+
+// RetryBudgetStats returns current retry budget status.
+func (m *Manager) RetryBudgetStats() (available, max int64) {
+	if m.retryBudget == nil {
+		return 0, 0
+	}
+	return m.retryBudget.Available(), m.retryBudget.MaxCapacity()
 }

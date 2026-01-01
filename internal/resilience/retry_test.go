@@ -101,58 +101,93 @@ func TestCircuitBreakerName(t *testing.T) {
 }
 
 func TestCalculateBackoff(t *testing.T) {
+	// Full jitter: returns random(0, min(maxDelay, baseDelay * 2^attempt))
 	tests := []struct {
-		name        string
-		attempt     int
-		baseDelay   time.Duration
-		maxDelay    time.Duration
-		jitterDelay time.Duration
-		wantMin     time.Duration
-		wantMax     time.Duration
+		name      string
+		attempt   int
+		baseDelay time.Duration
+		maxDelay  time.Duration
+		wantMax   time.Duration // Full jitter is 0 to this value
 	}{
 		{
-			name:        "first attempt no jitter",
-			attempt:     0,
-			baseDelay:   100 * time.Millisecond,
-			maxDelay:    10 * time.Second,
-			jitterDelay: 0,
-			wantMin:     100 * time.Millisecond,
-			wantMax:     100 * time.Millisecond,
+			name:      "first attempt",
+			attempt:   0,
+			baseDelay: 100 * time.Millisecond,
+			maxDelay:  10 * time.Second,
+			wantMax:   100 * time.Millisecond,
 		},
 		{
-			name:        "second attempt doubles",
-			attempt:     1,
-			baseDelay:   100 * time.Millisecond,
-			maxDelay:    10 * time.Second,
-			jitterDelay: 0,
-			wantMin:     200 * time.Millisecond,
-			wantMax:     200 * time.Millisecond,
+			name:      "second attempt doubles max",
+			attempt:   1,
+			baseDelay: 100 * time.Millisecond,
+			maxDelay:  10 * time.Second,
+			wantMax:   200 * time.Millisecond,
 		},
 		{
-			name:        "capped at max",
-			attempt:     10,
-			baseDelay:   100 * time.Millisecond,
-			maxDelay:    1 * time.Second,
-			jitterDelay: 0,
-			wantMin:     1 * time.Second,
-			wantMax:     1 * time.Second,
+			name:      "capped at max delay",
+			attempt:   10,
+			baseDelay: 100 * time.Millisecond,
+			maxDelay:  1 * time.Second,
+			wantMax:   1 * time.Second,
 		},
 		{
-			name:        "with jitter",
-			attempt:     0,
-			baseDelay:   100 * time.Millisecond,
-			maxDelay:    10 * time.Second,
-			jitterDelay: 50 * time.Millisecond,
-			wantMin:     100 * time.Millisecond,
-			wantMax:     150 * time.Millisecond,
+			name:      "zero base delay",
+			attempt:   0,
+			baseDelay: 0,
+			maxDelay:  10 * time.Second,
+			wantMax:   0,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := CalculateBackoff(tt.attempt, tt.baseDelay, tt.maxDelay, tt.jitterDelay)
-			if got < tt.wantMin || got > tt.wantMax {
-				t.Errorf("CalculateBackoff() = %v, want between %v and %v", got, tt.wantMin, tt.wantMax)
+			// Run multiple times to verify randomness is within bounds
+			for i := 0; i < 100; i++ {
+				got := CalculateBackoff(tt.attempt, tt.baseDelay, tt.maxDelay, 0)
+				if got < 0 || got > tt.wantMax {
+					t.Errorf("CalculateBackoff() = %v, want between 0 and %v", got, tt.wantMax)
+				}
+			}
+		})
+	}
+}
+
+func TestCalculateBackoffNoJitter(t *testing.T) {
+	tests := []struct {
+		name      string
+		attempt   int
+		baseDelay time.Duration
+		maxDelay  time.Duration
+		want      time.Duration
+	}{
+		{
+			name:      "first attempt",
+			attempt:   0,
+			baseDelay: 100 * time.Millisecond,
+			maxDelay:  10 * time.Second,
+			want:      100 * time.Millisecond,
+		},
+		{
+			name:      "second attempt doubles",
+			attempt:   1,
+			baseDelay: 100 * time.Millisecond,
+			maxDelay:  10 * time.Second,
+			want:      200 * time.Millisecond,
+		},
+		{
+			name:      "capped at max",
+			attempt:   10,
+			baseDelay: 100 * time.Millisecond,
+			maxDelay:  1 * time.Second,
+			want:      1 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := CalculateBackoffNoJitter(tt.attempt, tt.baseDelay, tt.maxDelay)
+			if got != tt.want {
+				t.Errorf("CalculateBackoffNoJitter() = %v, want %v", got, tt.want)
 			}
 		})
 	}

@@ -3,6 +3,8 @@ package provider
 import (
 	"strings"
 	"time"
+
+	"github.com/sony/gobreaker"
 )
 
 // normalizeProviders normalizes and deduplicates a list of provider names.
@@ -27,12 +29,29 @@ func (m *Manager) normalizeProviders(providers []string) []string {
 }
 
 // selectProviders returns providers ordered for execution.
-// Input order is respected (priority-sorted from registry), with performance scoring as secondary factor.
+// It filters out providers with open circuit breakers (unavailable) and applies
+// performance-based scoring to the remaining candidates.
+// If all breakers are open, returns original list to allow fallback probes.
 func (m *Manager) selectProviders(model string, providers []string) []string {
 	if len(providers) <= 1 {
 		return providers
 	}
-	return m.providerStats.SortByScore(providers, model)
+
+	// Filter out providers with open circuit breakers
+	available := make([]string, 0, len(providers))
+	for _, p := range providers {
+		breaker := m.getOrCreateBreaker(p)
+		if breaker.State() != gobreaker.StateOpen {
+			available = append(available, p)
+		}
+	}
+
+	// If all breakers are open, allow fallback to original list for probe traffic
+	if len(available) == 0 {
+		return providers
+	}
+
+	return m.providerStats.SortByScore(available, model)
 }
 
 // recordProviderResult records success/failure for weighted selection.

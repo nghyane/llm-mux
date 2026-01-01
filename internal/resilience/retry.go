@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/rand/v2"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/failsafe-go/failsafe-go"
@@ -159,17 +160,32 @@ func (e *Executor[R]) CircuitBreaker() *CircuitBreaker {
 	return e.breaker
 }
 
+// CalculateBackoff computes exponential backoff with full jitter.
+// Full jitter (industry standard) returns a random value between 0 and the
+// calculated exponential delay, providing better load distribution than
+// additive jitter.
+//
+// Formula: random(0, min(maxDelay, baseDelay * 2^attempt))
+//
+// The jitterDelay parameter is kept for API compatibility but is ignored
+// when using full jitter. Set to 0 for explicit full jitter behavior.
 func CalculateBackoff(attempt int, baseDelay, maxDelay, jitterDelay time.Duration) time.Duration {
 	delay := baseDelay * time.Duration(1<<attempt)
 	if delay > maxDelay {
 		delay = maxDelay
 	}
-	if jitterDelay > 0 {
-		jitterAmount := time.Duration(rand.Int64N(int64(jitterDelay)))
-		delay += jitterAmount
-		if delay > maxDelay {
-			delay = maxDelay
-		}
+	if delay <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(int64(delay)))
+}
+
+// CalculateBackoffNoJitter computes exponential backoff without jitter.
+// Use this when deterministic delays are required (e.g., for testing).
+func CalculateBackoffNoJitter(attempt int, baseDelay, maxDelay time.Duration) time.Duration {
+	delay := baseDelay * time.Duration(1<<attempt)
+	if delay > maxDelay {
+		delay = maxDelay
 	}
 	return delay
 }
@@ -186,4 +202,61 @@ func WaitWithContext(ctx context.Context, delay time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// RetryBudget implements a token bucket to prevent retry storms.
+// It limits the number of concurrent retries to avoid overwhelming
+// upstream services when multiple requests fail simultaneously.
+type RetryBudget struct {
+	capacity    atomic.Int64
+	maxCapacity int64
+}
+
+// NewRetryBudget creates a retry budget with the specified capacity.
+// Typical values: 10-100 depending on expected concurrency.
+func NewRetryBudget(maxCapacity int64) *RetryBudget {
+	if maxCapacity <= 0 {
+		maxCapacity = 50 // sensible default
+	}
+	rb := &RetryBudget{maxCapacity: maxCapacity}
+	rb.capacity.Store(maxCapacity)
+	return rb
+}
+
+// TryAcquire attempts to acquire a retry token.
+// Returns true if a token was acquired, false if budget exhausted.
+func (rb *RetryBudget) TryAcquire() bool {
+	for {
+		current := rb.capacity.Load()
+		if current <= 0 {
+			return false
+		}
+		if rb.capacity.CompareAndSwap(current, current-1) {
+			return true
+		}
+	}
+}
+
+// Release returns a retry token to the budget.
+// Should be called after a retry attempt completes (success or failure).
+func (rb *RetryBudget) Release() {
+	for {
+		current := rb.capacity.Load()
+		if current >= rb.maxCapacity {
+			return
+		}
+		if rb.capacity.CompareAndSwap(current, current+1) {
+			return
+		}
+	}
+}
+
+// Available returns the current number of available retry tokens.
+func (rb *RetryBudget) Available() int64 {
+	return rb.capacity.Load()
+}
+
+// MaxCapacity returns the maximum budget capacity.
+func (rb *RetryBudget) MaxCapacity() int64 {
+	return rb.maxCapacity
 }
