@@ -97,7 +97,8 @@ func TranslateToGeminiCLIWithTokens(cfg *config.Config, from provider.Format, mo
 	}
 
 	if fromStr == "claude" {
-		result.EstimatedInputTokens = util.CountTokensFromIR(model, irReq)
+		// Use Gemini tokenizer since request is translated to Gemini format for Antigravity/Vertex backend
+		result.EstimatedInputTokens = util.CountGeminiTokensFromIR(irReq)
 	}
 
 	return result, nil

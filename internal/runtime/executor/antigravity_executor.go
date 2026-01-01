@@ -27,10 +27,11 @@ import (
 )
 
 const (
-	antigravityStreamPath   = "/v1internal:streamGenerateContent"
-	antigravityGeneratePath = "/v1internal:generateContent"
-	antigravityModelsPath   = "/v1internal:fetchAvailableModels"
-	antigravityAuthType     = "antigravity"
+	antigravityStreamPath      = "/v1internal:streamGenerateContent"
+	antigravityGeneratePath    = "/v1internal:generateContent"
+	antigravityCountTokensPath = "/v1internal:countTokens"
+	antigravityModelsPath      = "/v1internal:fetchAvailableModels"
+	antigravityAuthType        = "antigravity"
 )
 
 func modelName2Alias(upstreamName string) string {
@@ -306,8 +307,91 @@ func (e *AntigravityExecutor) Refresh(ctx context.Context, auth *provider.Auth) 
 	return updated, nil
 }
 
-func (e *AntigravityExecutor) CountTokens(context.Context, *provider.Auth, provider.Request, provider.Options) (provider.Response, error) {
-	return provider.Response{}, NewStatusError(http.StatusNotImplemented, "count tokens not supported", nil)
+func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
+	token, updatedAuth, errToken := e.ensureAccessToken(ctx, auth)
+	if errToken != nil {
+		return provider.Response{}, errToken
+	}
+	if updatedAuth != nil {
+		auth = updatedAuth
+	}
+
+	from := opts.SourceFormat
+	translated, errTranslate := TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	if errTranslate != nil {
+		return provider.Response{}, fmt.Errorf("failed to translate request: %w", errTranslate)
+	}
+
+	translated = deleteJSONField(translated, "project")
+	translated = deleteJSONField(translated, "model")
+	translated = deleteJSONField(translated, "request.safetySettings")
+
+	baseURLs := antigravityBaseURLFallbackOrder(auth)
+	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+
+	var lastStatus int
+	var lastBody []byte
+
+	for idx := 0; idx < len(baseURLs); idx++ {
+		baseURL := baseURLs[idx]
+
+		httpReq, errReq := e.buildCountTokensRequest(ctx, token, translated, baseURL)
+		if errReq != nil {
+			return provider.Response{}, errReq
+		}
+
+		httpResp, errDo := httpClient.Do(httpReq)
+		if errDo != nil {
+			if errors.Is(errDo, context.DeadlineExceeded) {
+				return provider.Response{}, NewTimeoutError("count tokens request timed out")
+			}
+			continue
+		}
+
+		body, _ := io.ReadAll(httpResp.Body)
+		httpResp.Body.Close()
+
+		lastStatus = httpResp.StatusCode
+		lastBody = body
+
+		if httpResp.StatusCode == http.StatusOK {
+			return provider.Response{Payload: body}, nil
+		}
+
+		if httpResp.StatusCode >= 500 && idx+1 < len(baseURLs) {
+			continue
+		}
+	}
+
+	if lastStatus == 0 {
+		return provider.Response{}, NewStatusError(http.StatusServiceUnavailable, "all endpoints failed", nil)
+	}
+	return provider.Response{}, NewStatusError(lastStatus, string(lastBody), nil)
+}
+
+func (e *AntigravityExecutor) buildCountTokensRequest(ctx context.Context, token string, payload []byte, baseURL string) (*http.Request, error) {
+	if token == "" {
+		return nil, NewStatusError(http.StatusUnauthorized, "missing access token", nil)
+	}
+
+	base := strings.TrimSuffix(baseURL, "/")
+	ub := GetURLBuilder()
+	defer ub.Release()
+	ub.Grow(128)
+	ub.WriteString(base)
+	ub.WriteString(antigravityCountTokensPath)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, ub.String(), bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+token)
+	httpReq.Header.Set("Accept", "application/json")
+	applyGeminiCLIHeaders(httpReq)
+
+	return httpReq, nil
 }
 
 func FetchAntigravityModels(ctx context.Context, auth *provider.Auth, cfg *config.Config) []*registry.ModelInfo {
