@@ -144,6 +144,9 @@ func mergeGeminiFinishChunk(chunk []byte, finishEvent *ir.UnifiedEvent) ([]byte,
 		if finishEvent.Usage.ThoughtsTokenCount > 0 {
 			usageMetadata["thoughtsTokenCount"] = finishEvent.Usage.ThoughtsTokenCount
 		}
+		if finishEvent.Usage.PromptTokensDetails != nil && finishEvent.Usage.PromptTokensDetails.CachedTokens > 0 {
+			usageMetadata["cachedContentTokenCount"] = finishEvent.Usage.PromptTokensDetails.CachedTokens
+		}
 		result, err = sjson.SetBytes(result, "usageMetadata", usageMetadata)
 		if err != nil {
 			return nil, err
