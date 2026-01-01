@@ -2,6 +2,8 @@
 
 **AI Gateway** — Turns subscription LLMs (Claude Pro, Copilot, Gemini) into standard APIs.
 
+**Generated:** 2026-01-01 | **Commit:** 9dcc65f | **Branch:** main
+
 ## Providers
 
 `gemini` | `vertex` | `gemini-cli` | `aistudio` | `antigravity` | `claude` | `codex` | `qwen` | `iflow` | `cline` | `kiro` | `github-copilot`
@@ -10,20 +12,26 @@
 
 ```
 llm-mux/
-├── cmd/server/          # Entry point (main.go)
+├── cmd/server/          # Fat entry point (600+ lines) - bootstraps config, stores, CLI
 ├── internal/
 │   ├── api/             # HTTP server, routes, handlers
-│   │   └── handlers/format/  # API format handlers (OpenAI, Claude, etc.)
+│   │   └── handlers/    # Format handlers (OpenAI, Claude, etc.)
+│   │   └── modules/amp/ # AMP proxy module (12 files)
 │   ├── auth/            # Provider-specific OAuth/token logic
-│   │   └── login/       # OAuth authenticators (Claude, Gemini, etc.)
-│   ├── cmd/             # CLI commands (*_login.go, run.go)
-│   ├── config/          # YAML config parsing, defaults
-│   ├── provider/        # Core: Auth, Manager, Request, Response
-│   ├── runtime/executor/# Provider execution (see AGENTS.md)
-│   ├── service/         # Service orchestration: Builder, Service
-│   ├── translator/      # IR translation layer (see AGENTS.md)
-│   └── watcher/         # File watchers, hot reload
-├── pkg/llmmux/          # Minimal public API for embedding
+│   │   └── login/       # OAuth authenticators (15 files)
+│   │   └── {provider}/  # Per-provider: claude, codex, gemini, copilot, etc.
+│   ├── cmd/             # CLI command logic (*_login.go, run.go)
+│   ├── config/          # YAML parsing, XDG paths
+│   ├── provider/        # State, selection, quota groups (19 files)
+│   ├── runtime/executor/# Provider HTTP clients (40 files) - see executor/AGENTS.md
+│   ├── service/         # Builder, Service, hot-reload orchestration
+│   ├── translator/      # IR translation layer (43+ files) - see translator/AGENTS.md
+│   │   ├── ir/          # Canonical types (UnifiedChatRequest, UnifiedEvent)
+│   │   ├── to_ir/       # Parse input formats → IR
+│   │   ├── from_ir/     # Convert IR → provider payloads
+│   │   └── preprocess/  # IR normalization
+│   └── watcher/         # File watchers, config reload
+├── pkg/llmmux/          # Public API (type aliases to internal/)
 └── docs/                # User documentation
 ```
 

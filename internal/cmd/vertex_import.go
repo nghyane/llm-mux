@@ -12,9 +12,9 @@ import (
 	"github.com/nghyane/llm-mux/internal/auth/login"
 	"github.com/nghyane/llm-mux/internal/auth/vertex"
 	"github.com/nghyane/llm-mux/internal/config"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/util"
-	log "github.com/nghyane/llm-mux/internal/logging"
 )
 
 // DoVertexImport imports a Google Cloud service account key JSON and persists
@@ -62,7 +62,7 @@ func DoVertexImport(cfg *config.Config, keyPath string) {
 	// Default location if not provided by user. Can be edited in the saved file later.
 	location := "us-central1"
 
-	fileName := fmt.Sprintf("vertex-%s.json", sanitizeFilePart(projectID))
+	fileName := fmt.Sprintf("vertex-%s.json", util.SanitizeFilePart(projectID))
 	// Build auth record
 	storage := &vertex.VertexCredentialStorage{
 		ServiceAccount: sa,
@@ -76,7 +76,7 @@ func DoVertexImport(cfg *config.Config, keyPath string) {
 		"email":           email,
 		"location":        location,
 		"type":            "vertex",
-		"label":           labelForVertex(projectID, email),
+		"label":           util.LabelForVertex(projectID, email),
 	}
 	record := &provider.Auth{
 		ID:       fileName,
@@ -96,28 +96,4 @@ func DoVertexImport(cfg *config.Config, keyPath string) {
 		return
 	}
 	fmt.Printf("Vertex credentials imported: %s\n", path)
-}
-
-func sanitizeFilePart(s string) string {
-	out := strings.TrimSpace(s)
-	replacers := []string{"/", "_", "\\", "_", ":", "_", " ", "-"}
-	for i := 0; i < len(replacers); i += 2 {
-		out = strings.ReplaceAll(out, replacers[i], replacers[i+1])
-	}
-	return out
-}
-
-func labelForVertex(projectID, email string) string {
-	p := strings.TrimSpace(projectID)
-	e := strings.TrimSpace(email)
-	if p != "" && e != "" {
-		return fmt.Sprintf("%s (%s)", p, e)
-	}
-	if p != "" {
-		return p
-	}
-	if e != "" {
-		return e
-	}
-	return "vertex"
 }

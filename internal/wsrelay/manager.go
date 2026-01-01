@@ -74,7 +74,7 @@ func NewManager(opts Options) *Manager {
 		mgr.logInfof = func(string, ...any) {}
 	}
 	if mgr.logWarnf == nil {
-		mgr.logWarnf = func(s string, args ...any) { fmt.Printf(s+"\n", args...) }
+		mgr.logWarnf = func(string, ...any) {}
 	}
 	return mgr
 }

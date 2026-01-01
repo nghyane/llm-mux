@@ -1,7 +1,6 @@
 package to_ir
 
 import (
-	"os"
 	"strings"
 	"time"
 
@@ -10,8 +9,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
-
-var debugToolCalls = os.Getenv("DEBUG_TOOL_CALLS") == "1"
 
 // ensureToolCallID returns the ID from functionCall or generates one if empty.
 // Gemini API does not guarantee the "id" field in functionCall responses,

@@ -346,9 +346,6 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Sync request authentication providers with inline API keys for backwards compatibility.
 	syncInlineAccessProvider(&cfg)
 
-	// Sanitize Vertex-compatible API keys: drop entries without base-url
-	cfg.SanitizeVertexCompatKeys()
-
 	cfg.Providers = SanitizeProviders(cfg.Providers)
 
 	// Normalize OAuth provider model exclusion map.

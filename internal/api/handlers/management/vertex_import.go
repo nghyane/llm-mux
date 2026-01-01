@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/nghyane/llm-mux/internal/auth/vertex"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/util"
 )
 
 // ImportVertexCredential handles uploading a Vertex service account JSON and saving it as an auth record.
@@ -71,8 +72,8 @@ func (h *Handler) ImportVertexCredential(c *gin.Context) {
 		location = "us-central1"
 	}
 
-	fileName := fmt.Sprintf("vertex-%s.json", sanitizeVertexFilePart(projectID))
-	label := labelForVertex(projectID, email)
+	fileName := fmt.Sprintf("vertex-%s.json", util.SanitizeFilePart(projectID))
+	label := util.LabelForVertex(projectID, email)
 	storage := &vertex.VertexCredentialStorage{
 		ServiceAccount: serviceAccount,
 		ProjectID:      projectID,
@@ -126,31 +127,4 @@ func valueAsString(v any) string {
 	default:
 		return fmt.Sprint(t)
 	}
-}
-
-func sanitizeVertexFilePart(s string) string {
-	out := strings.TrimSpace(s)
-	replacers := []string{"/", "_", "\\", "_", ":", "_", " ", "-"}
-	for i := 0; i < len(replacers); i += 2 {
-		out = strings.ReplaceAll(out, replacers[i], replacers[i+1])
-	}
-	if out == "" {
-		return "vertex"
-	}
-	return out
-}
-
-func labelForVertex(projectID, email string) string {
-	p := strings.TrimSpace(projectID)
-	e := strings.TrimSpace(email)
-	if p != "" && e != "" {
-		return fmt.Sprintf("%s (%s)", p, e)
-	}
-	if p != "" {
-		return p
-	}
-	if e != "" {
-		return e
-	}
-	return "vertex"
 }

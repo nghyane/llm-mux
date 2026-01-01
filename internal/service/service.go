@@ -16,12 +16,12 @@ import (
 	"github.com/nghyane/llm-mux/internal/api"
 	"github.com/nghyane/llm-mux/internal/auth/login"
 	"github.com/nghyane/llm-mux/internal/config"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/usage"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/nghyane/llm-mux/internal/watcher"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
-	log "github.com/nghyane/llm-mux/internal/logging"
 )
 
 // Service wraps the proxy server lifecycle so external programs can embed the CLI proxy.
@@ -416,7 +416,13 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}()
 
-	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-s.serverErr:
+		if err != nil {
+			return fmt.Errorf("cliproxy: server failed to start: %w", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
 	fmt.Printf("API server started successfully on: %d\n", s.cfg.Port)
 
 	if s.hooks.OnAfterStart != nil {

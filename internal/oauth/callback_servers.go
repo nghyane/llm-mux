@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -319,7 +320,7 @@ func (m *CallbackServersManager) StartForwarder(port int, provider, targetBase s
 		if raw := r.URL.RawQuery; raw != "" {
 			if len(target) > 0 && target[len(target)-1] == '?' {
 				target = target + raw
-			} else if containsRune(target, '?') {
+			} else if strings.ContainsRune(target, '?') {
 				target = target + "&" + raw
 			} else {
 				target = target + "?" + raw
@@ -390,14 +391,4 @@ func (m *CallbackServersManager) stopForwarderInstance(forwarder *ForwarderServe
 	}
 
 	log.Infof("callback forwarder on port %d stopped", forwarder.port)
-}
-
-// containsRune checks if string contains a specific rune.
-func containsRune(s string, r rune) bool {
-	for _, c := range s {
-		if c == r {
-			return true
-		}
-	}
-	return false
 }
