@@ -1,8 +1,8 @@
 package login
 
 import (
+	"github.com/nghyane/llm-mux/internal/bootstrap"
 	cmdpkg "github.com/nghyane/llm-mux/internal/cmd"
-	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ Use --no-browser flag to prevent automatic browser opening.`,
 		cfgPath, _ := cmd.Flags().GetString("config")
 		noBrowser, _ := cmd.Flags().GetBool("no-browser")
 
-		cfg, err := config.LoadConfig(cfgPath)
+		result, err := bootstrap.Bootstrap(cfgPath)
 		if err != nil {
 			return err
 		}
@@ -29,7 +29,7 @@ Use --no-browser flag to prevent automatic browser opening.`,
 			NoBrowser: noBrowser,
 		}
 
-		cmdpkg.DoQwenLogin(cfg, options)
+		cmdpkg.DoQwenLogin(result.Config, options)
 		return nil
 	},
 }

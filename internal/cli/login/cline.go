@@ -1,8 +1,8 @@
 package login
 
 import (
+	"github.com/nghyane/llm-mux/internal/bootstrap"
 	"github.com/nghyane/llm-mux/internal/cmd"
-	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +18,7 @@ Once authenticated, your credentials will be saved locally.`,
 		cfgPath, _ := c.Flags().GetString("config")
 		noBrowser, _ := c.Flags().GetBool("no-browser")
 
-		cfg, err := config.LoadConfig(cfgPath)
+		result, err := bootstrap.Bootstrap(cfgPath)
 		if err != nil {
 			return err
 		}
@@ -27,7 +27,7 @@ Once authenticated, your credentials will be saved locally.`,
 			NoBrowser: noBrowser,
 		}
 
-		cmd.DoClineLogin(cfg, options)
+		cmd.DoClineLogin(result.Config, options)
 		return nil
 	},
 }

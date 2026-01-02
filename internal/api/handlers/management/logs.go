@@ -25,21 +25,21 @@ const (
 // GetLogs returns log lines with optional incremental loading.
 func (h *Handler) GetLogs(c *gin.Context) {
 	if h == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler unavailable"})
+		respondInternalError(c, "handler unavailable")
 		return
 	}
 	if h.cfg == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
+		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "configuration unavailable")
 		return
 	}
 	if !h.cfg.LoggingToFile {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "logging to file disabled"})
+		respondBadRequest(c, "logging to file disabled")
 		return
 	}
 
 	logDir := h.logDirectory()
 	if strings.TrimSpace(logDir) == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "log directory not configured"})
+		respondInternalError(c, "log directory not configured")
 		return
 	}
 
@@ -47,20 +47,20 @@ func (h *Handler) GetLogs(c *gin.Context) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			cutoff := parseCutoff(c.Query("after"))
-			c.JSON(http.StatusOK, gin.H{
+			respondOK(c, gin.H{
 				"lines":            []string{},
-				"line-count":       0,
-				"latest-timestamp": cutoff,
+				"line_count":       0,
+				"latest_timestamp": cutoff,
 			})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to list log files: %v", err)})
+		respondInternalError(c, fmt.Sprintf("failed to list log files: %v", err))
 		return
 	}
 
 	limit, errLimit := parseLimit(c.Query("limit"))
 	if errLimit != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid limit: %v", errLimit)})
+		respondBadRequest(c, fmt.Sprintf("invalid limit: %v", errLimit))
 		return
 	}
 
@@ -68,7 +68,7 @@ func (h *Handler) GetLogs(c *gin.Context) {
 	acc := newLogAccumulator(cutoff, limit)
 	for i := range files {
 		if errProcess := acc.consumeFile(files[i]); errProcess != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read log file %s: %v", files[i], errProcess)})
+			respondInternalError(c, fmt.Sprintf("failed to read log file %s: %v", files[i], errProcess))
 			return
 		}
 	}
@@ -77,41 +77,41 @@ func (h *Handler) GetLogs(c *gin.Context) {
 	if latest == 0 || latest < cutoff {
 		latest = cutoff
 	}
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"lines":            lines,
-		"line-count":       total,
-		"latest-timestamp": latest,
+		"line_count":       total,
+		"latest_timestamp": latest,
 	})
 }
 
 // DeleteLogs removes all rotated log files and truncates the active log.
 func (h *Handler) DeleteLogs(c *gin.Context) {
 	if h == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler unavailable"})
+		respondInternalError(c, "handler unavailable")
 		return
 	}
 	if h.cfg == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
+		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "configuration unavailable")
 		return
 	}
 	if !h.cfg.LoggingToFile {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "logging to file disabled"})
+		respondBadRequest(c, "logging to file disabled")
 		return
 	}
 
 	dir := h.logDirectory()
 	if strings.TrimSpace(dir) == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "log directory not configured"})
+		respondInternalError(c, "log directory not configured")
 		return
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "log directory not found"})
+			respondNotFound(c, "log directory not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to list log directory: %v", err)})
+		respondInternalError(c, fmt.Sprintf("failed to list log directory: %v", err))
 		return
 	}
 
@@ -124,21 +124,21 @@ func (h *Handler) DeleteLogs(c *gin.Context) {
 		fullPath := filepath.Join(dir, name)
 		if name == defaultLogFileName {
 			if errTrunc := os.Truncate(fullPath, 0); errTrunc != nil && !os.IsNotExist(errTrunc) {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to truncate log file: %v", errTrunc)})
+				respondInternalError(c, fmt.Sprintf("failed to truncate log file: %v", errTrunc))
 				return
 			}
 			continue
 		}
 		if isRotatedLogFile(name) {
 			if errRemove := os.Remove(fullPath); errRemove != nil && !os.IsNotExist(errRemove) {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to remove %s: %v", name, errRemove)})
+				respondInternalError(c, fmt.Sprintf("failed to remove %s: %v", name, errRemove))
 				return
 			}
 			removed++
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	respondOK(c, gin.H{
 		"success": true,
 		"message": "Logs cleared successfully",
 		"removed": removed,
@@ -149,31 +149,31 @@ func (h *Handler) DeleteLogs(c *gin.Context) {
 // It returns an empty list when RequestLog is enabled.
 func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 	if h == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler unavailable"})
+		respondInternalError(c, "handler unavailable")
 		return
 	}
 	if h.cfg == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
+		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "configuration unavailable")
 		return
 	}
 	if h.cfg.RequestLog {
-		c.JSON(http.StatusOK, gin.H{"files": []any{}})
+		respondOK(c, gin.H{"files": []any{}})
 		return
 	}
 
 	dir := h.logDirectory()
 	if strings.TrimSpace(dir) == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "log directory not configured"})
+		respondInternalError(c, "log directory not configured")
 		return
 	}
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusOK, gin.H{"files": []any{}})
+			respondOK(c, gin.H{"files": []any{}})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to list request error logs: %v", err)})
+		respondInternalError(c, fmt.Sprintf("failed to list request error logs: %v", err))
 		return
 	}
 
@@ -194,7 +194,7 @@ func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 		}
 		info, errInfo := entry.Info()
 		if errInfo != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read log info for %s: %v", name, errInfo)})
+			respondInternalError(c, fmt.Sprintf("failed to read log info for %s: %v", name, errInfo))
 			return
 		}
 		files = append(files, errorLog{
@@ -206,59 +206,59 @@ func (h *Handler) GetRequestErrorLogs(c *gin.Context) {
 
 	sort.Slice(files, func(i, j int) bool { return files[i].Modified > files[j].Modified })
 
-	c.JSON(http.StatusOK, gin.H{"files": files})
+	respondOK(c, gin.H{"files": files})
 }
 
 // DownloadRequestErrorLog downloads a specific error request log file by name.
 func (h *Handler) DownloadRequestErrorLog(c *gin.Context) {
 	if h == nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "handler unavailable"})
+		respondInternalError(c, "handler unavailable")
 		return
 	}
 	if h.cfg == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "configuration unavailable"})
+		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "configuration unavailable")
 		return
 	}
 
 	dir := h.logDirectory()
 	if strings.TrimSpace(dir) == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "log directory not configured"})
+		respondInternalError(c, "log directory not configured")
 		return
 	}
 
 	name := strings.TrimSpace(c.Param("name"))
 	if name == "" || strings.Contains(name, "/") || strings.Contains(name, "\\") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid log file name"})
+		respondBadRequest(c, "invalid log file name")
 		return
 	}
 	if !strings.HasPrefix(name, "error-") || !strings.HasSuffix(name, ".log") {
-		c.JSON(http.StatusNotFound, gin.H{"error": "log file not found"})
+		respondNotFound(c, "log file not found")
 		return
 	}
 
 	dirAbs, errAbs := filepath.Abs(dir)
 	if errAbs != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to resolve log directory: %v", errAbs)})
+		respondInternalError(c, fmt.Sprintf("failed to resolve log directory: %v", errAbs))
 		return
 	}
 	fullPath := filepath.Clean(filepath.Join(dirAbs, name))
 	prefix := dirAbs + string(os.PathSeparator)
 	if !strings.HasPrefix(fullPath, prefix) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid log file path"})
+		respondBadRequest(c, "invalid log file path")
 		return
 	}
 
 	info, errStat := os.Stat(fullPath)
 	if errStat != nil {
 		if os.IsNotExist(errStat) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "log file not found"})
+			respondNotFound(c, "log file not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to read log file: %v", errStat)})
+		respondInternalError(c, fmt.Sprintf("failed to read log file: %v", errStat))
 		return
 	}
 	if info.IsDir() {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid log file"})
+		respondBadRequest(c, "invalid log file")
 		return
 	}
 

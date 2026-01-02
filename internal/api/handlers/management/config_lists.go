@@ -13,7 +13,7 @@ import (
 func (h *Handler) putStringList(c *gin.Context, set func([]string), after func()) {
 	data, err := c.GetRawData()
 	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		respondBadRequest(c, "failed to read body")
 		return
 	}
 	var arr []string
@@ -22,7 +22,7 @@ func (h *Handler) putStringList(c *gin.Context, set func([]string), after func()
 			Items []string `json:"items"`
 		}
 		if err2 := json.Unmarshal(data, &obj); err2 != nil || len(obj.Items) == 0 {
-			c.JSON(400, gin.H{"error": "invalid body"})
+			respondBadRequest(c, "invalid body")
 			return
 		}
 		arr = obj.Items
@@ -42,7 +42,7 @@ func (h *Handler) patchStringList(c *gin.Context, target *[]string, after func()
 		Value *string `json:"value"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(400, gin.H{"error": "invalid body"})
+		respondBadRequest(c, "invalid body")
 		return
 	}
 	if body.Index != nil && body.Value != nil && *body.Index >= 0 && *body.Index < len(*target) {
@@ -71,7 +71,7 @@ func (h *Handler) patchStringList(c *gin.Context, target *[]string, after func()
 		h.persist(c)
 		return
 	}
-	c.JSON(400, gin.H{"error": "missing fields"})
+	respondBadRequest(c, "missing fields")
 }
 
 func (h *Handler) deleteFromStringList(c *gin.Context, target *[]string, after func()) {
@@ -101,11 +101,14 @@ func (h *Handler) deleteFromStringList(c *gin.Context, target *[]string, after f
 		h.persist(c)
 		return
 	}
-	c.JSON(400, gin.H{"error": "missing index or value"})
+	respondBadRequest(c, "missing index or value")
 }
 
 // api-keys
-func (h *Handler) GetAPIKeys(c *gin.Context) { c.JSON(200, gin.H{"api-keys": h.cfg.APIKeys}) }
+func (h *Handler) GetAPIKeys(c *gin.Context) {
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"api_keys": cfg.APIKeys})
+}
 func (h *Handler) PutAPIKeys(c *gin.Context) {
 	h.putStringList(c, func(v []string) {
 		h.cfg.APIKeys = append([]string(nil), v...)
@@ -121,13 +124,14 @@ func (h *Handler) DeleteAPIKeys(c *gin.Context) {
 
 // oauth-excluded-models: map[string][]string
 func (h *Handler) GetOAuthExcludedModels(c *gin.Context) {
-	c.JSON(200, gin.H{"oauth-excluded-models": config.NormalizeOAuthExcludedModels(h.cfg.OAuthExcludedModels)})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"oauth_excluded_models": config.NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)})
 }
 
 func (h *Handler) PutOAuthExcludedModels(c *gin.Context) {
 	data, err := c.GetRawData()
 	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		respondBadRequest(c, "failed to read body")
 		return
 	}
 	var entries map[string][]string
@@ -136,12 +140,14 @@ func (h *Handler) PutOAuthExcludedModels(c *gin.Context) {
 			Items map[string][]string `json:"items"`
 		}
 		if err2 := json.Unmarshal(data, &wrapper); err2 != nil {
-			c.JSON(400, gin.H{"error": "invalid body"})
+			respondBadRequest(c, "invalid body")
 			return
 		}
 		entries = wrapper.Items
 	}
+	h.cfgMu.Lock()
 	h.cfg.OAuthExcludedModels = config.NormalizeOAuthExcludedModels(entries)
+	h.cfgMu.Unlock()
 	h.persist(c)
 }
 
@@ -151,22 +157,24 @@ func (h *Handler) PatchOAuthExcludedModels(c *gin.Context) {
 		Models   []string `json:"models"`
 	}
 	if err := c.ShouldBindJSON(&body); err != nil || body.Provider == nil {
-		c.JSON(400, gin.H{"error": "invalid body"})
+		respondBadRequest(c, "invalid body")
 		return
 	}
 	provider := strings.ToLower(strings.TrimSpace(*body.Provider))
 	if provider == "" {
-		c.JSON(400, gin.H{"error": "invalid provider"})
+		respondBadRequest(c, "invalid provider")
 		return
 	}
 	normalized := config.NormalizeExcludedModels(body.Models)
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
 	if len(normalized) == 0 {
 		if h.cfg.OAuthExcludedModels == nil {
-			c.JSON(404, gin.H{"error": "provider not found"})
+			respondNotFound(c, "provider not found")
 			return
 		}
 		if _, ok := h.cfg.OAuthExcludedModels[provider]; !ok {
-			c.JSON(404, gin.H{"error": "provider not found"})
+			respondNotFound(c, "provider not found")
 			return
 		}
 		delete(h.cfg.OAuthExcludedModels, provider)
@@ -186,15 +194,17 @@ func (h *Handler) PatchOAuthExcludedModels(c *gin.Context) {
 func (h *Handler) DeleteOAuthExcludedModels(c *gin.Context) {
 	provider := strings.ToLower(strings.TrimSpace(c.Query("provider")))
 	if provider == "" {
-		c.JSON(400, gin.H{"error": "missing provider"})
+		respondBadRequest(c, "missing provider")
 		return
 	}
+	h.cfgMu.Lock()
+	defer h.cfgMu.Unlock()
 	if h.cfg.OAuthExcludedModels == nil {
-		c.JSON(404, gin.H{"error": "provider not found"})
+		respondNotFound(c, "provider not found")
 		return
 	}
 	if _, ok := h.cfg.OAuthExcludedModels[provider]; !ok {
-		c.JSON(404, gin.H{"error": "provider not found"})
+		respondNotFound(c, "provider not found")
 		return
 	}
 	delete(h.cfg.OAuthExcludedModels, provider)
@@ -206,13 +216,14 @@ func (h *Handler) DeleteOAuthExcludedModels(c *gin.Context) {
 
 // providers: []Provider
 func (h *Handler) GetProviders(c *gin.Context) {
-	c.JSON(200, gin.H{"providers": h.cfg.Providers})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"providers": cfg.Providers})
 }
 
 func (h *Handler) PutProviders(c *gin.Context) {
 	data, err := c.GetRawData()
 	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		respondBadRequest(c, "failed to read body")
 		return
 	}
 	var arr []config.Provider
@@ -221,12 +232,14 @@ func (h *Handler) PutProviders(c *gin.Context) {
 			Items []config.Provider `json:"items"`
 		}
 		if err2 := json.Unmarshal(data, &obj); err2 != nil || len(obj.Items) == 0 {
-			c.JSON(400, gin.H{"error": "invalid body"})
+			respondBadRequest(c, "invalid body")
 			return
 		}
 		arr = obj.Items
 	}
+	h.cfgMu.Lock()
 	h.cfg.Providers = config.SanitizeProviders(arr)
+	h.cfgMu.Unlock()
 	h.persist(c)
 }
 
@@ -234,11 +247,14 @@ func (h *Handler) DeleteProvider(c *gin.Context) {
 	if idxStr := c.Query("index"); idxStr != "" {
 		var idx int
 		_, err := fmt.Sscanf(idxStr, "%d", &idx)
+		h.cfgMu.Lock()
 		if err == nil && idx >= 0 && idx < len(h.cfg.Providers) {
 			h.cfg.Providers = append(h.cfg.Providers[:idx], h.cfg.Providers[idx+1:]...)
+			h.cfgMu.Unlock()
 			h.persist(c)
 			return
 		}
+		h.cfgMu.Unlock()
 	}
-	c.JSON(400, gin.H{"error": "missing or invalid index"})
+	respondBadRequest(c, "missing or invalid index")
 }

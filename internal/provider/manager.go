@@ -106,8 +106,9 @@ type Manager struct {
 
 	refreshCancel context.CancelFunc
 
-	breakerMu sync.RWMutex
-	breakers  map[string]*resilience.CircuitBreaker
+	breakerMu         sync.RWMutex
+	breakers          map[string]*resilience.CircuitBreaker
+	streamingBreakers map[string]*resilience.StreamingCircuitBreaker
 
 	retryBudget *resilience.RetryBudget
 }
@@ -122,14 +123,15 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		hook = NoopHook{}
 	}
 	m := &Manager{
-		store:         store,
-		executors:     make(map[string]ProviderExecutor),
-		selector:      selector,
-		hook:          hook,
-		auths:         make(map[string]*Auth),
-		providerStats: NewProviderStats(),
-		breakers:      make(map[string]*resilience.CircuitBreaker),
-		retryBudget:   resilience.NewRetryBudget(100), // Allow up to 100 concurrent retries
+		store:             store,
+		executors:         make(map[string]ProviderExecutor),
+		selector:          selector,
+		hook:              hook,
+		auths:             make(map[string]*Auth),
+		providerStats:     NewProviderStats(),
+		breakers:          make(map[string]*resilience.CircuitBreaker),
+		streamingBreakers: make(map[string]*resilience.StreamingCircuitBreaker),
+		retryBudget:       resilience.NewRetryBudget(100), // Allow up to 100 concurrent retries
 	}
 	if lc, ok := selector.(SelectorLifecycle); ok {
 		lc.Start()
@@ -275,12 +277,12 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req Request, 
 	var lastErr error
 	var lastProvider string
 	for attempt := 0; attempt < attempts; attempt++ {
-		// Acquire retry budget for non-first attempts to prevent retry storms
+		acquiredBudget := false
 		if attempt > 0 {
 			if !m.retryBudget.TryAcquire() {
 				break
 			}
-			defer m.retryBudget.Release()
+			acquiredBudget = true
 		}
 
 		start := time.Now()
@@ -293,12 +295,19 @@ func (m *Manager) Execute(ctx context.Context, providers []string, req Request, 
 		if errExec == nil {
 			// Record success for weighted selection
 			m.recordProviderResult(lastProvider, req.Model, true, latency)
+			if acquiredBudget {
+				m.retryBudget.Release()
+			}
 			return resp, nil
 		}
 
 		// Record failure for weighted selection
 		m.recordProviderResult(lastProvider, req.Model, false, latency)
 		lastErr = errExec
+
+		if acquiredBudget {
+			m.retryBudget.Release()
+		}
 
 		if !m.shouldRetryAfterError(errExec, attempt, attempts, selected, req.Model) {
 			break
@@ -331,12 +340,12 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req Requ
 	var lastErr error
 	var lastProvider string
 	for attempt := 0; attempt < attempts; attempt++ {
-		// Acquire retry budget for non-first attempts to prevent retry storms
+		acquiredBudget := false
 		if attempt > 0 {
 			if !m.retryBudget.TryAcquire() {
 				break
 			}
-			defer m.retryBudget.Release()
+			acquiredBudget = true
 		}
 
 		start := time.Now()
@@ -348,11 +357,18 @@ func (m *Manager) ExecuteCount(ctx context.Context, providers []string, req Requ
 
 		if errExec == nil {
 			m.recordProviderResult(lastProvider, req.Model, true, latency)
+			if acquiredBudget {
+				m.retryBudget.Release()
+			}
 			return resp, nil
 		}
 
 		m.recordProviderResult(lastProvider, req.Model, false, latency)
 		lastErr = errExec
+
+		if acquiredBudget {
+			m.retryBudget.Release()
+		}
 
 		if !m.shouldRetryAfterError(errExec, attempt, attempts, selected, req.Model) {
 			break
@@ -385,12 +401,12 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req Req
 	var lastErr error
 	var lastProvider string
 	for attempt := 0; attempt < attempts; attempt++ {
-		// Acquire retry budget for non-first attempts to prevent retry storms
+		acquiredBudget := false
 		if attempt > 0 {
 			if !m.retryBudget.TryAcquire() {
 				break
 			}
-			defer m.retryBudget.Release()
+			acquiredBudget = true
 		}
 
 		start := time.Now()
@@ -400,12 +416,18 @@ func (m *Manager) ExecuteStream(ctx context.Context, providers []string, req Req
 		})
 
 		if errStream == nil {
-			// Wrap channel to track completion for stats
+			if acquiredBudget {
+				m.retryBudget.Release()
+			}
 			return m.wrapStreamForStats(ctx, chunks, lastProvider, req.Model, start), nil
 		}
 
 		m.recordProviderResult(lastProvider, req.Model, false, time.Since(start))
 		lastErr = errStream
+
+		if acquiredBudget {
+			m.retryBudget.Release()
+		}
 
 		if !m.shouldRetryAfterError(errStream, attempt, attempts, selected, req.Model) {
 			break
@@ -818,6 +840,29 @@ func (m *Manager) getOrCreateBreaker(provider string) *resilience.CircuitBreaker
 	}
 	cb := resilience.NewCircuitBreaker(cfg)
 	m.breakers[provider] = cb
+	return cb
+}
+
+func (m *Manager) getOrCreateStreamingBreaker(provider string) *resilience.StreamingCircuitBreaker {
+	m.breakerMu.RLock()
+	if cb, ok := m.streamingBreakers[provider]; ok {
+		m.breakerMu.RUnlock()
+		return cb
+	}
+	m.breakerMu.RUnlock()
+
+	m.breakerMu.Lock()
+	defer m.breakerMu.Unlock()
+	if cb, ok := m.streamingBreakers[provider]; ok {
+		return cb
+	}
+
+	cfg := resilience.DefaultBreakerConfig("streaming:" + provider)
+	cfg.OnStateChange = func(name string, from, to gobreaker.State) {
+		log.Infof("circuit breaker %s: %s -> %s", name, from, to)
+	}
+	cb := resilience.NewStreamingCircuitBreaker(cfg)
+	m.streamingBreakers[provider] = cb
 	return cb
 }
 

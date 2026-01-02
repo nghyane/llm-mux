@@ -31,12 +31,15 @@ var (
 )
 
 func (h *Handler) GetConfig(c *gin.Context) {
-	if h == nil || h.cfg == nil {
-		c.JSON(200, gin.H{})
+	cfg := h.getConfig()
+	if cfg == nil {
+		respondOK(c, gin.H{})
 		return
 	}
-	cfgCopy := *h.cfg
-	c.JSON(200, &cfgCopy)
+	h.cfgMu.RLock()
+	cfgCopy := *cfg
+	h.cfgMu.RUnlock()
+	respondOK(c, &cfgCopy)
 }
 
 type releaseInfo struct {
@@ -52,7 +55,7 @@ func (h *Handler) GetLatestVersion(c *gin.Context) {
 	if latestVersionCache != "" && time.Since(latestVersionCacheAt) < latestVersionCacheTTL {
 		cached := latestVersionCache
 		latestVersionMu.RUnlock()
-		c.JSON(http.StatusOK, gin.H{"latest-version": cached, "cached": true})
+		respondOK(c, gin.H{"latest_version": cached, "cached": true})
 		return
 	}
 	latestVersionMu.RUnlock()
@@ -65,11 +68,11 @@ func (h *Handler) GetLatestVersion(c *gin.Context) {
 		if latestVersionCache != "" {
 			cached := latestVersionCache
 			latestVersionMu.RUnlock()
-			c.JSON(http.StatusOK, gin.H{"latest-version": cached, "cached": true, "stale": true})
+			respondOK(c, gin.H{"latest_version": cached, "cached": true, "stale": true})
 			return
 		}
 		latestVersionMu.RUnlock()
-		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadGateway, ErrCodeInternalError, err.Error())
 		return
 	}
 
@@ -79,14 +82,14 @@ func (h *Handler) GetLatestVersion(c *gin.Context) {
 	latestVersionCacheAt = time.Now()
 	latestVersionMu.Unlock()
 
-	c.JSON(http.StatusOK, gin.H{"latest-version": version})
+	respondOK(c, gin.H{"latest_version": version})
 }
 
 func (h *Handler) fetchLatestVersion(c *gin.Context) (string, error) {
 	client := &http.Client{Timeout: 10 * time.Second}
 	proxyURL := ""
-	if h != nil && h.cfg != nil {
-		proxyURL = strings.TrimSpace(h.cfg.ProxyURL)
+	if cfg := h.getConfig(); cfg != nil {
+		proxyURL = strings.TrimSpace(cfg.ProxyURL)
 	}
 	if proxyURL != "" {
 		sdkCfg := &config.SDKConfig{ProxyURL: proxyURL}
@@ -152,31 +155,31 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 	const maxConfigSize = 10 * 1024 * 1024
 	body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxConfigSize))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_yaml", "message": "cannot read request body"})
+		respondError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "cannot read request body")
 		return
 	}
 	var cfg config.Config
 	if err = yaml.Unmarshal(body, &cfg); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_yaml", "message": err.Error()})
+		respondError(c, http.StatusBadRequest, ErrCodeInvalidRequest, err.Error())
 		return
 	}
 	// Validate config using LoadConfigOptional with optional=false to enforce parsing
 	tmpDir := filepath.Dir(h.configFilePath)
 	tmpFile, err := os.CreateTemp(tmpDir, "config-validate-*.yaml")
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": err.Error()})
+		respondError(c, http.StatusInternalServerError, ErrCodeWriteFailed, err.Error())
 		return
 	}
 	tempFile := tmpFile.Name()
 	if _, errWrite := tmpFile.Write(body); errWrite != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tempFile)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errWrite.Error()})
+		respondError(c, http.StatusInternalServerError, ErrCodeWriteFailed, errWrite.Error())
 		return
 	}
 	if errClose := tmpFile.Close(); errClose != nil {
 		_ = os.Remove(tempFile)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": errClose.Error()})
+		respondError(c, http.StatusInternalServerError, ErrCodeWriteFailed, errClose.Error())
 		return
 	}
 	defer func() {
@@ -184,23 +187,25 @@ func (h *Handler) PutConfigYAML(c *gin.Context) {
 	}()
 	_, err = config.LoadConfigOptional(tempFile, false)
 	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "invalid_config", "message": err.Error()})
+		respondError(c, http.StatusUnprocessableEntity, ErrCodeInvalidConfig, err.Error())
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if WriteConfig(h.configFilePath, body) != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "write_failed", "message": "failed to write config"})
+		respondError(c, http.StatusInternalServerError, ErrCodeWriteFailed, "failed to write config")
 		return
 	}
 	// Reload into handler to keep memory in sync
 	newCfg, err := config.LoadConfig(h.configFilePath)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "reload_failed", "message": err.Error()})
+		respondError(c, http.StatusInternalServerError, ErrCodeReloadFailed, err.Error())
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg = newCfg
-	c.JSON(http.StatusOK, gin.H{"ok": true, "changed": []string{"config"}})
+	h.cfgMu.Unlock()
+	respondOK(c, gin.H{"ok": true, "changed": []string{"config"}})
 }
 
 // GetConfigYAML returns the raw config.yaml file bytes without re-encoding.
@@ -209,10 +214,10 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 	data, err := os.ReadFile(h.configFilePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "config file not found"})
+			respondNotFound(c, "config file not found")
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "read_failed", "message": err.Error()})
+		respondInternalError(c, err.Error())
 		return
 	}
 	c.Header("Content-Type", "application/yaml; charset=utf-8")
@@ -224,24 +229,29 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 
 // Debug
 func (h *Handler) GetDebug(c *gin.Context) {
-	respondOK(c, gin.H{"debug": h.cfg.Debug})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"debug": cfg.Debug})
 }
 func (h *Handler) PutDebug(c *gin.Context) {
 	value, ok := h.bindBoolValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.Debug = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"debug": h.cfg.Debug})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"debug": cfg.Debug})
 }
 
 // UsageStatisticsEnabled (mapped to Usage.DSN != "")
 func (h *Handler) GetUsageStatisticsEnabled(c *gin.Context) {
-	enabled := h.cfg.Usage.DSN != ""
+	cfg := h.getConfig()
+	enabled := cfg.Usage.DSN != ""
 	respondOK(c, gin.H{"usage-statistics-enabled": enabled})
 }
 func (h *Handler) PutUsageStatisticsEnabled(c *gin.Context) {
@@ -249,6 +259,7 @@ func (h *Handler) PutUsageStatisticsEnabled(c *gin.Context) {
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	if value {
 		if h.cfg.Usage.DSN == "" {
 			h.cfg.Usage.DSN = "sqlite://~/.config/llm-mux/usage.db"
@@ -256,119 +267,148 @@ func (h *Handler) PutUsageStatisticsEnabled(c *gin.Context) {
 	} else {
 		h.cfg.Usage.DSN = ""
 	}
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"usage-statistics-enabled": h.cfg.Usage.DSN != ""})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"usage-statistics-enabled": cfg.Usage.DSN != ""})
 }
 
 // LoggingToFile
 func (h *Handler) GetLoggingToFile(c *gin.Context) {
-	respondOK(c, gin.H{"logging-to-file": h.cfg.LoggingToFile})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"logging-to-file": cfg.LoggingToFile})
 }
 func (h *Handler) PutLoggingToFile(c *gin.Context) {
 	value, ok := h.bindBoolValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.LoggingToFile = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"logging-to-file": h.cfg.LoggingToFile})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"logging-to-file": cfg.LoggingToFile})
 }
 
 // Request log
 func (h *Handler) GetRequestLog(c *gin.Context) {
-	respondOK(c, gin.H{"request-log": h.cfg.RequestLog})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"request-log": cfg.RequestLog})
 }
 func (h *Handler) PutRequestLog(c *gin.Context) {
 	value, ok := h.bindBoolValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.RequestLog = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"request-log": h.cfg.RequestLog})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"request-log": cfg.RequestLog})
 }
 
 // Websocket auth
 func (h *Handler) GetWebsocketAuth(c *gin.Context) {
-	respondOK(c, gin.H{"ws-auth": h.cfg.WebsocketAuth})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"ws-auth": cfg.WebsocketAuth})
 }
 func (h *Handler) PutWebsocketAuth(c *gin.Context) {
 	value, ok := h.bindBoolValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.WebsocketAuth = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"ws-auth": h.cfg.WebsocketAuth})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"ws-auth": cfg.WebsocketAuth})
 }
 
 // Request retry
 func (h *Handler) GetRequestRetry(c *gin.Context) {
-	respondOK(c, gin.H{"request-retry": h.cfg.RequestRetry})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"request-retry": cfg.RequestRetry})
 }
 func (h *Handler) PutRequestRetry(c *gin.Context) {
 	value, ok := h.bindIntValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.RequestRetry = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"request-retry": h.cfg.RequestRetry})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"request-retry": cfg.RequestRetry})
 }
 
 // Max retry interval
 func (h *Handler) GetMaxRetryInterval(c *gin.Context) {
-	respondOK(c, gin.H{"max-retry-interval": h.cfg.MaxRetryInterval})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"max-retry-interval": cfg.MaxRetryInterval})
 }
 func (h *Handler) PutMaxRetryInterval(c *gin.Context) {
 	value, ok := h.bindIntValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.MaxRetryInterval = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"max-retry-interval": h.cfg.MaxRetryInterval})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"max-retry-interval": cfg.MaxRetryInterval})
 }
 
 // Proxy URL
 func (h *Handler) GetProxyURL(c *gin.Context) {
-	respondOK(c, gin.H{"proxy-url": h.cfg.ProxyURL})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"proxy-url": cfg.ProxyURL})
 }
 func (h *Handler) PutProxyURL(c *gin.Context) {
 	value, ok := h.bindStringValue(c)
 	if !ok {
 		return
 	}
+	h.cfgMu.Lock()
 	h.cfg.ProxyURL = value
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"proxy-url": h.cfg.ProxyURL})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"proxy-url": cfg.ProxyURL})
 }
 func (h *Handler) DeleteProxyURL(c *gin.Context) {
+	h.cfgMu.Lock()
 	h.cfg.ProxyURL = ""
+	h.cfgMu.Unlock()
 	if !h.persistSilent() {
 		respondInternalError(c, "failed to save config")
 		return
 	}
-	respondOK(c, gin.H{"proxy-url": h.cfg.ProxyURL})
+	cfg := h.getConfig()
+	respondOK(c, gin.H{"proxy-url": cfg.ProxyURL})
 }

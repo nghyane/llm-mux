@@ -106,7 +106,7 @@ func (w *Watcher) SnapshotCoreAuths() []*provider.Auth {
 			continue
 		}
 		name := e.Name()
-		if !strings.HasSuffix(strings.ToLower(name), ".json") {
+		if !strings.HasSuffix(strings.ToLower(name), ".json") || name == ".llm-mux-manifest.json" {
 			continue
 		}
 		full := filepath.Join(w.authDir, name)

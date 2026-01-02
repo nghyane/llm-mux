@@ -381,11 +381,14 @@ func (s *ObjectTokenStore) syncConfigFromBucket(ctx context.Context) error {
 }
 
 func (s *ObjectTokenStore) syncAuthFromBucket(ctx context.Context) error {
-	if err := os.RemoveAll(s.authDir); err != nil {
-		return fmt.Errorf("object store: reset auth directory: %w", err)
-	}
 	if err := os.MkdirAll(s.authDir, 0o700); err != nil {
-		return fmt.Errorf("object store: recreate auth directory: %w", err)
+		return fmt.Errorf("object store: create auth directory: %w", err)
+	}
+
+	manifest, err := LoadManifest(s.authDir)
+	if err != nil {
+		log.Warnf("object store: failed to load manifest, starting fresh: %v", err)
+		manifest = &SyncManifest{ManagedFiles: make(map[string]FileInfo)}
 	}
 
 	prefix := s.prefixedKey(objectStoreAuthPrefix + "/")
@@ -393,6 +396,8 @@ func (s *ObjectTokenStore) syncAuthFromBucket(ctx context.Context) error {
 		Prefix:    prefix,
 		Recursive: true,
 	})
+
+	remoteFiles := make(map[string]bool)
 	for object := range objectCh {
 		if object.Err != nil {
 			return fmt.Errorf("object store: list auth objects: %w", object.Err)
@@ -411,6 +416,9 @@ func (s *ObjectTokenStore) syncAuthFromBucket(ctx context.Context) error {
 			log.WithField("key", object.Key).Warn("object store: skip auth outside mirror")
 			continue
 		}
+
+		remoteFiles[cleanRel] = true
+
 		local := filepath.Join(s.authDir, cleanRel)
 		if err := os.MkdirAll(filepath.Dir(local), 0o700); err != nil {
 			return fmt.Errorf("object store: prepare auth subdir: %w", err)
@@ -427,7 +435,26 @@ func (s *ObjectTokenStore) syncAuthFromBucket(ctx context.Context) error {
 		if errWrite := os.WriteFile(local, data, 0o600); errWrite != nil {
 			return fmt.Errorf("object store: write auth %s: %w", local, errWrite)
 		}
+
+		manifest.MarkFile(cleanRel, data, true)
 	}
+
+	orphaned := manifest.GetOrphanedFiles(remoteFiles)
+	for _, filename := range orphaned {
+		path := filepath.Join(s.authDir, filename)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			log.Warnf("object store: failed to remove orphaned file %s: %v", filename, err)
+		} else if err == nil {
+			log.Infof("object store: removed orphaned auth file: %s", filename)
+		}
+		manifest.RemoveFile(filename)
+	}
+
+	manifest.LastSync = time.Now()
+	if err := manifest.Save(s.authDir); err != nil {
+		log.Warnf("object store: failed to save manifest: %v", err)
+	}
+
 	return nil
 }
 

@@ -18,10 +18,10 @@ import (
 	"github.com/nghyane/llm-mux/internal/auth/copilot"
 	"github.com/nghyane/llm-mux/internal/auth/iflow"
 	"github.com/nghyane/llm-mux/internal/auth/qwen"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/oauth"
 	"github.com/nghyane/llm-mux/internal/provider"
-	log "github.com/nghyane/llm-mux/internal/logging"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
@@ -386,13 +386,13 @@ func (h *Handler) finishAuthFlow(ctx context.Context, state string, record *prov
 func (h *Handler) OAuthStatus(c *gin.Context) {
 	state := c.Param("state")
 	if state == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "state parameter is required"})
+		respondBadRequest(c, "state parameter is required")
 		return
 	}
 
 	resp, err := oauthService.GetStatus(state)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "OAuth state not found or expired"})
+		respondNotFound(c, "OAuth state not found or expired")
 		return
 	}
 
@@ -403,16 +403,16 @@ func (h *Handler) OAuthStatus(c *gin.Context) {
 func (h *Handler) OAuthCancel(c *gin.Context) {
 	state := c.Param("state")
 	if state == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"status": "error", "error": "state parameter is required"})
+		respondBadRequest(c, "state parameter is required")
 		return
 	}
 
 	if err := oauthService.Cancel(state); err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"status": "error", "error": "OAuth state not found or already completed"})
+		respondNotFound(c, "OAuth state not found or already completed")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	respondOK(c, gin.H{"status": "ok"})
 }
 
 // GetOAuthService returns the shared OAuth service instance.

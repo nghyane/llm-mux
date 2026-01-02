@@ -1,8 +1,8 @@
 package login
 
 import (
+	"github.com/nghyane/llm-mux/internal/bootstrap"
 	clicmd "github.com/nghyane/llm-mux/internal/cmd"
-	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +22,7 @@ If not provided, you will be prompted to select from available projects.`,
 		cfgPath, _ := cmd.Flags().GetString("config")
 		noBrowser, _ := cmd.Flags().GetBool("no-browser")
 
-		cfg, err := config.LoadConfig(cfgPath)
+		result, err := bootstrap.Bootstrap(cfgPath)
 		if err != nil {
 			return err
 		}
@@ -31,7 +31,7 @@ If not provided, you will be prompted to select from available projects.`,
 			NoBrowser: noBrowser,
 		}
 
-		clicmd.DoLogin(cfg, projectID, options)
+		clicmd.DoLogin(result.Config, projectID, options)
 		return nil
 	},
 }

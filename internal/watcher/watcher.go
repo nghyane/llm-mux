@@ -256,7 +256,9 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	authOps := fsnotify.Create | fsnotify.Write | fsnotify.Remove | fsnotify.Rename
 	isAuthJSON := strings.HasPrefix(event.Name, w.authDir) && strings.HasSuffix(event.Name, ".json") && event.Op&authOps != 0
 	if !isConfigEvent && !isAuthJSON {
-		// Ignore unrelated files (e.g., cookie snapshots *.cookie) and other noise.
+		return
+	}
+	if filepath.Base(event.Name) == ".llm-mux-manifest.json" {
 		return
 	}
 

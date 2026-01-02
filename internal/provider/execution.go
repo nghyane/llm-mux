@@ -142,8 +142,9 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 		return nil, &Error{Code: "provider_not_found", Message: "provider identifier is empty"}
 	}
 
-	breaker := m.getOrCreateBreaker(provider)
-	if breaker.State() == gobreaker.StateOpen {
+	breaker := m.getOrCreateStreamingBreaker(provider)
+	done, err := breaker.Allow()
+	if err != nil {
 		return nil, &Error{Code: "circuit_open", Message: "provider circuit breaker is open"}
 	}
 
@@ -154,6 +155,7 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 	for {
 		auth, executor, errPick := m.pickNext(ctx, provider, req.Model, opts, tried)
 		if errPick != nil {
+			done(false)
 			if lastErr != nil {
 				return nil, lastErr
 			}
@@ -179,18 +181,20 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 			continue
 		}
 		out := make(chan StreamChunk, 1)
-		go func(streamCtx context.Context, streamAuth *Auth, streamProvider string, streamChunks <-chan StreamChunk) {
+		go func(streamCtx context.Context, streamAuth *Auth, streamProvider string, streamChunks <-chan StreamChunk, cbDone func(bool)) {
 			defer close(out)
 			var failed bool
 			for {
 				select {
 				case <-streamCtx.Done():
+					cbDone(!failed)
 					return
 				case chunk, ok := <-streamChunks:
 					if !ok {
 						if !failed {
 							m.MarkResult(streamCtx, Result{AuthID: streamAuth.ID, Provider: streamProvider, Model: req.Model, Success: true})
 						}
+						cbDone(!failed)
 						return
 					}
 					if chunk.Err != nil && !failed {
@@ -207,11 +211,12 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 					select {
 					case out <- chunk:
 					case <-streamCtx.Done():
+						cbDone(!failed)
 						return
 					}
 				}
 			}
-		}(execCtx, auth.Clone(), provider, chunks)
+		}(execCtx, auth.Clone(), provider, chunks, done)
 		return out, nil
 	}
 }

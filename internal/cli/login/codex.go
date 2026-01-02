@@ -1,8 +1,8 @@
 package login
 
 import (
+	"github.com/nghyane/llm-mux/internal/bootstrap"
 	"github.com/nghyane/llm-mux/internal/cmd"
-	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -18,7 +18,7 @@ Use --no-browser flag to get the URL instead of opening the browser automaticall
 		cfgPath, _ := c.Flags().GetString("config")
 		noBrowser, _ := c.Flags().GetBool("no-browser")
 
-		cfg, err := config.LoadConfig(cfgPath)
+		result, err := bootstrap.Bootstrap(cfgPath)
 		if err != nil {
 			return err
 		}
@@ -27,7 +27,7 @@ Use --no-browser flag to get the URL instead of opening the browser automaticall
 			NoBrowser: noBrowser,
 		}
 
-		cmd.DoCodexLogin(cfg, options)
+		cmd.DoCodexLogin(result.Config, options)
 		return nil
 	},
 }

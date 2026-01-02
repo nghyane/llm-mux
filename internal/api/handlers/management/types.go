@@ -5,17 +5,17 @@ import "time"
 // UsageStatsResponse represents the structured usage statistics response.
 type UsageStatsResponse struct {
 	Counters UsageCounters            `json:"counters"`
-	ByDay    []UsageDayStats          `json:"by-day,omitempty"`
-	ByHour   []UsageHourStats         `json:"by-hour,omitempty"`
-	ByAPI    map[string]UsageAPIStats `json:"by-api,omitempty"`
+	ByDay    []UsageDayStats          `json:"by_day,omitempty"`
+	ByHour   []UsageHourStats         `json:"by_hour,omitempty"`
+	ByAPI    map[string]UsageAPIStats `json:"by_api,omitempty"`
 }
 
 // UsageCounters holds the atomic counters.
 type UsageCounters struct {
-	TotalRequests int64 `json:"total-requests"`
-	SuccessCount  int64 `json:"success-count"`
-	FailureCount  int64 `json:"failure-count"`
-	TotalTokens   int64 `json:"total-tokens"`
+	TotalRequests int64 `json:"total_requests"`
+	SuccessCount  int64 `json:"success_count"`
+	FailureCount  int64 `json:"failure_count"`
+	TotalTokens   int64 `json:"total_tokens"`
 }
 
 // UsageDayStats represents aggregated daily stats.
@@ -34,15 +34,15 @@ type UsageHourStats struct {
 
 // UsageAPIStats represents aggregated per-API stats.
 type UsageAPIStats struct {
-	TotalRequests int64                      `json:"total-requests"`
-	TotalTokens   int64                      `json:"total-tokens"`
+	TotalRequests int64                      `json:"total_requests"`
+	TotalTokens   int64                      `json:"total_tokens"`
 	Models        map[string]UsageModelStats `json:"models,omitempty"`
 }
 
 // UsageModelStats represents aggregated per-model stats.
 type UsageModelStats struct {
-	TotalRequests int64 `json:"total-requests"`
-	TotalTokens   int64 `json:"total-tokens"`
+	TotalRequests int64 `json:"total_requests"`
+	TotalTokens   int64 `json:"total_tokens"`
 }
 
 // ConfigUpdateResponse represents the response after updating config.
