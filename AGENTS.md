@@ -2,7 +2,7 @@
 
 **AI Gateway** — Turns subscription LLMs (Claude Pro, Copilot, Gemini) into standard APIs.
 
-**Generated:** 2026-01-02 | **Commit:** 39041c8 | **Branch:** main | **Files:** 322 | **Lines:** 70k
+**Generated:** 2026-01-02 | **Commit:** 52aaaa6 | **Branch:** main | **Files:** 326 | **Lines:** 70k
 
 ## Providers
 
@@ -20,11 +20,13 @@ llm-mux/
 │   ├── auth/            # Provider-specific OAuth/token logic
 │   │   └── login/       # OAuth authenticators (15 files)
 │   │   └── {provider}/  # Per-provider: claude, codex, gemini, copilot, etc.
-│   ├── cmd/             # CLI command logic (*_login.go, run.go)
+│   ├── cli/             # Cobra CLI commands and bootstrap
+│   │   └── env/         # Environment variable helpers
 │   ├── config/          # YAML parsing, XDG paths
 │   ├── provider/        # State, selection, quota groups (19 files)
 │   ├── runtime/executor/# Provider HTTP clients (40 files) - see executor/AGENTS.md
 │   ├── service/         # Builder, Service, hot-reload orchestration
+│   ├── store/           # Remote store backends (postgres, object, git)
 │   ├── translator/      # IR translation layer (43+ files) - see translator/AGENTS.md
 │   │   ├── ir/          # Canonical types (UnifiedChatRequest, UnifiedEvent)
 │   │   ├── to_ir/       # Parse input formats → IR
@@ -43,7 +45,8 @@ llm-mux/
 | Add API format | `internal/translator/to_ir/`, `internal/api/handlers/format/` | Parse to IR, add handler |
 | Modify streaming | `internal/runtime/executor/stream_*.go` | StreamTranslator, ChunkBufferStrategy |
 | Change config | `internal/config/config.go` | Add field, update NewDefaultConfig() |
-| Add CLI command | `internal/cmd/` | Follow *_login.go pattern |
+| Add CLI command | `internal/cli/` | Follow existing command pattern |
+| Add remote store | `internal/store/` | Implement Store interface, add to factory |
 | Embed as library | `pkg/llmmux/` | Minimal public API |
 
 ## Architecture
