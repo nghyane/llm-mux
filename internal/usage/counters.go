@@ -56,6 +56,19 @@ func (c *Counters) Reset() {
 	c.totalTokens.Store(0)
 }
 
+// Bootstrap sets initial counter values from historical data.
+// This should be called once at startup to seed counters with
+// aggregated statistics from the database.
+func (c *Counters) Bootstrap(total, success, failure, tokens int64) {
+	if c == nil {
+		return
+	}
+	c.totalRequests.Store(total)
+	c.successCount.Store(success)
+	c.failureCount.Store(failure)
+	c.totalTokens.Store(tokens)
+}
+
 // CounterSnapshot holds an immutable point-in-time view of counter values.
 type CounterSnapshot struct {
 	TotalRequests int64 `json:"total_requests"`

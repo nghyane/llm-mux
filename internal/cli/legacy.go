@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 
+	"github.com/nghyane/llm-mux/internal/bootstrap"
 	"github.com/nghyane/llm-mux/internal/cmd"
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/spf13/cobra"
@@ -74,8 +75,11 @@ func handleLegacyFlags(c *cobra.Command, args []string) bool {
 		if path == "" {
 			path = "$XDG_CONFIG_HOME/llm-mux/config.yaml"
 		}
-		cfg, _ := config.LoadConfig(path)
-		return cfg
+		result, err := bootstrap.Bootstrap(path)
+		if err != nil {
+			return config.NewDefaultConfig()
+		}
+		return result.Config
 	}
 
 	getOpts := func() *cmd.LoginOptions {

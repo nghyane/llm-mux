@@ -140,7 +140,8 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 					if time.Now().Before(ai.blockedUntil) {
 						remaining := time.Until(ai.blockedUntil).Round(time.Second)
 						h.attemptsMu.Unlock()
-						c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": fmt.Sprintf("IP banned due to too many failed attempts. Try again in %s", remaining)})
+						respondError(c, http.StatusForbidden, ErrCodeForbidden, fmt.Sprintf("IP banned due to too many failed attempts. Try again in %s", remaining))
+						c.Abort()
 						return
 					}
 					// Ban expired, reset state
@@ -151,7 +152,8 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 			h.attemptsMu.Unlock()
 
 			if !allowRemote {
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "remote management disabled"})
+				respondError(c, http.StatusForbidden, ErrCodeForbidden, "remote management disabled")
+				c.Abort()
 				return
 			}
 
@@ -173,7 +175,8 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 
 		// Check if management key is configured
 		if managementKey == "" {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "management key not configured"})
+			respondError(c, http.StatusForbidden, ErrCodeForbidden, "management key not configured")
+			c.Abort()
 			return
 		}
 
@@ -195,7 +198,8 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 			if !localClient {
 				fail()
 			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "missing management key"})
+			respondUnauthorized(c, "missing management key")
+			c.Abort()
 			return
 		}
 
@@ -214,7 +218,8 @@ func (h *Handler) Middleware() gin.HandlerFunc {
 			if !localClient {
 				fail()
 			}
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid management key"})
+			respondUnauthorized(c, "invalid management key")
+			c.Abort()
 			return
 		}
 
@@ -239,10 +244,10 @@ func (h *Handler) persist(c *gin.Context) bool {
 	// Preserve comments when writing
 	cfg := h.getConfig()
 	if err := config.SaveConfigPreserveComments(h.configFilePath, cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save config: %v", err)})
+		respondError(c, http.StatusInternalServerError, ErrCodeWriteFailed, fmt.Sprintf("failed to save config: %v", err))
 		return false
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	respondOK(c, gin.H{"status": "ok"})
 	return true
 }
 

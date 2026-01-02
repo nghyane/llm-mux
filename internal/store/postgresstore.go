@@ -423,8 +423,17 @@ func (s *PostgresStore) syncConfigFromDatabase(ctx context.Context) error {
 	return nil
 }
 
-// syncAuthFromDatabase populates the local auth directory from PostgreSQL data.
 func (s *PostgresStore) syncAuthFromDatabase(ctx context.Context) error {
+	if err := os.MkdirAll(s.authDir, 0o700); err != nil {
+		return fmt.Errorf("postgres store: create auth directory: %w", err)
+	}
+
+	manifest, err := LoadManifest(s.authDir)
+	if err != nil {
+		log.Warnf("postgres store: failed to load manifest, starting fresh: %v", err)
+		manifest = &SyncManifest{ManagedFiles: make(map[string]FileInfo)}
+	}
+
 	query := fmt.Sprintf("SELECT id, content FROM %s", s.fullTableName(s.cfg.AuthTable))
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -432,13 +441,7 @@ func (s *PostgresStore) syncAuthFromDatabase(ctx context.Context) error {
 	}
 	defer rows.Close()
 
-	if err = os.RemoveAll(s.authDir); err != nil {
-		return fmt.Errorf("postgres store: reset auth directory: %w", err)
-	}
-	if err = os.MkdirAll(s.authDir, 0o700); err != nil {
-		return fmt.Errorf("postgres store: recreate auth directory: %w", err)
-	}
-
+	remoteFiles := make(map[string]bool)
 	for rows.Next() {
 		var (
 			id      string
@@ -452,16 +455,44 @@ func (s *PostgresStore) syncAuthFromDatabase(ctx context.Context) error {
 			log.WithError(errPath).Warnf("postgres store: skipping auth %s outside spool", id)
 			continue
 		}
+
+		relPath, _ := filepath.Rel(s.authDir, path)
+		if relPath == "" {
+			relPath = filepath.Base(path)
+		}
+		remoteFiles[relPath] = true
+
 		if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return fmt.Errorf("postgres store: create auth subdir: %w", err)
 		}
-		if err = os.WriteFile(path, []byte(payload), 0o600); err != nil {
+
+		content := []byte(payload)
+		if err = os.WriteFile(path, content, 0o600); err != nil {
 			return fmt.Errorf("postgres store: write auth file: %w", err)
 		}
+
+		manifest.MarkFile(relPath, content, true)
 	}
 	if err = rows.Err(); err != nil {
 		return fmt.Errorf("postgres store: iterate auth rows: %w", err)
 	}
+
+	orphaned := manifest.GetOrphanedFiles(remoteFiles)
+	for _, filename := range orphaned {
+		path := filepath.Join(s.authDir, filename)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			log.Warnf("postgres store: failed to remove orphaned file %s: %v", filename, err)
+		} else if err == nil {
+			log.Infof("postgres store: removed orphaned auth file: %s", filename)
+		}
+		manifest.RemoveFile(filename)
+	}
+
+	manifest.LastSync = time.Now()
+	if err := manifest.Save(s.authDir); err != nil {
+		log.Warnf("postgres store: failed to save manifest: %v", err)
+	}
+
 	return nil
 }
 

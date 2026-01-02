@@ -15,9 +15,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/nghyane/llm-mux/internal/auth/login"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/oauth"
 	"github.com/nghyane/llm-mux/internal/provider"
-	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/tidwall/gjson"
 )
 
@@ -102,7 +102,7 @@ func (h *Handler) managementCallbackURL(path string) (string, error) {
 
 func (h *Handler) ListAuthFiles(c *gin.Context) {
 	if h == nil {
-		c.JSON(500, gin.H{"error": "handler not initialized"})
+		respondInternalError(c, "handler not initialized")
 		return
 	}
 	if h.authManager == nil {
@@ -121,14 +121,14 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		nameJ, _ := files[j]["name"].(string)
 		return strings.ToLower(nameI) < strings.ToLower(nameJ)
 	})
-	c.JSON(200, gin.H{"files": files})
+	respondOK(c, gin.H{"files": files})
 }
 
 // List auth files from disk when the auth manager is unavailable.
 func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 	entries, err := os.ReadDir(h.cfg.AuthDir)
 	if err != nil {
-		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth dir: %v", err)})
+		respondInternalError(c, fmt.Sprintf("failed to read auth dir: %v", err))
 		return
 	}
 	files := make([]gin.H, 0)
@@ -155,7 +155,7 @@ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
 			files = append(files, fileData)
 		}
 	}
-	c.JSON(200, gin.H{"files": files})
+	respondOK(c, gin.H{"files": files})
 }
 
 func (h *Handler) buildAuthFileEntry(auth *provider.Auth) gin.H {
@@ -268,20 +268,20 @@ func isRuntimeOnlyAuth(auth *provider.Auth) bool {
 func (h *Handler) DownloadAuthFile(c *gin.Context) {
 	name := c.Query("name")
 	if name == "" || strings.Contains(name, string(os.PathSeparator)) {
-		c.JSON(400, gin.H{"error": "invalid name"})
+		respondBadRequest(c, "invalid name")
 		return
 	}
 	if !strings.HasSuffix(strings.ToLower(name), ".json") {
-		c.JSON(400, gin.H{"error": "name must end with .json"})
+		respondBadRequest(c, "name must end with .json")
 		return
 	}
 	full := filepath.Join(h.cfg.AuthDir, name)
 	data, err := os.ReadFile(full)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(404, gin.H{"error": "file not found"})
+			respondNotFound(c, "file not found")
 		} else {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read file: %v", err)})
+			respondInternalError(c, fmt.Sprintf("failed to read file: %v", err))
 		}
 		return
 	}
@@ -292,14 +292,14 @@ func (h *Handler) DownloadAuthFile(c *gin.Context) {
 // Upload auth file: multipart or raw JSON with ?name=
 func (h *Handler) UploadAuthFile(c *gin.Context) {
 	if h.authManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "core auth manager unavailable")
 		return
 	}
 	ctx := c.Request.Context()
 	if file, err := c.FormFile("file"); err == nil && file != nil {
 		name := filepath.Base(file.Filename)
 		if !strings.HasSuffix(strings.ToLower(name), ".json") {
-			c.JSON(400, gin.H{"error": "file must be .json"})
+			respondBadRequest(c, "file must be .json")
 			return
 		}
 		dst := filepath.Join(h.cfg.AuthDir, name)
@@ -309,35 +309,35 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 			}
 		}
 		if errSave := c.SaveUploadedFile(file, dst); errSave != nil {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to save file: %v", errSave)})
+			respondInternalError(c, fmt.Sprintf("failed to save file: %v", errSave))
 			return
 		}
 		data, errRead := os.ReadFile(dst)
 		if errRead != nil {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read saved file: %v", errRead)})
+			respondInternalError(c, fmt.Sprintf("failed to read saved file: %v", errRead))
 			return
 		}
 		if errReg := h.registerAuthFromFile(ctx, dst, data); errReg != nil {
-			c.JSON(500, gin.H{"error": errReg.Error()})
+			respondInternalError(c, errReg.Error())
 			return
 		}
-		c.JSON(200, gin.H{"status": "ok"})
+		respondOK(c, gin.H{"status": "ok"})
 		return
 	}
 	name := c.Query("name")
 	if name == "" || strings.Contains(name, string(os.PathSeparator)) {
-		c.JSON(400, gin.H{"error": "invalid name"})
+		respondBadRequest(c, "invalid name")
 		return
 	}
 	if !strings.HasSuffix(strings.ToLower(name), ".json") {
-		c.JSON(400, gin.H{"error": "name must end with .json"})
+		respondBadRequest(c, "name must end with .json")
 		return
 	}
 	// Limit request body to 1MB to prevent DoS attacks
 	const maxAuthFileSize = 1 * 1024 * 1024
 	data, err := io.ReadAll(io.LimitReader(c.Request.Body, maxAuthFileSize))
 	if err != nil {
-		c.JSON(400, gin.H{"error": "failed to read body"})
+		respondBadRequest(c, "failed to read body")
 		return
 	}
 	dst := filepath.Join(h.cfg.AuthDir, filepath.Base(name))
@@ -347,27 +347,27 @@ func (h *Handler) UploadAuthFile(c *gin.Context) {
 		}
 	}
 	if errWrite := os.WriteFile(dst, data, 0o600); errWrite != nil {
-		c.JSON(500, gin.H{"error": fmt.Sprintf("failed to write file: %v", errWrite)})
+		respondInternalError(c, fmt.Sprintf("failed to write file: %v", errWrite))
 		return
 	}
 	if err = h.registerAuthFromFile(ctx, dst, data); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		respondInternalError(c, err.Error())
 		return
 	}
-	c.JSON(200, gin.H{"status": "ok"})
+	respondOK(c, gin.H{"status": "ok"})
 }
 
 // Delete auth files: single by name or all
 func (h *Handler) DeleteAuthFile(c *gin.Context) {
 	if h.authManager == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "core auth manager unavailable"})
+		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "core auth manager unavailable")
 		return
 	}
 	ctx := c.Request.Context()
 	if all := c.Query("all"); all == "true" || all == "1" || all == "*" {
 		entries, err := os.ReadDir(h.cfg.AuthDir)
 		if err != nil {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to read auth dir: %v", err)})
+			respondInternalError(c, fmt.Sprintf("failed to read auth dir: %v", err))
 			return
 		}
 		deleted := 0
@@ -387,19 +387,19 @@ func (h *Handler) DeleteAuthFile(c *gin.Context) {
 			}
 			if err = os.Remove(full); err == nil {
 				if errDel := h.deleteTokenRecord(ctx, full); errDel != nil {
-					c.JSON(500, gin.H{"error": errDel.Error()})
+					respondInternalError(c, errDel.Error())
 					return
 				}
 				deleted++
 				h.disableAuth(ctx, full)
 			}
 		}
-		c.JSON(200, gin.H{"status": "ok", "deleted": deleted})
+		respondOK(c, gin.H{"status": "ok", "deleted": deleted})
 		return
 	}
 	name := c.Query("name")
 	if name == "" || strings.Contains(name, string(os.PathSeparator)) {
-		c.JSON(400, gin.H{"error": "invalid name"})
+		respondBadRequest(c, "invalid name")
 		return
 	}
 	full := filepath.Join(h.cfg.AuthDir, filepath.Base(name))
@@ -410,18 +410,18 @@ func (h *Handler) DeleteAuthFile(c *gin.Context) {
 	}
 	if err := os.Remove(full); err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(404, gin.H{"error": "file not found"})
+			respondNotFound(c, "file not found")
 		} else {
-			c.JSON(500, gin.H{"error": fmt.Sprintf("failed to remove file: %v", err)})
+			respondInternalError(c, fmt.Sprintf("failed to remove file: %v", err))
 		}
 		return
 	}
 	if err := h.deleteTokenRecord(ctx, full); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		respondInternalError(c, err.Error())
 		return
 	}
 	h.disableAuth(ctx, full)
-	c.JSON(200, gin.H{"status": "ok"})
+	respondOK(c, gin.H{"status": "ok"})
 }
 
 func (h *Handler) authIDForPath(path string) string {

@@ -1,8 +1,8 @@
 package login
 
 import (
+	"github.com/nghyane/llm-mux/internal/bootstrap"
 	"github.com/nghyane/llm-mux/internal/cmd"
-	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +20,7 @@ Use --no-browser flag to get a URL to open manually instead.`,
 		cfgPath, _ := c.Flags().GetString("config")
 		noBrowser, _ := c.Flags().GetBool("no-browser")
 
-		cfg, err := config.LoadConfig(cfgPath)
+		result, err := bootstrap.Bootstrap(cfgPath)
 		if err != nil {
 			return err
 		}
@@ -29,7 +29,7 @@ Use --no-browser flag to get a URL to open manually instead.`,
 			NoBrowser: noBrowser,
 		}
 
-		cmd.DoClaudeLogin(cfg, options)
+		cmd.DoClaudeLogin(result.Config, options)
 		return nil
 	},
 }

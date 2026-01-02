@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
@@ -126,7 +127,26 @@ func Initialize(cfg BackendConfig) error {
 		return err
 	}
 	activeBackend = backend
-	defaultLoggerPlugin = NewLoggerPlugin(backend)
+
+	plugin := NewLoggerPlugin(backend)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	stats, err := backend.QueryGlobalStats(ctx, time.Time{})
+	if err != nil {
+		log.Warnf("Failed to bootstrap usage counters from history: %v", err)
+	} else if stats != nil {
+		plugin.counters.Bootstrap(
+			stats.TotalRequests,
+			stats.SuccessCount,
+			stats.FailureCount,
+			stats.TotalTokens,
+		)
+		log.Infof("Bootstrapped usage counters: %d requests, %d tokens", stats.TotalRequests, stats.TotalTokens)
+	}
+
+	defaultLoggerPlugin = plugin
 	RegisterPlugin(defaultLoggerPlugin)
 	return nil
 }
