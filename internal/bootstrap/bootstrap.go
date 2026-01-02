@@ -62,7 +62,7 @@ func Bootstrap(configPath string) (*Result, error) {
 		}
 
 		configFilePath = storeResult.ConfigPath
-		cfg, err = config.LoadConfigOptional(configFilePath, false)
+		cfg, err = config.LoadConfigOptional(configFilePath, true)
 		if err == nil && cfg != nil {
 			cfg.AuthDir = storeResult.AuthDir
 		}
