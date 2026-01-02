@@ -4,13 +4,13 @@
 
 ```bash
 # Create auth directory for OAuth tokens
-mkdir -p auths
+mkdir -p auth
 
 docker run -d \
   --name llm-mux \
   -p 8317:8317 \
   -v ./config.yaml:/llm-mux/config.yaml \
-  -v ./auths:/llm-mux/auth \
+  -v ./auth:/llm-mux/auth \
   nghyane/llm-mux:latest
 ```
 
@@ -25,7 +25,7 @@ services:
       - "8317:8317"
     volumes:
       - ./config.yaml:/llm-mux/config.yaml
-      - ./auths:/llm-mux/auth
+      - ./auth:/llm-mux/auth
     environment:
       - TZ=UTC
     restart: unless-stopped
@@ -47,7 +47,7 @@ docker compose up -d
 | Host | Container | Description |
 |------|-----------|-------------|
 | `./config.yaml` | `/llm-mux/config.yaml` | Config file |
-| `./auths/` | `/llm-mux/auth` | OAuth tokens |
+| `./auth/` | `/llm-mux/auth` | OAuth tokens |
 
 ### Minimal config.yaml
 
@@ -66,8 +66,8 @@ OAuth requires a browser. Options:
 **Option 1: Copy tokens from host**
 ```bash
 llm-mux --antigravity-login          # Login on host
-mkdir -p auths
-cp -r ~/.config/llm-mux/auth/* ./auths/
+mkdir -p auth
+cp -r ~/.config/llm-mux/auth/* ./auth/
 ```
 
 **Option 2: API keys only** (no OAuth needed)
