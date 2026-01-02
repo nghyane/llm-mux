@@ -1,0 +1,1129 @@
+openapi: 3.1.0
+info:
+  title: llm-mux Management API
+  description: Administrative API for managing llm-mux server configuration, authentication, and monitoring.
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8317/v1/management
+    description: Local development server
+
+security:
+  - ManagementKey: []
+  - BearerAuth: []
+
+tags:
+  - name: Configuration
+    description: Server configuration management
+  - name: Settings
+    description: Runtime settings (boolean/numeric toggles)
+  - name: Proxy
+    description: Outbound proxy configuration
+  - name: Quota
+    description: Quota exceeded behavior settings
+  - name: API Keys
+    description: API key management
+  - name: Providers
+    description: Provider configuration
+  - name: OAuth Excluded Models
+    description: Models excluded from OAuth authentication
+  - name: Auth Files
+    description: OAuth token file management
+  - name: OAuth Flow
+    description: Programmatic OAuth/Device flow initiation
+  - name: Logs
+    description: Log retrieval and management
+  - name: Usage
+    description: Usage statistics
+
+paths:
+  # ============================================================================
+  # Configuration
+  # ============================================================================
+  /config:
+    get:
+      tags: [Configuration]
+      summary: Get runtime configuration
+      description: Returns the current runtime configuration as JSON.
+      operationId: getConfig
+      responses:
+        '200':
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /config.yaml:
+    get:
+      tags: [Configuration]
+      summary: Get raw config file
+      description: Returns the raw config.yaml file preserving comments and formatting.
+      operationId: getConfigYAML
+      responses:
+        '200':
+          description: Raw YAML configuration
+          content:
+            application/yaml:
+              schema:
+                type: string
+        '404':
+          description: Config file not found
+    put:
+      tags: [Configuration]
+      summary: Update config file
+      description: Validates and saves the provided YAML configuration.
+      operationId: putConfigYAML
+      requestBody:
+        required: true
+        content:
+          application/yaml:
+            schema:
+              type: string
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '400':
+          description: Invalid YAML
+        '422':
+          description: Invalid configuration
+
+  /latest-version:
+    get:
+      tags: [Configuration]
+      summary: Check latest version
+      description: Returns the latest release version from GitHub (cached for 15 minutes).
+      operationId: getLatestVersion
+      responses:
+        '200':
+          description: Latest version info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  latest-version:
+                    type: string
+                    example: v2.0.17
+                  cached:
+                    type: boolean
+                  stale:
+                    type: boolean
+
+  # ============================================================================
+  # Boolean Settings
+  # ============================================================================
+  /debug:
+    get:
+      tags: [Settings]
+      summary: Get debug mode
+      operationId: getDebug
+      responses:
+        '200':
+          description: Debug mode status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BooleanSetting'
+    put:
+      tags: [Settings]
+      summary: Set debug mode
+      operationId: putDebug
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BooleanSetting'
+
+  /logging-to-file:
+    get:
+      tags: [Settings]
+      summary: Get file logging status
+      operationId: getLoggingToFile
+      responses:
+        '200':
+          description: File logging status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logging-to-file:
+                    type: boolean
+    put:
+      tags: [Settings]
+      summary: Set file logging
+      operationId: putLoggingToFile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  /usage-statistics-enabled:
+    get:
+      tags: [Settings]
+      summary: Get usage statistics status
+      operationId: getUsageStatisticsEnabled
+      responses:
+        '200':
+          description: Usage statistics status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  usage-statistics-enabled:
+                    type: boolean
+    put:
+      tags: [Settings]
+      summary: Enable/disable usage statistics
+      operationId: putUsageStatisticsEnabled
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  /request-log:
+    get:
+      tags: [Settings]
+      summary: Get request logging status
+      operationId: getRequestLog
+      responses:
+        '200':
+          description: Request logging status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request-log:
+                    type: boolean
+    put:
+      tags: [Settings]
+      summary: Set request logging
+      operationId: putRequestLog
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  /ws-auth:
+    get:
+      tags: [Settings]
+      summary: Get WebSocket authentication status
+      operationId: getWebsocketAuth
+      responses:
+        '200':
+          description: WebSocket auth status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ws-auth:
+                    type: boolean
+    put:
+      tags: [Settings]
+      summary: Set WebSocket authentication
+      operationId: putWebsocketAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  # ============================================================================
+  # Numeric Settings
+  # ============================================================================
+  /request-retry:
+    get:
+      tags: [Settings]
+      summary: Get request retry count
+      operationId: getRequestRetry
+      responses:
+        '200':
+          description: Retry count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  request-retry:
+                    type: integer
+                    example: 3
+    put:
+      tags: [Settings]
+      summary: Set request retry count
+      operationId: putRequestRetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntegerValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  /max-retry-interval:
+    get:
+      tags: [Settings]
+      summary: Get max retry interval
+      operationId: getMaxRetryInterval
+      responses:
+        '200':
+          description: Max retry interval in seconds
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  max-retry-interval:
+                    type: integer
+                    example: 30
+    put:
+      tags: [Settings]
+      summary: Set max retry interval
+      operationId: putMaxRetryInterval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IntegerValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  # ============================================================================
+  # Proxy
+  # ============================================================================
+  /proxy-url:
+    get:
+      tags: [Proxy]
+      summary: Get proxy URL
+      operationId: getProxyURL
+      responses:
+        '200':
+          description: Proxy URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  proxy-url:
+                    type: string
+                    example: http://proxy.example.com:8080
+    put:
+      tags: [Proxy]
+      summary: Set proxy URL
+      operationId: putProxyURL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StringValue'
+      responses:
+        '200':
+          description: Proxy URL updated
+    delete:
+      tags: [Proxy]
+      summary: Remove proxy URL
+      operationId: deleteProxyURL
+      responses:
+        '200':
+          description: Proxy URL removed
+
+  # ============================================================================
+  # Quota
+  # ============================================================================
+  /quota-exceeded/switch-project:
+    get:
+      tags: [Quota]
+      summary: Get switch-project setting
+      operationId: getSwitchProject
+      responses:
+        '200':
+          description: Switch project setting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  switch-project:
+                    type: boolean
+    put:
+      tags: [Quota]
+      summary: Set switch-project behavior
+      operationId: putSwitchProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  /quota-exceeded/switch-preview-model:
+    get:
+      tags: [Quota]
+      summary: Get switch-preview-model setting
+      operationId: getSwitchPreviewModel
+      responses:
+        '200':
+          description: Switch preview model setting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  switch-preview-model:
+                    type: boolean
+    put:
+      tags: [Quota]
+      summary: Set switch-preview-model behavior
+      operationId: putSwitchPreviewModel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BooleanValue'
+      responses:
+        '200':
+          description: Setting updated
+
+  # ============================================================================
+  # API Keys
+  # ============================================================================
+  /api-keys:
+    get:
+      tags: [API Keys]
+      summary: List API keys
+      operationId: getAPIKeys
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  api-keys:
+                    type: array
+                    items:
+                      type: string
+    put:
+      tags: [API Keys]
+      summary: Replace API keys
+      operationId: putAPIKeys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: array
+                  items:
+                    type: string
+                - type: object
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        type: string
+      responses:
+        '200':
+          description: API keys replaced
+    patch:
+      tags: [API Keys]
+      summary: Update single API key
+      operationId: patchAPIKeys
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                old:
+                  type: string
+                  description: Existing key to replace
+                new:
+                  type: string
+                  description: New key value
+                index:
+                  type: integer
+                  description: Index to update
+                value:
+                  type: string
+                  description: New value for index
+      responses:
+        '200':
+          description: API key updated
+    delete:
+      tags: [API Keys]
+      summary: Delete API key
+      operationId: deleteAPIKeys
+      parameters:
+        - name: index
+          in: query
+          schema:
+            type: integer
+          description: Index of key to delete
+        - name: value
+          in: query
+          schema:
+            type: string
+          description: Value of key to delete
+      responses:
+        '200':
+          description: API key deleted
+
+  # ============================================================================
+  # Providers
+  # ============================================================================
+  /providers:
+    get:
+      tags: [Providers]
+      summary: List providers
+      operationId: getProviders
+      responses:
+        '200':
+          description: List of providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Provider'
+    put:
+      tags: [Providers]
+      summary: Replace providers
+      operationId: putProviders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: array
+                  items:
+                    $ref: '#/components/schemas/Provider'
+                - type: object
+                  properties:
+                    items:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/Provider'
+      responses:
+        '200':
+          description: Providers replaced
+    delete:
+      tags: [Providers]
+      summary: Delete provider
+      operationId: deleteProvider
+      parameters:
+        - name: index
+          in: query
+          required: true
+          schema:
+            type: integer
+          description: Index of provider to delete
+      responses:
+        '200':
+          description: Provider deleted
+
+  # ============================================================================
+  # OAuth Excluded Models
+  # ============================================================================
+  /oauth-excluded-models:
+    get:
+      tags: [OAuth Excluded Models]
+      summary: List excluded models
+      operationId: getOAuthExcludedModels
+      responses:
+        '200':
+          description: Excluded models by provider
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  oauth-excluded-models:
+                    type: object
+                    additionalProperties:
+                      type: array
+                      items:
+                        type: string
+    put:
+      tags: [OAuth Excluded Models]
+      summary: Replace excluded models
+      operationId: putOAuthExcludedModels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  type: string
+      responses:
+        '200':
+          description: Excluded models replaced
+    patch:
+      tags: [OAuth Excluded Models]
+      summary: Update provider's excluded models
+      operationId: patchOAuthExcludedModels
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider:
+                  type: string
+                models:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Provider models updated
+    delete:
+      tags: [OAuth Excluded Models]
+      summary: Delete provider's excluded models
+      operationId: deleteOAuthExcludedModels
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Provider name
+      responses:
+        '200':
+          description: Provider models deleted
+
+  # ============================================================================
+  # Auth Files
+  # ============================================================================
+  /auth-files:
+    get:
+      tags: [Auth Files]
+      summary: List authentication files
+      operationId: listAuthFiles
+      parameters:
+        - name: runtime-only
+          in: query
+          schema:
+            type: boolean
+          description: Show only runtime-loaded auth
+      responses:
+        '200':
+          description: List of auth files
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  auth-files:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuthFile'
+    post:
+      tags: [Auth Files]
+      summary: Upload authentication file
+      operationId: uploadAuthFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Auth file uploaded
+    delete:
+      tags: [Auth Files]
+      summary: Delete authentication file
+      operationId: deleteAuthFile
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Auth file ID
+      responses:
+        '200':
+          description: Auth file deleted
+
+  /auth-files/download:
+    get:
+      tags: [Auth Files]
+      summary: Download authentication file
+      operationId: downloadAuthFile
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Auth file ID
+      responses:
+        '200':
+          description: Auth file content
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /vertex/import:
+    post:
+      tags: [Auth Files]
+      summary: Import Vertex AI credentials
+      operationId: importVertexCredential
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                credentials:
+                  type: object
+                  description: Google Cloud service account JSON
+                project_id:
+                  type: string
+                location:
+                  type: string
+                  default: us-central1
+      responses:
+        '200':
+          description: Credentials imported
+
+  # ============================================================================
+  # OAuth Flow
+  # ============================================================================
+  /oauth/start:
+    post:
+      tags: [OAuth Flow]
+      summary: Start OAuth flow
+      description: |
+        Initiates an OAuth or Device flow for the specified provider.
+        
+        **OAuth providers:** claude, codex, gemini, antigravity, iflow
+        **Device flow providers:** qwen, copilot
+      operationId: oauthStart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [provider]
+              properties:
+                provider:
+                  type: string
+                  enum: [claude, codex, gemini, antigravity, iflow, qwen, copilot]
+                project_id:
+                  type: string
+                  description: Optional project ID for some providers
+      responses:
+        '200':
+          description: OAuth flow started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OAuthStartResponse'
+
+  /oauth/status/{state}:
+    get:
+      tags: [OAuth Flow]
+      summary: Check OAuth flow status
+      operationId: oauthStatus
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+          description: OAuth state from start response
+      responses:
+        '200':
+          description: OAuth flow status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [pending, completed, failed, cancelled]
+                  error:
+                    type: string
+        '404':
+          description: OAuth state not found
+
+  /oauth/cancel/{state}:
+    post:
+      tags: [OAuth Flow]
+      summary: Cancel OAuth flow
+      operationId: oauthCancel
+      parameters:
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+          description: OAuth state to cancel
+      responses:
+        '200':
+          description: OAuth flow cancelled
+        '404':
+          description: OAuth state not found
+
+  # ============================================================================
+  # Logs
+  # ============================================================================
+  /logs:
+    get:
+      tags: [Logs]
+      summary: Get log lines
+      operationId: getLogs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+          description: Maximum number of lines to return
+        - name: after
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: Unix timestamp - return logs after this time
+      responses:
+        '200':
+          description: Log lines
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lines:
+                    type: array
+                    items:
+                      type: string
+                  line-count:
+                    type: integer
+                  latest-timestamp:
+                    type: integer
+                    format: int64
+        '400':
+          description: Logging to file disabled
+    delete:
+      tags: [Logs]
+      summary: Clear logs
+      operationId: deleteLogs
+      responses:
+        '200':
+          description: Logs cleared
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  removed:
+                    type: integer
+
+  /request-error-logs:
+    get:
+      tags: [Logs]
+      summary: List error log files
+      operationId: getRequestErrorLogs
+      responses:
+        '200':
+          description: Error log files
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        size:
+                          type: integer
+                        modified:
+                          type: integer
+                          format: int64
+
+  /request-error-logs/{name}:
+    get:
+      tags: [Logs]
+      summary: Download error log file
+      operationId: downloadRequestErrorLog
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Error log filename
+      responses:
+        '200':
+          description: Error log file
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Log file not found
+
+  # ============================================================================
+  # Usage
+  # ============================================================================
+  /usage:
+    get:
+      tags: [Usage]
+      summary: Get usage statistics
+      operationId: getUsageStatistics
+      responses:
+        '200':
+          description: Usage statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageStats'
+
+components:
+  securitySchemes:
+    ManagementKey:
+      type: apiKey
+      in: header
+      name: X-Management-Key
+      description: Management key from `llm-mux --init` or LLM_MUX_MANAGEMENT_KEY env
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token authentication
+
+  schemas:
+    SuccessResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        changed:
+          type: array
+          items:
+            type: string
+
+    BooleanValue:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: boolean
+
+    IntegerValue:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: integer
+
+    StringValue:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
+
+    BooleanSetting:
+      type: object
+      properties:
+        debug:
+          type: boolean
+
+    Provider:
+      type: object
+      properties:
+        type:
+          type: string
+          example: gemini
+        models:
+          type: array
+          items:
+            type: string
+        priority:
+          type: integer
+        disabled:
+          type: boolean
+
+    AuthFile:
+      type: object
+      properties:
+        id:
+          type: string
+        provider:
+          type: string
+        label:
+          type: string
+        status:
+          type: string
+          enum: [active, disabled, error]
+        status_message:
+          type: string
+
+    OAuthStartResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        flow_type:
+          type: string
+          enum: [oauth, device]
+        auth_url:
+          type: string
+          format: uri
+          description: URL to open in browser
+        state:
+          type: string
+          description: State token for status polling
+        id:
+          type: string
+        error:
+          type: string
+        code_verifier:
+          type: string
+          description: PKCE code verifier (for PKCE providers)
+        user_code:
+          type: string
+          description: Device flow user code
+        verification_url:
+          type: string
+          format: uri
+          description: Device flow verification URL
+        expires_in:
+          type: integer
+          description: Device code expiry in seconds
+        interval:
+          type: integer
+          description: Polling interval in seconds
+
+    UsageStats:
+      type: object
+      properties:
+        counters:
+          type: object
+          properties:
+            total_requests:
+              type: integer
+            success_count:
+              type: integer
+            failure_count:
+              type: integer
+            total_tokens:
+              type: integer
+        by_day:
+          type: array
+          items:
+            type: object
+            properties:
+              day:
+                type: string
+                format: date
+              requests:
+                type: integer
+              tokens:
+                type: integer
+        by_hour:
+          type: array
+          items:
+            type: object
+            properties:
+              hour:
+                type: string
+              requests:
+                type: integer
+              tokens:
+                type: integer
+        by_api:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              total_requests:
+                type: integer
+              total_tokens:
+                type: integer
+              models:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    total_requests:
+                      type: integer
+                    total_tokens:
+                      type: integer
