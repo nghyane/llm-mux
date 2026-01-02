@@ -1,7 +1,16 @@
 openapi: 3.1.0
 info:
   title: llm-mux Management API
-  description: Administrative API for managing llm-mux server configuration, authentication, and monitoring.
+  description: |
+    Administrative API for managing llm-mux server configuration, authentication, and monitoring.
+    
+    **Response Format**: All successful responses are wrapped in an envelope with `data` and `meta` fields:
+    ```json
+    {
+      "data": { ... },
+      "meta": { "timestamp": "2025-01-01T00:00:00Z", "version": "v2.0.0" }
+    }
+    ```
   version: 1.0.0
   license:
     name: MIT
@@ -56,6 +65,13 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: object
+                    description: Current runtime configuration
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
 
   /config.yaml:
     get:
@@ -108,14 +124,20 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  latest-version:
-                    type: string
-                    example: v2.0.17
-                  cached:
-                    type: boolean
-                  stale:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      latest-version:
+                        type: string
+                        example: v2.0.17
+                      cached:
+                        type: boolean
+                      stale:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
 
   # ============================================================================
   # Boolean Settings
@@ -131,7 +153,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BooleanSetting'
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BooleanSetting'
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Set debug mode
@@ -148,7 +176,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/BooleanSetting'
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/BooleanSetting'
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
 
   /logging-to-file:
     get:
@@ -162,9 +196,15 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  logging-to-file:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      logging-to-file:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Set file logging
@@ -191,9 +231,15 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  usage-statistics-enabled:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      usage-statistics-enabled:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Enable/disable usage statistics
@@ -220,9 +266,15 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  request-log:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      request-log:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Set request logging
@@ -249,9 +301,15 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  ws-auth:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      ws-auth:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Set WebSocket authentication
@@ -281,10 +339,16 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  request-retry:
-                    type: integer
-                    example: 3
+                  data:
+                    type: object
+                    properties:
+                      request-retry:
+                        type: integer
+                        example: 3
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Set request retry count
@@ -311,10 +375,16 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  max-retry-interval:
-                    type: integer
-                    example: 30
+                  data:
+                    type: object
+                    properties:
+                      max-retry-interval:
+                        type: integer
+                        example: 30
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Settings]
       summary: Set max retry interval
@@ -344,10 +414,16 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  proxy-url:
-                    type: string
-                    example: http://proxy.example.com:8080
+                  data:
+                    type: object
+                    properties:
+                      proxy-url:
+                        type: string
+                        example: http://proxy.example.com:8080
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Proxy]
       summary: Set proxy URL
@@ -384,9 +460,15 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  switch-project:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      switch-project:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Quota]
       summary: Set switch-project behavior
@@ -413,9 +495,15 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  switch-preview-model:
-                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      switch-preview-model:
+                        type: boolean
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Quota]
       summary: Set switch-preview-model behavior
@@ -445,11 +533,17 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  api-keys:
-                    type: array
-                    items:
-                      type: string
+                  data:
+                    type: object
+                    properties:
+                      api-keys:
+                        type: array
+                        items:
+                          type: string
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [API Keys]
       summary: Replace API keys
@@ -532,11 +626,17 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  providers:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Provider'
+                  data:
+                    type: object
+                    properties:
+                      providers:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Provider'
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [Providers]
       summary: Replace providers
@@ -589,13 +689,19 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  oauth-excluded-models:
+                  data:
                     type: object
-                    additionalProperties:
-                      type: array
-                      items:
-                        type: string
+                    properties:
+                      oauth-excluded-models:
+                        type: object
+                        additionalProperties:
+                          type: array
+                          items:
+                            type: string
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     put:
       tags: [OAuth Excluded Models]
       summary: Replace excluded models
@@ -670,11 +776,17 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  auth-files:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/AuthFile'
+                  data:
+                    type: object
+                    properties:
+                      auth-files:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/AuthFile'
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
     post:
       tags: [Auth Files]
       summary: Upload authentication file
@@ -859,16 +971,22 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  lines:
-                    type: array
-                    items:
-                      type: string
-                  line-count:
-                    type: integer
-                  latest-timestamp:
-                    type: integer
-                    format: int64
+                  data:
+                    type: object
+                    properties:
+                      lines:
+                        type: array
+                        items:
+                          type: string
+                      line-count:
+                        type: integer
+                      latest-timestamp:
+                        type: integer
+                        format: int64
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
         '400':
           description: Logging to file disabled
     delete:
@@ -902,19 +1020,25 @@ paths:
             application/json:
               schema:
                 type: object
+                required: [data, meta]
                 properties:
-                  files:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                        size:
-                          type: integer
-                        modified:
-                          type: integer
-                          format: int64
+                  data:
+                    type: object
+                    properties:
+                      files:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            size:
+                              type: integer
+                            modified:
+                              type: integer
+                              format: int64
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
 
   /request-error-logs/{name}:
     get:
@@ -953,7 +1077,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UsageStats'
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    $ref: '#/components/schemas/UsageStats'
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
 
 components:
   securitySchemes:
@@ -968,6 +1098,28 @@ components:
       description: Bearer token authentication
 
   schemas:
+    # Response Envelope - All successful responses are wrapped in this format
+    APIResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          description: The actual response payload
+        meta:
+          $ref: '#/components/schemas/APIMeta'
+
+    APIMeta:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp in RFC3339 format
+        version:
+          type: string
+          description: Server version
+
     SuccessResponse:
       type: object
       properties:
