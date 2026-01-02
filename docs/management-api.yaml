@@ -781,7 +781,7 @@ paths:
                   data:
                     type: object
                     properties:
-                      auth-files:
+                      files:
                         type: array
                         items:
                           $ref: '#/components/schemas/AuthFile'
@@ -809,15 +809,36 @@ paths:
       summary: Delete authentication file
       operationId: deleteAuthFile
       parameters:
-        - name: id
+        - name: name
           in: query
-          required: true
           schema:
             type: string
-          description: Auth file ID
+          description: Auth file name to delete
+        - name: all
+          in: query
+          schema:
+            type: string
+            enum: ["true", "1", "*"]
+          description: Delete all auth files if set to true/1/*
       responses:
         '200':
           description: Auth file deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      deleted:
+                        type: integer
+                        description: Number of files deleted (only present when using all=true)
+                  meta:
+                    $ref: '#/components/schemas/APIMeta'
 
   /auth-files/download:
     get:
@@ -825,12 +846,12 @@ paths:
       summary: Download authentication file
       operationId: downloadAuthFile
       parameters:
-        - name: id
+        - name: name
           in: query
           required: true
           schema:
             type: string
-          description: Auth file ID
+          description: Auth file name (must end with .json)
       responses:
         '200':
           description: Auth file content
@@ -886,7 +907,12 @@ paths:
               properties:
                 provider:
                   type: string
-                  enum: [claude, codex, gemini, antigravity, iflow, qwen, copilot]
+                  enum: [claude, anthropic, codex, gemini, gemini-cli, antigravity, iflow, qwen, copilot, github-copilot]
+                  description: |
+                    Provider to authenticate with. Aliases are supported:
+                    - anthropic → claude
+                    - gemini-cli → gemini  
+                    - github-copilot → copilot
                 project_id:
                   type: string
                   description: Optional project ID for some providers
@@ -980,11 +1006,13 @@ paths:
                         type: array
                         items:
                           type: string
-                      line-count:
+                      line_count:
                         type: integer
-                      latest-timestamp:
+                        description: Total number of lines in log files
+                      latest_timestamp:
                         type: integer
                         format: int64
+                        description: Unix timestamp of most recent log entry
                   meta:
                     $ref: '#/components/schemas/APIMeta'
         '400':
@@ -1159,36 +1187,156 @@ components:
 
     Provider:
       type: object
+      description: Unified API provider configuration
       properties:
         type:
           type: string
+          description: Provider type (gemini, anthropic, openai, vertex-compat)
           example: gemini
+        name:
+          type: string
+          description: Display name for this provider instance
+          example: deepseek
+        enabled:
+          type: boolean
+          description: Whether the provider is enabled (default true)
+        api-key:
+          type: string
+          description: Primary API key for this provider
+        api-keys:
+          type: array
+          description: Multiple API keys with per-key proxy settings for load balancing
+          items:
+            $ref: '#/components/schemas/ProviderAPIKey'
+        base-url:
+          type: string
+          description: API endpoint URL. Required for openai and vertex-compat types
+          example: https://api.deepseek.com
+        proxy-url:
+          type: string
+          description: Proxy URL for this provider's requests
+        headers:
+          type: object
+          description: Custom HTTP headers to add to requests
+          additionalProperties:
+            type: string
         models:
           type: array
+          description: Available models for this provider. Required for openai and vertex-compat types
+          items:
+            $ref: '#/components/schemas/ProviderModel'
+        excluded-models:
+          type: array
+          description: Model names to exclude from this provider
           items:
             type: string
-        priority:
-          type: integer
-        disabled:
-          type: boolean
+
+    ProviderAPIKey:
+      type: object
+      description: API key with optional per-key settings
+      required:
+        - key
+      properties:
+        key:
+          type: string
+          description: The API key value
+        proxy-url:
+          type: string
+          description: Override proxy URL for this specific key
+
+    ProviderModel:
+      type: object
+      description: Model available from a provider
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Actual model name used in API requests
+          example: deepseek-chat
+        alias:
+          type: string
+          description: Optional alternative name for this model
+          example: deepseek
 
     AuthFile:
       type: object
+      description: Authentication credential file information
       properties:
         id:
           type: string
+          description: Unique identifier for the auth file
+        auth_index:
+          type: integer
+          description: Index of this auth in the provider list
+        name:
+          type: string
+          description: File name
+        type:
+          type: string
+          description: Provider type (e.g., gemini, claude, codex)
         provider:
           type: string
+          description: Provider type (same as type, for compatibility)
         label:
           type: string
+          description: Human-readable label (often the email)
+        email:
+          type: string
+          description: Account email if available
+        account_type:
+          type: string
+          description: Account type (e.g., pro, max, free)
+        account:
+          type: string
+          description: Account identifier
         status:
           type: string
-          enum: [active, disabled, error]
+          enum: [active, disabled, error, cooling, unavailable]
+          description: Current status of the auth
         status_message:
           type: string
+          description: Status details or error message
+        disabled:
+          type: boolean
+          description: Whether the auth is disabled
+        unavailable:
+          type: boolean
+          description: Whether the auth is temporarily unavailable
+        runtime_only:
+          type: boolean
+          description: Whether this auth exists only in memory (not on disk)
+        source:
+          type: string
+          enum: [file, memory]
+          description: Where the auth data comes from
+        path:
+          type: string
+          description: File path on disk (if source is file)
+        size:
+          type: integer
+          format: int64
+          description: File size in bytes
+        modtime:
+          type: string
+          format: date-time
+          description: File modification time
+        created_at:
+          type: string
+          format: date-time
+          description: When the auth was created
+        updated_at:
+          type: string
+          format: date-time
+          description: When the auth was last updated
+        last_refresh:
+          type: string
+          format: date-time
+          description: When the auth token was last refreshed
 
     OAuthStartResponse:
       type: object
+      description: Response for starting an OAuth or device flow
       properties:
         status:
           type: string
@@ -1196,23 +1344,29 @@ components:
         flow_type:
           type: string
           enum: [oauth, device]
+          description: Type of authentication flow
         auth_url:
           type: string
           format: uri
-          description: URL to open in browser
+          description: URL to open in browser for authentication
         state:
           type: string
           description: State token for status polling
         id:
           type: string
+          description: Flow identifier (same as state)
         error:
           type: string
+          description: Error message if status is error
         code_verifier:
           type: string
-          description: PKCE code verifier (for PKCE providers)
+          description: PKCE code verifier (for PKCE-enabled providers like Claude, Codex)
+        code_challenge:
+          type: string
+          description: PKCE code challenge (for PKCE-enabled providers)
         user_code:
           type: string
-          description: Device flow user code
+          description: Device flow user code to enter on verification page
         verification_url:
           type: string
           format: uri
@@ -1222,7 +1376,7 @@ components:
           description: Device code expiry in seconds
         interval:
           type: integer
-          description: Polling interval in seconds
+          description: Recommended polling interval in seconds
 
     UsageStats:
       type: object
@@ -1256,7 +1410,8 @@ components:
             type: object
             properties:
               hour:
-                type: string
+                type: integer
+                description: Hour of day (0-23)
               requests:
                 type: integer
               tokens:
