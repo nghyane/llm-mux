@@ -58,6 +58,7 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *provider.Auth) (string,
 
 	switch {
 	case auth.Storage != nil:
+		NotifyPendingWrite(path)
 		if err = auth.Storage.SaveTokenToFile(path); err != nil {
 			return "", err
 		}
@@ -73,6 +74,7 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *provider.Auth) (string,
 		} else if !os.IsNotExist(errRead) {
 			return "", fmt.Errorf("auth filestore: read existing failed: %w", errRead)
 		}
+		NotifyPendingWrite(path)
 		tmp := path + ".tmp"
 		if errWrite := os.WriteFile(tmp, raw, 0o600); errWrite != nil {
 			return "", fmt.Errorf("auth filestore: write temp failed: %w", errWrite)

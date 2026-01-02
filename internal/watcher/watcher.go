@@ -66,6 +66,11 @@ type Watcher struct {
 	storePersister    storePersister
 	mirroredAuthDir   string
 	oldConfigYaml     []byte
+	// pendingWrites tracks files being written by the application itself.
+	// Key: absolute file path, Value: expiry time for the pending write marker.
+	// This prevents the watcher from reacting to its own writes.
+	pendingWritesMu sync.RWMutex
+	pendingWrites   map[string]time.Time
 }
 
 type stableIDGenerator struct {
@@ -122,6 +127,7 @@ const (
 	// before deciding whether a Remove event indicates a real deletion.
 	replaceCheckDelay    = 50 * time.Millisecond
 	configReloadDebounce = 150 * time.Millisecond
+	pendingWriteTTL      = 2 * time.Second
 )
 
 // NewWatcher creates a new file watcher instance
@@ -136,6 +142,7 @@ func NewWatcher(configPath, authDir string, reloadCallback func(*config.Config))
 		reloadCallback: reloadCallback,
 		watcher:        watcher,
 		lastAuthHashes: make(map[string]string),
+		pendingWrites:  make(map[string]time.Time),
 	}
 	w.dispatchCond = sync.NewCond(&w.dispatchMu)
 	if store := login.GetTokenStore(); store != nil {
@@ -262,6 +269,11 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		return
 	}
 
+	if isAuthJSON && w.isPendingWrite(event.Name) {
+		log.Debugf("skipping self-write event for: %s", filepath.Base(event.Name))
+		return
+	}
+
 	now := time.Now()
 	log.Debugf("file system event detected: %s %s", event.Op.String(), event.Name)
 
@@ -302,4 +314,45 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 		log.Debugf("auth file changed (%s): %s, processing incrementally", event.Op.String(), filepath.Base(event.Name))
 		w.addOrUpdateClient(event.Name)
 	}
+}
+
+func (w *Watcher) MarkPendingWrite(path string) {
+	if w == nil {
+		return
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	w.pendingWritesMu.Lock()
+	if w.pendingWrites == nil {
+		w.pendingWrites = make(map[string]time.Time)
+	}
+	w.pendingWrites[absPath] = time.Now().Add(pendingWriteTTL)
+	w.pendingWritesMu.Unlock()
+}
+
+func (w *Watcher) isPendingWrite(path string) bool {
+	if w == nil {
+		return false
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		absPath = path
+	}
+	w.pendingWritesMu.Lock()
+	defer w.pendingWritesMu.Unlock()
+	if w.pendingWrites == nil {
+		return false
+	}
+	expiry, ok := w.pendingWrites[absPath]
+	if !ok {
+		return false
+	}
+	if time.Now().After(expiry) {
+		delete(w.pendingWrites, absPath)
+		return false
+	}
+	delete(w.pendingWrites, absPath)
+	return true
 }

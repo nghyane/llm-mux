@@ -78,6 +78,7 @@ type WatcherWrapper struct {
 	snapshotAuths         func() []*provider.Auth
 	setUpdateQueue        func(queue chan<- watcher.AuthUpdate)
 	dispatchRuntimeUpdate func(update watcher.AuthUpdate) bool
+	markPendingWrite      func(path string)
 }
 
 // Start proxies to the underlying watcher Start implementation.
@@ -132,4 +133,11 @@ func (w *WatcherWrapper) SetAuthUpdateQueue(queue chan<- watcher.AuthUpdate) {
 		return
 	}
 	w.setUpdateQueue(queue)
+}
+
+func (w *WatcherWrapper) MarkPendingWrite(path string) {
+	if w == nil || w.markPendingWrite == nil {
+		return
+	}
+	w.markPendingWrite(path)
 }

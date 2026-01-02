@@ -459,6 +459,7 @@ func (s *Service) Run(ctx context.Context) error {
 		return fmt.Errorf("cliproxy: failed to create watcher: %w", err)
 	}
 	s.watcher = watcherWrapper
+	login.RegisterPendingWriteNotifier(watcherWrapper)
 	s.ensureAuthUpdateQueue(ctx)
 	if s.authUpdates != nil {
 		watcherWrapper.SetAuthUpdateQueue(s.authUpdates)
