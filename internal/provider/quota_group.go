@@ -129,8 +129,15 @@ func (rd *AuthRuntimeData) GetProviderData() any {
 }
 
 // getOrCreateQuotaGroupIndex returns the quota group index from auth.Runtime,
-// creating it if necessary. This function is thread-safe and preserves
-// any existing provider-specific runtime data.
+// creating it if necessary. 
+//
+// CRITICAL: This function MUST only be called while holding the Manager's lock (m.mu).
+// It is NOT safe to call this concurrently on the same auth object without external
+// synchronization. The Manager ensures this by holding m.mu during MarkResult and other
+// state-modifying operations.
+//
+// The returned quotaGroupIndex has its own internal mutex for thread-safe read/write
+// operations after initialization.
 func getOrCreateQuotaGroupIndex(auth *Auth) *quotaGroupIndex {
 	if auth == nil {
 		return nil
