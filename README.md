@@ -12,10 +12,13 @@ Turn your Claude Pro, GitHub Copilot, and Gemini subscriptions into standard LLM
 
 ## Features
 
-- **Multi-Provider** — Claude, Copilot, Gemini, Codex, Qwen, Kiro, and more
+- **Multi-Provider** — Claude, Copilot, Gemini, Codex, Qwen, Kiro, iFlow, Cline, and more
 - **Multi-Format** — OpenAI, Anthropic, Gemini, Ollama compatible endpoints
 - **Multi-Account** — Load balance across accounts, auto-retry on quota limits
 - **Zero Config** — OAuth login, no API keys required
+- **Management API** — Usage statistics, auth management, runtime configuration
+- **Extended Thinking** — Support for Claude's extended thinking mode
+- **AMP CLI Compatible** — Drop-in replacement for Amp CLI with model mapping
 
 ## Quick Start
 
@@ -60,6 +63,8 @@ Works with: **Cursor, Aider, Claude Code, Cline, Continue, OpenCode, LangChain, 
 - [Configuration](https://nghyane.github.io/llm-mux/#/configuration) — Config file reference
 - [Integrations](https://nghyane.github.io/llm-mux/#/integrations/) — Editor and framework setup
 - [Docker](https://nghyane.github.io/llm-mux/#/docker) — Container deployment
+- [Service Management](https://nghyane.github.io/llm-mux/#/service-management) — Background service setup
+- [API Reference](https://nghyane.github.io/llm-mux/#/api-reference) — Complete API documentation
 
 ## License
 
