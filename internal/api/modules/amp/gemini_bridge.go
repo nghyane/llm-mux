@@ -15,7 +15,6 @@ import (
 // so the standard Gemini handler can process it.
 func createGeminiBridgeHandler(geminiHandler *gemini.GeminiAPIHandler) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get the full path from the catch-all parameter
 		path := c.Param("path")
 
 		// Extract model:method from AMP CLI path format

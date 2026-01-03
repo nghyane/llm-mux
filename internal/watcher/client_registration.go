@@ -50,7 +50,6 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 		w.clientsMutex.Unlock()
 	}
 
-	// Create new API key clients based on the new config
 	geminiAPIKeyCount, vertexCompatAPIKeyCount, claudeAPIKeyCount, codexAPIKeyCount, openAICompatCount := BuildAPIKeyClients(cfg)
 	totalAPIKeyClients := geminiAPIKeyCount + vertexCompatAPIKeyCount + claudeAPIKeyCount + codexAPIKeyCount + openAICompatCount
 	log.Debugf("loaded %d API key clients", totalAPIKeyClients)
@@ -68,7 +67,6 @@ func (w *Watcher) reloadClients(rescanAuth bool, affectedOAuthProviders []string
 		log.Debugf("skipping auth directory rescan; retaining %d existing auth files", authFileCount)
 	}
 
-	// Update client maps
 	if rescanAuth {
 		// Build hash map WITHOUT holding lock (do all file I/O first)
 		newAuthHashes := make(map[string]string)

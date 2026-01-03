@@ -83,8 +83,6 @@ func createReverseProxy(upstreamURL string, secretSource SecretSource) (*httputi
 		header := make([]byte, 2)
 		n, _ := io.ReadFull(originalBody, header)
 
-		// Check for gzip magic bytes (0x1f 0x8b)
-		// If n < 2, we didn't get enough bytes, so it's not gzip
 		if n >= 2 && header[0] == 0x1f && header[1] == 0x8b {
 			// It's gzip - read the rest of the body
 			rest, err := io.ReadAll(originalBody)

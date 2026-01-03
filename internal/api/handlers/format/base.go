@@ -117,7 +117,6 @@ func appendAPIResponse(c *gin.Context, data []byte) {
 
 // buildRequestOpts creates request and options, cloning payload/metadata only once (shared reference)
 func buildRequestOpts(normalizedModel string, rawJSON []byte, metadata map[string]any, handlerType string, alt string, stream bool) (provider.Request, provider.Options) {
-	// Clone once, share between req and opts
 	payload := cloneBytes(rawJSON)
 	meta := cloneMetadata(metadata)
 

@@ -11,8 +11,8 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/util"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/util"
 )
 
 func (w *Watcher) scheduleConfigReload() {
@@ -111,7 +111,6 @@ func (w *Watcher) reloadConfig() bool {
 	// Always apply the current log level based on the latest config.
 	// This ensures logrus reflects the desired level even if change detection misses.
 	util.SetLogLevel(newConfig)
-	// Additional debug for visibility when the flag actually changes.
 	if oldConfig != nil && oldConfig.Debug != newConfig.Debug {
 		log.Debugf("log level updated - debug mode changed from %t to %t", oldConfig.Debug, newConfig.Debug)
 	}

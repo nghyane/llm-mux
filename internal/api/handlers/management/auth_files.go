@@ -111,9 +111,13 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		return
 	}
 	auths := h.authManager.List()
+	quotaManager := h.authManager.GetQuotaManager()
+	now := time.Now()
+
 	files := make([]gin.H, 0, len(auths))
 	for _, auth := range auths {
 		if entry := h.buildAuthFileEntry(auth); entry != nil {
+			h.enrichWithQuotaState(entry, auth.ID, quotaManager, now)
 			files = append(files, entry)
 		}
 	}
@@ -123,6 +127,45 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		return strings.ToLower(nameI) < strings.ToLower(nameJ)
 	})
 	respondOK(c, gin.H{"files": files})
+}
+
+func (h *Handler) enrichWithQuotaState(entry gin.H, authID string, qm *provider.QuotaManager, now time.Time) {
+	if qm == nil {
+		return
+	}
+	state := qm.GetState(authID)
+	if state == nil {
+		entry["quota_state"] = gin.H{
+			"active_requests":   int64(0),
+			"total_tokens_used": int64(0),
+			"in_cooldown":       false,
+		}
+		return
+	}
+
+	inCooldown := now.Before(state.CooldownUntil)
+	qs := gin.H{
+		"active_requests":   state.ActiveRequests,
+		"total_tokens_used": state.TotalTokensUsed,
+		"in_cooldown":       inCooldown,
+	}
+
+	if inCooldown {
+		qs["cooldown_until"] = state.CooldownUntil
+		qs["cooldown_remaining_seconds"] = int64(state.CooldownUntil.Sub(now).Seconds())
+	}
+
+	if state.LearnedLimit > 0 {
+		qs["learned_limit"] = state.LearnedLimit
+	}
+	if state.LearnedCooldown > 0 {
+		qs["learned_cooldown_seconds"] = int64(state.LearnedCooldown.Seconds())
+	}
+	if !state.LastExhaustedAt.IsZero() {
+		qs["last_exhausted_at"] = state.LastExhaustedAt
+	}
+
+	entry["quota_state"] = qs
 }
 
 // List auth files from disk when the auth manager is unavailable.
@@ -410,7 +453,6 @@ func (h *Handler) processOneUpload(ctx context.Context, fileHeader *multipart.Fi
 	return uploadResult{Name: name, Status: "ok"}
 }
 
-// Delete auth files: single by name or all
 func (h *Handler) DeleteAuthFile(c *gin.Context) {
 	if h.authManager == nil {
 		respondError(c, http.StatusServiceUnavailable, ErrCodeInternalError, "core auth manager unavailable")

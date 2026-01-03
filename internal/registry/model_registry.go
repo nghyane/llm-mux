@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	misc "github.com/nghyane/llm-mux/internal/misc"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	misc "github.com/nghyane/llm-mux/internal/misc"
 )
 
 // ModelInfo represents information about an available model
@@ -427,7 +427,6 @@ func (r *ModelRegistry) addToModelIDIndex(modelID, providerKey string) {
 	if modelID == "" || providerKey == "" {
 		return
 	}
-	// Check if already exists
 	for _, k := range r.modelIDIndex[modelID] {
 		if k == providerKey {
 			return
@@ -462,7 +461,6 @@ func (r *ModelRegistry) addToCanonicalIndex(canonicalID, provider, modelID strin
 	if canonicalID == "" || provider == "" || modelID == "" {
 		return
 	}
-	// Check if this mapping already exists
 	for _, m := range r.canonicalIndex[canonicalID] {
 		if m.Provider == provider && m.ModelID == modelID {
 			return

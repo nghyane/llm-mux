@@ -74,7 +74,6 @@ var restartCmd = &cobra.Command{
 	Use:   "restart",
 	Short: "Restart the service",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		// Stop then Start
 		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 			_ = runServiceCommand("stop")
 			return runServiceCommand("start")

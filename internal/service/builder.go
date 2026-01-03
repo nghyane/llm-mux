@@ -5,13 +5,13 @@ package service
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/nghyane/llm-mux/internal/access"
 	"github.com/nghyane/llm-mux/internal/api"
 	"github.com/nghyane/llm-mux/internal/auth/login"
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/usage"
 )
 
 // Builder constructs a Service instance with customizable providers.
@@ -177,14 +177,16 @@ func (b *Builder) Build() (*Service, error) {
 		if dirSetter, ok := tokenStore.(interface{ SetBaseDir(string) }); ok && b.cfg != nil {
 			dirSetter.SetBaseDir(b.cfg.AuthDir)
 		}
-		var selector provider.Selector
-		if b.cfg != nil && b.cfg.QuotaWindow > 0 {
-			selector = provider.NewQuotaAwareSelector(time.Duration(b.cfg.QuotaWindow) * time.Minute)
-		}
-		coreManager = provider.NewManager(tokenStore, selector, nil)
+		coreManager = provider.NewManager(tokenStore, nil, nil)
 	}
 	// Attach a default RoundTripper provider so providers can opt-in per-auth transports.
 	coreManager.SetRoundTripperProvider(newDefaultRoundTripperProvider())
+
+	// Register quota sync plugin if QuotaManager is active
+	if qm := coreManager.GetQuotaManager(); qm != nil {
+		plugin := provider.NewQuotaSyncPlugin(qm)
+		usage.RegisterPlugin(plugin)
+	}
 
 	service := &Service{
 		cfg:            b.cfg,

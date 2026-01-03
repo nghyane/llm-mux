@@ -75,7 +75,6 @@ func (tc *TokenCache) Set(content string, tokens int) {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
-	// Check if already exists
 	for i, e := range shard.entries {
 		if e.hash == hash {
 			shard.entries[i].tokens = tokens
@@ -83,7 +82,6 @@ func (tc *TokenCache) Set(content string, tokens int) {
 		}
 	}
 
-	// Evict oldest if full
 	if len(shard.entries) >= maxEntriesPerShard {
 		shard.entries = shard.entries[1:]
 	}

@@ -338,6 +338,13 @@ func (s *Service) Run(ctx context.Context) error {
 		ctx = context.Background()
 	}
 
+	if s.coreManager != nil {
+		if qm := s.coreManager.GetQuotaManager(); qm != nil {
+			usage.RegisterPlugin(provider.NewQuotaSyncPlugin(qm))
+			qm.Start()
+		}
+	}
+
 	usage.StartDefault(ctx)
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -513,6 +520,9 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 		if s.coreManager != nil {
 			s.coreManager.StopAutoRefresh()
+			if qm := s.coreManager.GetQuotaManager(); qm != nil {
+				qm.Stop()
+			}
 		}
 		if s.watcher != nil {
 			if err := s.watcher.Stop(); err != nil {

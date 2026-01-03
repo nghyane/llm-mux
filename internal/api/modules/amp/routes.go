@@ -10,15 +10,14 @@ import (
 	"github.com/nghyane/llm-mux/internal/api/handlers/format/claude"
 	"github.com/nghyane/llm-mux/internal/api/handlers/format/gemini"
 	"github.com/nghyane/llm-mux/internal/api/handlers/format/openai"
-	"github.com/nghyane/llm-mux/internal/util"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/util"
 )
 
 // localhostOnlyMiddleware returns a middleware that dynamically checks the module's
 // localhost restriction setting. This allows hot-reload of the restriction without restarting.
 func (m *AmpModule) localhostOnlyMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Check current setting (hot-reloadable)
 		if !m.IsRestrictedToLocalhost() {
 			c.Next()
 			return

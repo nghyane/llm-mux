@@ -539,7 +539,6 @@ func SaveConfigPreserveCommentsUpdateNestedScalar(configFile string, path []stri
 	// descend mapping nodes following path
 	for i, key := range path {
 		if i == len(path)-1 {
-			// set final scalar
 			v := getOrCreateMapValue(node, key)
 			v.Kind = yaml.ScalarNode
 			v.Tag = "!!str"

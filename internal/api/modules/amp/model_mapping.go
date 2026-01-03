@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/util"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/util"
 )
 
 // ModelMapper provides model name mapping/aliasing for Amp CLI requests.
@@ -49,16 +49,13 @@ func (m *DefaultModelMapper) MapModel(requestedModel string) string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	// Normalize the requested model for lookup
 	normalizedRequest := strings.ToLower(strings.TrimSpace(requestedModel))
 
-	// Check for direct mapping
 	targetModel, exists := m.mappings[normalizedRequest]
 	if !exists {
 		return ""
 	}
 
-	// Verify target model has available providers
 	providers := util.GetProviderName(targetModel)
 	if len(providers) == 0 {
 		log.Debugf("amp model mapping: target model %s has no available providers, skipping mapping", targetModel)

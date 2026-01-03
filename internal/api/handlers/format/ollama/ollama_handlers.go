@@ -54,11 +54,9 @@ func (h *OllamaAPIHandler) Tags(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Server", fmt.Sprintf("ollama/%s", OllamaVersion))
 
-	// Get all available models from registry
 	modelRegistry := registry.GetGlobalRegistry()
 	allModels := modelRegistry.GetAvailableModels("openai")
 
-	// Convert to Ollama format
 	ollamaModels := make([]map[string]any, 0)
 	for _, model := range allModels {
 		modelID := ""

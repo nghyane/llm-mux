@@ -228,7 +228,6 @@ func (h *Handler) GetConfigYAML(c *gin.Context) {
 	_, _ = c.Writer.Write(data)
 }
 
-// Debug
 func (h *Handler) GetDebug(c *gin.Context) {
 	cfg := h.getConfig()
 	respondOK(c, gin.H{"debug": cfg.Debug})

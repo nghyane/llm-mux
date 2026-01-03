@@ -114,10 +114,10 @@ type Manager struct {
 }
 
 // NewManager constructs a manager with optional custom selector and hook.
-// If no selector is provided, uses QuotaAwareSelector with 5-hour window.
+// If no selector is provided, uses QuotaManager with provider-aware quota tracking.
 func NewManager(store Store, selector Selector, hook Hook) *Manager {
 	if selector == nil {
-		selector = NewQuotaAwareSelector(defaultQuotaWindow)
+		selector = NewQuotaManager()
 	}
 	if hook == nil {
 		hook = NoopHook{}
@@ -591,8 +591,8 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
 	}
 
 	if result.Error != nil && result.Error.HTTPStatus == 429 {
-		if qs, ok := m.selector.(*QuotaAwareSelector); ok {
-			qs.RecordLimitHit(result.AuthID, result.Provider, result.Model, result.RetryAfter)
+		if qm, ok := m.selector.(*QuotaManager); ok {
+			qm.RecordQuotaHit(result.AuthID, result.Provider, result.Model, result.RetryAfter)
 		}
 	}
 
@@ -885,4 +885,17 @@ func (m *Manager) RetryBudgetStats() (available, max int64) {
 		return 0, 0
 	}
 	return m.retryBudget.Available(), m.retryBudget.MaxCapacity()
+}
+
+// GetQuotaManager returns the QuotaManager if it is the configured selector.
+func (m *Manager) GetQuotaManager() *QuotaManager {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if qm, ok := m.selector.(*QuotaManager); ok {
+		return qm
+	}
+	return nil
 }
