@@ -10,6 +10,10 @@ import (
 	"time"
 )
 
+// TransportConfig holds optimized HTTP transport settings for API gateway workloads.
+//
+// NOTE: This config is duplicated in internal/resilience/transport.go. We cannot consolidate
+// due to circular import (executor imports resilience for retry). Keep values in sync.
 var TransportConfig = struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
@@ -27,7 +31,7 @@ var TransportConfig = struct {
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
-	ResponseHeaderTimeout: 60 * time.Second,
+	ResponseHeaderTimeout: 300 * time.Second,
 	DialTimeout:           30 * time.Second,
 	KeepAlive:             30 * time.Second,
 }

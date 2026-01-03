@@ -212,7 +212,15 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 			return nil, errReq
 		}
 
+		reqStart := time.Now()
+		log.Debugf("antigravity stream: starting request to %s, payload size: %d bytes", baseURL, len(translated))
 		httpResp, errDo := httpClient.Do(httpReq)
+		ttfb := time.Since(reqStart)
+		if httpResp != nil {
+			log.Debugf("antigravity stream: TTFB=%v, status=%d", ttfb, httpResp.StatusCode)
+		} else {
+			log.Debugf("antigravity stream: TTFB=%v, err=%v", ttfb, errDo)
+		}
 		if errDo != nil {
 			lastStatus, lastBody, lastErr = 0, nil, errDo
 			action, ctxErr := handler.HandleError(ctx, errDo, hasNext)

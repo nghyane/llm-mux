@@ -17,6 +17,10 @@ import (
 
 // TransportConfig holds optimized HTTP transport settings for API gateway workloads.
 // These values are tuned for high-concurrency LLM API proxying.
+//
+// NOTE: This is a duplicate of executor.TransportConfig. We cannot import executor here
+// due to circular import (executor imports resilience for retry). Keep values in sync with
+// internal/runtime/executor/transport.go.
 var TransportConfig = struct {
 	MaxIdleConns          int
 	MaxIdleConnsPerHost   int
@@ -34,7 +38,7 @@ var TransportConfig = struct {
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
-	ResponseHeaderTimeout: 60 * time.Second,
+	ResponseHeaderTimeout: 300 * time.Second,
 	DialTimeout:           30 * time.Second,
 	KeepAlive:             30 * time.Second,
 }

@@ -112,6 +112,7 @@ type Config struct {
 	DisableCooling   bool          `yaml:"disable-cooling" json:"disable-cooling"`
 	RequestRetry     int           `yaml:"request-retry" json:"request-retry"`
 	MaxRetryInterval int           `yaml:"max-retry-interval" json:"max-retry-interval"`
+	StreamTimeout    int           `yaml:"stream-timeout" json:"stream-timeout"`
 	QuotaWindow      int           `yaml:"quota-window" json:"quota-window"`
 	QuotaExceeded    QuotaExceeded `yaml:"quota-exceeded" json:"quota-exceeded"`
 
@@ -276,6 +277,7 @@ func NewDefaultConfig() *Config {
 		DisableAuth:            true,
 		RequestRetry:           3,
 		MaxRetryInterval:       30,
+		StreamTimeout:          300,
 		QuotaWindow:            300,
 		UseCanonicalTranslator: true,
 		Usage: UsageConfig{

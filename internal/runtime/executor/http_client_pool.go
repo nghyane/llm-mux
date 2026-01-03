@@ -3,7 +3,23 @@ package executor
 import (
 	"net/http"
 	"sync"
+	"time"
 )
+
+const (
+	// maxTransportCacheSize limits the number of cached transports to prevent memory leaks
+	maxTransportCacheSize = 100
+	// transportCacheExpiry is the duration after which unused transports are cleaned up
+	transportCacheExpiry = 30 * time.Minute
+	// cleanupInterval is how often the cleanup goroutine runs
+	cleanupInterval = 5 * time.Minute
+)
+
+// cachedTransport wraps a transport with usage tracking for LRU eviction
+type cachedTransport struct {
+	transport *http.Transport
+	lastUsed  time.Time
+}
 
 // httpClientPool pools http.Client instances keyed by transport.
 // Since http.Client is a lightweight struct (~3 pointers), the real benefit
@@ -14,12 +30,10 @@ var httpClientPool = sync.Pool{
 	},
 }
 
-// transportCache caches proxy transports by URL to enable connection pooling
-// for proxied requests. Without this, each request creates a new transport
-// which breaks HTTP/2 connection reuse.
 var (
-	transportCache   = make(map[string]*http.Transport)
-	transportCacheMu sync.RWMutex
+	transportCache     = make(map[string]*cachedTransport)
+	transportCacheMu   sync.RWMutex
+	cleanupInitialized sync.Once
 )
 
 // AcquireHTTPClient gets an http.Client from the pool.
@@ -49,11 +63,14 @@ func getCachedTransport(proxyURL string) *http.Transport {
 		return nil
 	}
 
+	cleanupInitialized.Do(initTransportCleanup)
+
 	// Fast path: read lock
 	transportCacheMu.RLock()
-	if t, ok := transportCache[proxyURL]; ok {
+	if cached, ok := transportCache[proxyURL]; ok {
+		cached.lastUsed = time.Now()
 		transportCacheMu.RUnlock()
-		return t
+		return cached.transport
 	}
 	transportCacheMu.RUnlock()
 
@@ -62,14 +79,23 @@ func getCachedTransport(proxyURL string) *http.Transport {
 	defer transportCacheMu.Unlock()
 
 	// Double-check after acquiring write lock
-	if t, ok := transportCache[proxyURL]; ok {
-		return t
+	if cached, ok := transportCache[proxyURL]; ok {
+		cached.lastUsed = time.Now()
+		return cached.transport
+	}
+
+	// Evict LRU entry if cache is full
+	if len(transportCache) >= maxTransportCacheSize {
+		evictLRUTransport()
 	}
 
 	// Build and cache the transport
 	t := buildProxyTransport(proxyURL)
 	if t != nil {
-		transportCache[proxyURL] = t
+		transportCache[proxyURL] = &cachedTransport{
+			transport: t,
+			lastUsed:  time.Now(),
+		}
 	}
 	return t
 }
@@ -80,9 +106,50 @@ func ClearTransportCache() {
 	transportCacheMu.Lock()
 	defer transportCacheMu.Unlock()
 
-	// Close idle connections on each transport before clearing
-	for _, t := range transportCache {
-		t.CloseIdleConnections()
+	for _, cached := range transportCache {
+		cached.transport.CloseIdleConnections()
 	}
-	transportCache = make(map[string]*http.Transport)
+	transportCache = make(map[string]*cachedTransport)
+}
+
+func initTransportCleanup() {
+	go func() {
+		ticker := time.NewTicker(cleanupInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			cleanupExpiredTransports()
+		}
+	}()
+}
+
+func cleanupExpiredTransports() {
+	transportCacheMu.Lock()
+	defer transportCacheMu.Unlock()
+
+	now := time.Now()
+	for key, cached := range transportCache {
+		if now.Sub(cached.lastUsed) > transportCacheExpiry {
+			cached.transport.CloseIdleConnections()
+			delete(transportCache, key)
+		}
+	}
+}
+
+func evictLRUTransport() {
+	var oldestKey string
+	var oldestTime time.Time
+
+	for key, cached := range transportCache {
+		if oldestKey == "" || cached.lastUsed.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = cached.lastUsed
+		}
+	}
+
+	if oldestKey != "" {
+		if cached, ok := transportCache[oldestKey]; ok {
+			cached.transport.CloseIdleConnections()
+		}
+		delete(transportCache, oldestKey)
+	}
 }

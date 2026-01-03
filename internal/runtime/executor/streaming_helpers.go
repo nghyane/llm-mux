@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"time"
 
 	"github.com/nghyane/llm-mux/internal/config"
 	log "github.com/nghyane/llm-mux/internal/logging"
@@ -44,6 +45,7 @@ type StreamConfig struct {
 	EnsurePublished    bool
 	HandleDoneSignal   bool
 	SkipDoneInData     bool
+	IdleTimeout        time.Duration
 }
 
 func GeminiPreprocessor() StreamPreprocessor {

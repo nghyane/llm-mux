@@ -430,7 +430,7 @@ func (e *GeminiExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*pro
 	}
 	conf := &oauth2.Config{ClientID: clientID, ClientSecret: clientSecret, Endpoint: endpoint}
 
-	httpClient := util.SetProxy(&e.cfg.SDKConfig, &http.Client{})
+	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
 	tok := &oauth2.Token{AccessToken: accessToken, RefreshToken: refreshToken}

@@ -231,7 +231,7 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 }
 
 func (h *BaseAPIHandler) wrapStreamChannel(chunks <-chan provider.StreamChunk) (<-chan []byte, <-chan *interfaces.ErrorMessage) {
-	dataChan := make(chan []byte, 8) // Buffered to reduce blocking
+	dataChan := make(chan []byte, 32) // Match upstream RunSSEStream buffer size
 	errChan := make(chan *interfaces.ErrorMessage, 1)
 	go func() {
 		defer close(dataChan)

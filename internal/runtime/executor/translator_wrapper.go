@@ -23,12 +23,13 @@ var (
 )
 
 func extractUsageFromEvents(events []ir.UnifiedEvent) *ir.Usage {
+	var lastUsage *ir.Usage
 	for i := range events {
-		if events[i].Type == ir.EventTypeFinish && events[i].Usage != nil {
-			return events[i].Usage
+		if events[i].Usage != nil {
+			lastUsage = events[i].Usage
 		}
 	}
-	return nil
+	return lastUsage
 }
 
 type TranslationResult struct {

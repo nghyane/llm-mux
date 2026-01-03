@@ -187,6 +187,11 @@ func ApplyEnvOverrides(cfg *config.Config) {
 		cfg.MaxRetryInterval = maxRetryInterval
 		log.Infof("Max retry interval overridden by env: %d", maxRetryInterval)
 	}
+
+	if streamTimeout, ok := env.LookupEnvInt("LLM_MUX_STREAM_TIMEOUT"); ok {
+		cfg.StreamTimeout = streamTimeout
+		log.Infof("Stream timeout overridden by env: %ds", streamTimeout)
+	}
 }
 
 // autoInitConfig silently creates config on first run

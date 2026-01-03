@@ -23,7 +23,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
-	"github.com/nghyane/llm-mux/internal/util"
 )
 
 const kiroAPIURL = KiroDefaultBaseURL
@@ -156,12 +155,7 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 		return provider.Response{}, err
 	}
 
-	client := &http.Client{Timeout: KiroRequestTimeout}
-	if proxy := e.cfg.ProxyURL; proxy != "" {
-		util.SetProxy(&config.SDKConfig{ProxyURL: proxy}, client)
-	} else if auth.ProxyURL != "" {
-		util.SetProxy(&config.SDKConfig{ProxyURL: auth.ProxyURL}, client)
-	}
+	client := newProxyAwareHTTPClient(ctx, e.cfg, auth, KiroRequestTimeout)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -236,12 +230,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, r
 		return nil, err
 	}
 
-	client := &http.Client{}
-	if proxy := e.cfg.ProxyURL; proxy != "" {
-		util.SetProxy(&config.SDKConfig{ProxyURL: proxy}, client)
-	} else if auth.ProxyURL != "" {
-		util.SetProxy(&config.SDKConfig{ProxyURL: auth.ProxyURL}, client)
-	}
+	client := newProxyAwareHTTPClient(ctx, e.cfg, rc.auth, 0)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
