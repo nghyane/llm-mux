@@ -665,7 +665,10 @@ func (m *Manager) pickNext(ctx context.Context, provider, model string, opts Opt
 		if modelKey != "" && registryRef != nil && !registryRef.ClientSupportsModel(candidate.ID, modelKey) {
 			continue
 		}
-		candidates = append(candidates, candidate)
+		// Create a shallow clone for the selector to avoid race conditions.
+		// The selector needs to read auth.Runtime concurrently with MarkResult updates.
+		// By cloning here (under RLock), we ensure the selector gets a consistent snapshot.
+		candidates = append(candidates, candidate.Clone())
 	}
 	if len(candidates) == 0 {
 		m.mu.RUnlock()
