@@ -74,7 +74,7 @@ curl -fsSL .../install.sh | bash -s -- --force
 Update to the latest version:
 
 ```bash
-llm-mux --update
+llm-mux update
 ```
 
 This checks GitHub for the latest release and installs it if newer.
@@ -88,7 +88,7 @@ This checks GitHub for the latest release and installs it if newer.
 1. Download the appropriate archive from [Releases](https://github.com/nghyane/llm-mux/releases)
 2. Extract the binary
 3. Move to a directory in your PATH
-4. Run `llm-mux --init`
+4. Run `llm-mux init`
 
 ### Build from Source
 
@@ -96,7 +96,7 @@ This checks GitHub for the latest release and installs it if newer.
 git clone https://github.com/nghyane/llm-mux.git
 cd llm-mux
 go build -o llm-mux ./cmd/server/
-./llm-mux --init
+./llm-mux init
 ```
 
 Requires Go 1.21+.
@@ -159,7 +159,7 @@ Remove-Item -Recurse "$env:USERPROFILE\.config\llm-mux"
 llm-mux
 
 # Initialize (if not done by installer)
-llm-mux --init
+llm-mux init
 
 # Start server
 llm-mux

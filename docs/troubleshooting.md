@@ -6,7 +6,7 @@
 |-------|----------|
 | Command not found | Add `~/.local/bin` to PATH |
 | Port in use | `lsof -i :8317` then kill or change port |
-| No models | Run `llm-mux --antigravity-login` |
+| No models | Run `llm-mux login antigravity` |
 | 503 error | Check auth: `ls ~/.config/llm-mux/auth/` |
 | 429 rate limit | Wait or add more accounts |
 
@@ -37,7 +37,7 @@ kill $(lsof -t -i :8317)  # Kill it
 
 **Config not found**
 ```bash
-llm-mux --init
+llm-mux init
 ```
 
 ---
@@ -46,18 +46,18 @@ llm-mux --init
 
 **No models available**
 ```bash
-llm-mux --antigravity-login  # or --claude-login, --copilot-login
+llm-mux login antigravity  # or: login claude, login copilot
 curl http://localhost:8317/v1/models
 ```
 
 **OAuth fails**
 ```bash
-llm-mux --claude-login --no-browser  # Copy URL manually
+llm-mux login claude --no-browser  # Copy URL manually
 ```
 
 **Token expired**
 ```bash
-llm-mux --antigravity-login  # Re-authenticate
+llm-mux login antigravity  # Re-authenticate
 ```
 
 ---
@@ -119,8 +119,8 @@ journalctl --user -u llm-mux -n 50     # Linux
 
 ```bash
 mv ~/.config/llm-mux ~/.config/llm-mux.bak
-llm-mux --init
-llm-mux --antigravity-login
+llm-mux init
+llm-mux login antigravity
 ```
 
 ---

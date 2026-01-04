@@ -65,7 +65,7 @@ OAuth requires a browser. Options:
 
 **Option 1: Copy tokens from host**
 ```bash
-llm-mux --antigravity-login          # Login on host
+llm-mux login antigravity          # Login on host
 mkdir -p auth
 cp -r ~/.config/llm-mux/auth/* ./auth/
 ```
@@ -83,7 +83,7 @@ providers:
 
 **Option 3: Get management key**
 ```bash
-docker exec llm-mux ./llm-mux --init
+docker exec llm-mux ./llm-mux init
 ```
 
 ---
@@ -116,11 +116,13 @@ environment:
   - LLM_MUX_MANAGEMENT_KEY=your-secret-key
   - LLM_MUX_ALLOW_REMOTE=true
   
-  # Storage backend
-  - PGSTORE_DSN=postgresql://user:pass@postgres:5432/db
+  # Storage backend (choose one)
+  - LLM_MUX_PGSTORE_DSN=postgresql://user:pass@postgres:5432/db
   # or
-  - OBJECTSTORE_ENDPOINT=https://s3.amazonaws.com
-  - OBJECTSTORE_BUCKET=llm-mux-tokens
+  - LLM_MUX_OBJECTSTORE_ENDPOINT=https://s3.amazonaws.com
+  - LLM_MUX_OBJECTSTORE_BUCKET=llm-mux-tokens
+  - LLM_MUX_OBJECTSTORE_ACCESS_KEY=...
+  - LLM_MUX_OBJECTSTORE_SECRET_KEY=...
 ```
 
 ---

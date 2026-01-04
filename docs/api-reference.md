@@ -108,7 +108,7 @@ Base path: `/v1/management` | Auth: `X-Management-Key` header or `Authorization:
 
 ```bash
 # Generate management key
-llm-mux --init
+llm-mux init
 
 # Local access (only needs key)
 curl -H "X-Management-Key: $KEY" http://localhost:8317/v1/management/config

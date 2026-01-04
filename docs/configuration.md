@@ -3,7 +3,7 @@
 Config file: `~/.config/llm-mux/config.yaml`
 
 ```bash
-llm-mux --init  # Creates config, auth dir, and management key
+llm-mux init  # Creates config, auth dir, and management key
 ```
 
 ---
@@ -24,7 +24,9 @@ proxy-url: ""                           # Global proxy (http/https/socks5)
 ```yaml
 request-retry: 3                        # Retry attempts
 max-retry-interval: 30                  # Max seconds between retries
+stream-timeout: 300                     # Stream timeout in seconds
 disable-cooling: false                  # Skip cooldown after quota errors
+quota-window: 60                        # Quota tracking window in seconds
 ```
 
 ## TLS
@@ -151,6 +153,7 @@ Environment variables override config file values. All use `LLM_MUX_` prefix.
 | `LLM_MUX_LOGGING_TO_FILE` | Enable file logging | `true` |
 | `LLM_MUX_REQUEST_RETRY` | Retry attempts | `3` |
 | `LLM_MUX_MAX_RETRY_INTERVAL` | Max retry interval (seconds) | `30` |
+| `LLM_MUX_STREAM_TIMEOUT` | Stream timeout (seconds) | `300` |
 
 ### Management API
 

@@ -6,14 +6,14 @@ llm-mux supports multiple AI providers through OAuth authentication. Login once 
 
 | Provider | Command | Subscription Required |
 |----------|---------|----------------------|
-| [Google Gemini](#google-gemini) | `--antigravity-login` | Google One AI Premium or Free Tier |
-| [Claude](#claude) | `--claude-login` | Claude Pro / Max |
-| [GitHub Copilot](#github-copilot) | `--copilot-login` | GitHub Copilot subscription |
-| [OpenAI Codex](#openai-codex) | `--codex-login` | ChatGPT Plus/Pro (GPT-5 access) |
-| [Qwen](#qwen) | `--qwen-login` | Alibaba Cloud account |
-| [Kiro](#kiro) | `--kiro-login` | AWS/Amazon Q Developer |
-| [Cline](#cline) | `--cline-login` | Cline subscription |
-| [iFlow](#iflow) | `--iflow-login` | iFlow account |
+| [Google Gemini](#google-gemini) | `login antigravity` | Google One AI Premium or Free Tier |
+| [Claude](#claude) | `login claude` | Claude Pro / Max |
+| [GitHub Copilot](#github-copilot) | `login copilot` | GitHub Copilot subscription |
+| [OpenAI Codex](#openai-codex) | `login codex` | ChatGPT Plus/Pro (GPT-5 access) |
+| [Qwen](#qwen) | `login qwen` | Alibaba Cloud account |
+| [Kiro](#kiro) | `login kiro` | AWS/Amazon Q Developer |
+| [Cline](#cline) | `login cline` | Cline subscription |
+| [iFlow](#iflow) | `login iflow` | iFlow account |
 
 ---
 
@@ -22,16 +22,16 @@ llm-mux supports multiple AI providers through OAuth authentication. Login once 
 Access Gemini models through Google One AI Premium or free tier.
 
 ```bash
-llm-mux --antigravity-login
+llm-mux login antigravity
 ```
 
 **Available Models:**
 - `gemini-2.5-pro`
 - `gemini-2.5-flash`
 
-**Alternative login (legacy):**
+**Alternative login (Vertex AI):**
 ```bash
-llm-mux --login
+llm-mux login gemini
 ```
 
 ---
@@ -41,7 +41,7 @@ llm-mux --login
 Access Claude models through Anthropic's Claude Pro/Max subscription.
 
 ```bash
-llm-mux --claude-login
+llm-mux login claude
 ```
 
 **Available Models:**
@@ -56,7 +56,7 @@ llm-mux --claude-login
 Access GPT models through GitHub Copilot subscription.
 
 ```bash
-llm-mux --copilot-login
+llm-mux login copilot
 ```
 
 This uses GitHub's device flow authentication:
@@ -80,7 +80,7 @@ This uses GitHub's device flow authentication:
 Access GPT-5 series through ChatGPT Plus/Pro subscription.
 
 ```bash
-llm-mux --codex-login
+llm-mux login codex
 ```
 
 **Note:** GPT-5 models may require specific subscription tiers.
@@ -92,7 +92,7 @@ llm-mux --codex-login
 Access Alibaba Cloud's Qwen models.
 
 ```bash
-llm-mux --qwen-login
+llm-mux login qwen
 ```
 
 ---
@@ -102,7 +102,7 @@ llm-mux --qwen-login
 Access Amazon Q Developer (formerly CodeWhisperer).
 
 ```bash
-llm-mux --kiro-login
+llm-mux login kiro
 ```
 
 This uses a refresh token flow:
@@ -116,7 +116,7 @@ This uses a refresh token flow:
 Access Cline API integration.
 
 ```bash
-llm-mux --cline-login
+llm-mux login cline
 ```
 
 This uses a refresh token exported from VS Code:
@@ -134,10 +134,7 @@ Access iFlow integration.
 
 ```bash
 # OAuth login
-llm-mux --iflow-login
-
-# Or use cookie-based auth
-llm-mux --iflow-cookie
+llm-mux login iflow
 ```
 
 ---
@@ -170,12 +167,12 @@ Login multiple times with different accounts to enable load balancing:
 
 ```bash
 # Login with multiple Google accounts
-llm-mux --antigravity-login  # Account 1
-llm-mux --antigravity-login  # Account 2
+llm-mux login antigravity  # Account 1
+llm-mux login antigravity  # Account 2
 
 # Login with multiple providers
-llm-mux --claude-login
-llm-mux --copilot-login
+llm-mux login claude
+llm-mux login copilot
 ```
 
 llm-mux automatically:
@@ -193,7 +190,7 @@ llm-mux automatically:
 
 Example:
 ```bash
-llm-mux --claude-login --no-browser
+llm-mux login claude --no-browser
 # Manually open the displayed URL
 ```
 

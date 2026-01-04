@@ -59,7 +59,7 @@ npx @vscode/vsce package --allow-package-secrets sendgrid
 ### 2. Login to llm-mux
 
 ```bash
-llm-mux --cline-login
+llm-mux login cline
 # Paste token when prompted
 ```
 
@@ -78,7 +78,7 @@ ls ~/.config/llm-mux/auth/
 
 **Storage:** `~/.config/llm-mux/auth/cline-your-email@example.com.json`
 
-**Manual Refresh:** Tokens are automatically refreshed. Re-run `--cline-login` if needed.
+**Manual Refresh:** Tokens are automatically refreshed. Re-run `llm-mux login cline` if needed.
 
 ## Usage
 

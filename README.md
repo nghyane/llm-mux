@@ -27,9 +27,9 @@ Turn your Claude Pro, GitHub Copilot, and Gemini subscriptions into standard LLM
 curl -fsSL https://raw.githubusercontent.com/nghyane/llm-mux/main/install.sh | bash
 
 # Login to a provider
-llm-mux --antigravity-login   # Google Gemini
-llm-mux --claude-login        # Claude Pro/Max
-llm-mux --copilot-login       # GitHub Copilot
+llm-mux login antigravity   # Google Gemini
+llm-mux login claude        # Claude Pro/Max
+llm-mux login copilot       # GitHub Copilot
 
 # Start server
 llm-mux
