@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Docker](https://img.shields.io/docker/pulls/nghyane/llm-mux)](https://hub.docker.com/r/nghyane/llm-mux)
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://nghyane.github.io/llm-mux/)
-[![Discord](https://img.shields.io/discord/1326216179697410129?color=5865F2&logo=discord&logoColor=white)](https://discord.gg/dprbC7Gh7C)
+[![Discord](https://img.shields.io/discord/1326216179697410129?color=5865F2&logo=discord&logoColor=white)](https://discord.gg/86nFZUh4a9)
 
 Turn your Claude Pro, GitHub Copilot, and Gemini subscriptions into standard LLM APIs. No API keys needed.
 
