@@ -151,6 +151,11 @@ func TranslateResponseNonStream(cfg *config.Config, from, to provider.Format, re
 		return nil, err
 	}
 
+	// Handle case where source format is not supported (returns nil, nil)
+	if parsed == nil {
+		return nil, nil
+	}
+
 	// Convert IR to target format
 	translator := NewResponseTranslator(cfg, toStr, model)
 
