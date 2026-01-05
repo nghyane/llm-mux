@@ -146,6 +146,7 @@ func convertRequestToIR(from provider.Format, model string, payload []byte, meta
 	}
 
 	normalizeIRLimits(irReq.Model, irReq)
+	ApplyThinkingToIR(irReq.Model, irReq)
 	preprocess.Apply(irReq)
 
 	return irReq, nil

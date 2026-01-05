@@ -8,6 +8,7 @@ import (
 
 type StreamContext struct {
 	ClaudeState          *from_ir.ClaudeStreamState
+	GeminiState          *ir.GeminiStreamParserState
 	ToolCallIndex        int
 	HasToolCalls         bool
 	FinishSent           bool
@@ -19,6 +20,7 @@ type StreamContext struct {
 func NewStreamContext() *StreamContext {
 	return &StreamContext{
 		ClaudeState: from_ir.NewClaudeStreamState(),
+		GeminiState: ir.NewGeminiStreamParserState(),
 	}
 }
 

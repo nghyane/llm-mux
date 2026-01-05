@@ -1,8 +1,6 @@
 package executor
 
 import (
-	"strings"
-
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/translator/from_ir"
@@ -17,7 +15,8 @@ type StreamTranslator struct {
 	model          string
 	messageID      string
 	ctx            *StreamContext
-	buffer         ChunkBufferStrategy
+	eventBuffer    EventBufferStrategy
+	chunkBuffer    ChunkBufferStrategy
 	streamMetaSent bool
 }
 
@@ -31,11 +30,12 @@ func NewStreamTranslator(cfg *config.Config, from provider.Format, to, model, me
 		ctx:       ctx,
 	}
 
-	// Select buffer strategy based on target format and model
-	if (to == "gemini" || to == "gemini-cli") && strings.Contains(model, "claude") {
-		st.buffer = NewGeminiDelayBuffer()
+	if to == "gemini" || to == "gemini-cli" {
+		st.eventBuffer = NewPassthroughEventBuffer()
+		st.chunkBuffer = NewGeminiDelayBuffer()
 	} else {
-		st.buffer = NewPassthroughBuffer()
+		st.eventBuffer = NewPassthroughEventBuffer()
+		st.chunkBuffer = NewPassthroughBuffer()
 	}
 
 	return st
@@ -45,7 +45,6 @@ func NewStreamTranslator(cfg *config.Config, from provider.Format, to, model, me
 func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslationResult, error) {
 	var allChunks [][]byte
 
-	// Emit StreamMeta before first content event
 	if !t.streamMetaSent && len(events) > 0 {
 		t.streamMetaSent = true
 		metaEvent := ir.UnifiedEvent{
@@ -66,29 +65,20 @@ func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslati
 	for i := range events {
 		event := &events[i]
 
-		// Apply preprocessing (state tracking, deduplication)
 		if t.preprocess(event) {
-			continue // skip event
+			continue
 		}
 
-		// Convert single event to target format
-		chunk, err := t.convertEvent(event)
-		if err != nil {
-			return nil, err
-		}
-
-		// Apply buffering strategy
-		if chunk != nil || event.Type == ir.EventTypeFinish {
-			var finishEvent *ir.UnifiedEvent
-			if event.Type == ir.EventTypeFinish {
-				finishEvent = event
+		bufferedEvents := t.eventBuffer.Process(event)
+		for _, ev := range bufferedEvents {
+			chunks, err := t.convertAndBuffer(ev)
+			if err != nil {
+				return nil, err
 			}
-			emitted := t.buffer.Process(chunk, finishEvent)
-			allChunks = append(allChunks, emitted...)
+			allChunks = append(allChunks, chunks...)
 		}
 	}
 
-	// Extract usage from events
 	usage := extractUsageFromEvents(events)
 
 	return &StreamTranslationResult{
@@ -97,9 +87,58 @@ func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslati
 	}, nil
 }
 
-// Flush returns any buffered chunks (call on stream end)
-func (t *StreamTranslator) Flush() [][]byte {
-	return t.buffer.Flush()
+func (t *StreamTranslator) convertAndBuffer(event *ir.UnifiedEvent) ([][]byte, error) {
+	chunk, err := t.convertEvent(event)
+	if err != nil {
+		return nil, err
+	}
+
+	if chunk != nil || event.Type == ir.EventTypeFinish {
+		var finishEvent *ir.UnifiedEvent
+		if event.Type == ir.EventTypeFinish {
+			finishEvent = event
+		}
+		return t.chunkBuffer.Process(chunk, finishEvent), nil
+	}
+
+	return nil, nil
+}
+
+func (t *StreamTranslator) Flush() ([][]byte, error) {
+	var allChunks [][]byte
+
+	// Finalize Claude parser state (embedded in ClaudeState)
+	if t.ctx.ClaudeState != nil && t.ctx.ClaudeState.ParserState != nil {
+		if finalEvent := t.ctx.ClaudeState.ParserState.Finalize(); finalEvent != nil {
+			chunks, err := t.convertAndBuffer(finalEvent)
+			if err != nil {
+				return nil, err
+			}
+			allChunks = append(allChunks, chunks...)
+		}
+	}
+
+	if t.ctx.GeminiState != nil {
+		if finalEvent := t.ctx.GeminiState.Finalize(); finalEvent != nil {
+			chunks, err := t.convertAndBuffer(finalEvent)
+			if err != nil {
+				return nil, err
+			}
+			allChunks = append(allChunks, chunks...)
+		}
+	}
+
+	flushedEvents := t.eventBuffer.Flush()
+	for _, ev := range flushedEvents {
+		chunks, err := t.convertAndBuffer(ev)
+		if err != nil {
+			return nil, err
+		}
+		allChunks = append(allChunks, chunks...)
+	}
+
+	allChunks = append(allChunks, t.chunkBuffer.Flush()...)
+	return allChunks, nil
 }
 
 // preprocess handles state tracking (tool calls, reasoning, finish dedup)

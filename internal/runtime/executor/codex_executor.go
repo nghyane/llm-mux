@@ -196,7 +196,7 @@ func (p *codexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, er
 }
 
 func (p *codexStreamProcessor) ProcessDone() ([][]byte, error) {
-	return p.translator.Flush(), nil
+	return p.translator.Flush()
 }
 
 func (e *CodexExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {

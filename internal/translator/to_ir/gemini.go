@@ -427,6 +427,9 @@ func ParseGeminiResponseMetaWithContext(rawJSON []byte, schemaCtx *ir.ToolSchema
 	}
 
 	parsed, _ := ir.UnwrapAntigravityEnvelope(rawJSON)
+	if !parsed.Exists() || !parsed.IsObject() {
+		return nil, nil, nil, ir.ErrInvalidJSON
+	}
 	meta := parseGeminiMeta(parsed)
 	usage := parseGeminiUsage(parsed)
 
@@ -452,10 +455,22 @@ func ParseGeminiResponseMetaWithContext(rawJSON []byte, schemaCtx *ir.ToolSchema
 }
 
 func ParseGeminiChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
-	return ParseGeminiChunkWithContext(rawJSON, nil)
+	return ParseGeminiChunkWithStateContext(rawJSON, nil, nil)
 }
 
 func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext) ([]ir.UnifiedEvent, error) {
+	return ParseGeminiChunkWithStateContext(rawJSON, nil, schemaCtx)
+}
+
+// ParseGeminiChunkWithState parses a Gemini SSE chunk with state for signature merging.
+// State tracks orphan signatures (thinking parts with signature but no text) and attaches
+// them to subsequent thinking events, eliminating orphan signature events.
+func ParseGeminiChunkWithState(rawJSON []byte, state *ir.GeminiStreamParserState) ([]ir.UnifiedEvent, error) {
+	return ParseGeminiChunkWithStateContext(rawJSON, state, nil)
+}
+
+// ParseGeminiChunkWithStateContext parses with both state and tool schema context.
+func ParseGeminiChunkWithStateContext(rawJSON []byte, state *ir.GeminiStreamParserState, schemaCtx *ir.ToolSchemaContext) ([]ir.UnifiedEvent, error) {
 	rawJSON = ir.ExtractSSEData(rawJSON)
 	if len(rawJSON) == 0 {
 		return nil, nil
@@ -480,14 +495,48 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 
 		for _, part := range candidate.Get("content.parts").Array() {
 			ts := ir.ExtractThoughtSignature(part)
+			isThought := part.Get("thought").Bool() || part.Get("thoughtSummary").Exists()
+			text := part.Get("text")
+			hasText := text.Exists() && text.String() != ""
 
-			if text := part.Get("text"); text.Exists() && text.String() != "" {
-				if part.Get("thought").Bool() || part.Get("thoughtSummary").Exists() {
-					events = append(events, ir.UnifiedEvent{Type: ir.EventTypeReasoning, Reasoning: text.String(), ThoughtSignature: ts})
+			// Orphan signature: thinking with signature but no text
+			// Attach to buffered thinking event and emit it
+			if isThought && len(ts) > 0 && !hasText {
+				if state != nil {
+					if completed := state.AttachSignature(ts); completed != nil {
+						events = append(events, *completed)
+					}
+				}
+				continue
+			}
+
+			if hasText {
+				if isThought {
+					thinkingEvent := &ir.UnifiedEvent{Type: ir.EventTypeReasoning, Reasoning: text.String(), ThoughtSignature: ts}
+					if state != nil && len(ts) == 0 {
+						// Buffer this thinking event - signature may come in next chunk
+						if prev := state.BufferThinkingEvent(thinkingEvent); prev != nil {
+							events = append(events, *prev)
+						}
+					} else {
+						// Has signature already, emit directly
+						events = append(events, *thinkingEvent)
+					}
 				} else {
+					// Non-thinking text: flush any buffered thinking first
+					if state != nil {
+						if pending := state.FlushPending(); pending != nil {
+							events = append(events, *pending)
+						}
+					}
 					events = append(events, ir.UnifiedEvent{Type: ir.EventTypeToken, Content: text.String(), ThoughtSignature: ts})
 				}
 			} else if fc := part.Get("functionCall"); fc.Exists() {
+				if state != nil {
+					if pending := state.FlushPending(); pending != nil {
+						events = append(events, *pending)
+					}
+				}
 				name := fc.Get("name").String()
 				if name != "" {
 					id := ensureToolCallID(fc)
@@ -511,15 +560,18 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 					})
 					toolCallIndex++
 				} else if pa := fc.Get("partialArgs"); pa.Exists() {
-					// Continuation chunk with only partialArgs (no name) - emit delta
-					// This happens when streaming function call arguments
 					events = append(events, ir.UnifiedEvent{
 						Type:          ir.EventTypeToolCallDelta,
 						ToolCall:      &ir.ToolCall{Args: pa.Raw},
-						ToolCallIndex: toolCallIndex, // Will be adjusted by translator
+						ToolCallIndex: toolCallIndex,
 					})
 				}
 			} else if ec := part.Get("executableCode"); ec.Exists() {
+				if state != nil {
+					if pending := state.FlushPending(); pending != nil {
+						events = append(events, *pending)
+					}
+				}
 				events = append(events, ir.UnifiedEvent{
 					Type: ir.EventTypeCodeExecution,
 					CodeExecution: &ir.CodeExecutionPart{
@@ -529,6 +581,11 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 					ThoughtSignature: ts,
 				})
 			} else if cer := part.Get("codeExecutionResult"); cer.Exists() {
+				if state != nil {
+					if pending := state.FlushPending(); pending != nil {
+						events = append(events, *pending)
+					}
+				}
 				events = append(events, ir.UnifiedEvent{
 					Type: ir.EventTypeCodeExecution,
 					CodeExecution: &ir.CodeExecutionPart{
@@ -537,8 +594,6 @@ func ParseGeminiChunkWithContext(rawJSON []byte, schemaCtx *ir.ToolSchemaContext
 					},
 					ThoughtSignature: ts,
 				})
-			} else if len(ts) > 0 {
-				events = append(events, ir.UnifiedEvent{Type: ir.EventTypeReasoning, Reasoning: "", ThoughtSignature: ts})
 			}
 		}
 

@@ -322,10 +322,13 @@ func (p *OpenAIStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, e
 func (p *OpenAIStreamProcessor) ProcessDone() ([][]byte, error) {
 	events, _ := to_ir.ParseOpenAIChunk([]byte("[DONE]"))
 	if len(events) == 0 {
-		return p.translator.Flush(), nil
+		return p.translator.Flush()
 	}
 	result, _ := p.translator.Translate(events)
-	flushed := p.translator.Flush()
+	flushed, err := p.translator.Flush()
+	if err != nil {
+		return nil, err
+	}
 	return append(result.Chunks, flushed...), nil
 }
 
@@ -338,12 +341,13 @@ func NewGeminiCLIStreamProcessor(translator *StreamTranslator) *GeminiCLIStreamP
 }
 
 func (p *GeminiCLIStreamProcessor) ProcessLine(payload []byte) ([][]byte, *ir.Usage, error) {
+	state := p.Translator.ctx.GeminiState
 	var events []ir.UnifiedEvent
 	var err error
 	if p.Translator.ctx.ToolSchemaCtx != nil {
-		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunkWithContext(payload, p.Translator.ctx.ToolSchemaCtx)
+		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunkWithStateContext(payload, state, p.Translator.ctx.ToolSchemaCtx)
 	} else {
-		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunk(payload)
+		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunkWithState(payload, state)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -360,5 +364,5 @@ func (p *GeminiCLIStreamProcessor) ProcessLine(payload []byte) ([][]byte, *ir.Us
 }
 
 func (p *GeminiCLIStreamProcessor) ProcessDone() ([][]byte, error) {
-	return p.Translator.Flush(), nil
+	return p.Translator.Flush()
 }

@@ -53,7 +53,7 @@ func (p *claudeStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, e
 }
 
 func (p *claudeStreamProcessor) ProcessDone() ([][]byte, error) {
-	return p.translator.Flush(), nil
+	return p.translator.Flush()
 }
 
 type claudePassthroughProcessor struct{}

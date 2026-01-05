@@ -2,7 +2,7 @@
 
 **AI Gateway** — Turns subscription LLMs (Claude Pro, Copilot, Gemini) into standard APIs.
 
-**Generated:** 2026-01-02 | **Commit:** 52aaaa6 | **Branch:** main | **Files:** 326 | **Lines:** 70k
+**Generated:** 2026-01-05 | **Commit:** 3313ba3 | **Branch:** main | **Files:** 339 | **Lines:** 73k
 
 ## Providers
 
@@ -23,7 +23,7 @@ llm-mux/
 │   ├── cli/             # Cobra CLI commands and bootstrap
 │   │   └── env/         # Environment variable helpers
 │   ├── config/          # YAML parsing, XDG paths
-│   ├── provider/        # State, selection, quota groups (19 files)
+│   ├── provider/        # State, selection, quota groups (25 files) - see provider/AGENTS.md
 │   ├── runtime/executor/# Provider HTTP clients (40 files) - see executor/AGENTS.md
 │   ├── service/         # Builder, Service, hot-reload orchestration
 │   ├── store/           # Remote store backends (postgres, object, git)

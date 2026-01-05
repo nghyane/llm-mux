@@ -121,15 +121,28 @@ func TestBuildGeminiContentParts_ToolCallWithSignature(t *testing.T) {
 }
 
 func TestParseClaudeSignatureDelta(t *testing.T) {
-	// Simulate Claude signature_delta event
-	input := `{"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "claude_extended_sig"}}`
-	parsed := gjson.Parse(input)
-
 	state := NewClaudeStreamParserState()
-	events := ParseClaudeStreamDeltaWithState(parsed, state)
+
+	// Step 1: Send thinking_delta first (gets buffered)
+	thinkingInput := `{"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Let me analyze..."}}`
+	thinkingParsed := gjson.Parse(thinkingInput)
+	events := ParseClaudeStreamDeltaWithState(thinkingParsed, state)
+
+	// Thinking should be buffered, not emitted yet
+	if len(events) != 0 {
+		t.Fatalf("thinking should be buffered, got %d events", len(events))
+	}
+	if !state.HasPendingEvent() {
+		t.Fatal("expected pending thinking event in state")
+	}
+
+	// Step 2: Send signature_delta (attaches to buffered thinking and emits)
+	sigInput := `{"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "claude_extended_sig"}}`
+	sigParsed := gjson.Parse(sigInput)
+	events = ParseClaudeStreamDeltaWithState(sigParsed, state)
 
 	if len(events) != 1 {
-		t.Fatalf("expected 1 event, got %d", len(events))
+		t.Fatalf("expected 1 completed event, got %d", len(events))
 	}
 
 	ev := events[0]
@@ -137,13 +150,17 @@ func TestParseClaudeSignatureDelta(t *testing.T) {
 		t.Errorf("expected EventTypeReasoning, got %s", ev.Type)
 	}
 
+	if ev.Reasoning != "Let me analyze..." {
+		t.Errorf("expected 'Let me analyze...', got '%s'", ev.Reasoning)
+	}
+
 	if string(ev.ThoughtSignature) != "claude_extended_sig" {
 		t.Errorf("expected 'claude_extended_sig', got '%s'", string(ev.ThoughtSignature))
 	}
 
-	// Also check state was updated
-	if state.CurrentThinkingSignature != "claude_extended_sig" {
-		t.Errorf("state.CurrentThinkingSignature expected 'claude_extended_sig', got '%s'", state.CurrentThinkingSignature)
+	// State should be cleared
+	if state.HasPendingEvent() {
+		t.Error("expected no pending event after signature attached")
 	}
 }
 

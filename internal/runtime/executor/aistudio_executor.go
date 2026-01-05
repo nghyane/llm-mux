@@ -10,13 +10,13 @@ import (
 	"strings"
 
 	"github.com/nghyane/llm-mux/internal/config"
+	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
-	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -300,12 +300,13 @@ type aistudioStreamProcessor struct {
 }
 
 func (p *aistudioStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
+	state := p.translator.ctx.GeminiState
 	var events []ir.UnifiedEvent
 	var err error
 	if p.translator.ctx.ToolSchemaCtx != nil {
-		events, err = to_ir.ParseGeminiChunkWithContext(line, p.translator.ctx.ToolSchemaCtx)
+		events, err = to_ir.ParseGeminiChunkWithStateContext(line, state, p.translator.ctx.ToolSchemaCtx)
 	} else {
-		events, err = to_ir.ParseGeminiChunk(line)
+		events, err = to_ir.ParseGeminiChunkWithState(line, state)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -322,7 +323,7 @@ func (p *aistudioStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage,
 }
 
 func (p *aistudioStreamProcessor) ProcessDone() ([][]byte, error) {
-	return p.translator.Flush(), nil
+	return p.translator.Flush()
 }
 
 func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.Options, stream bool) ([]byte, translatedPayload, error) {

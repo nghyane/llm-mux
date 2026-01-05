@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -98,4 +99,32 @@ func EnsureClaudeMaxTokens(modelName string, body []byte) []byte {
 		body, _ = sjson.SetBytes(body, "max_tokens", requiredMaxTokens)
 	}
 	return body
+}
+
+func ApplyThinkingToIR(model string, req *ir.UnifiedChatRequest) {
+	if req.Thinking != nil && req.Thinking.IncludeThoughts {
+		return
+	}
+
+	cfg := ParseClaudeThinkingFromModel(model)
+	if cfg == nil {
+		return
+	}
+
+	budget := int32(cfg.BudgetTokens)
+	req.Thinking = &ir.ThinkingConfig{
+		IncludeThoughts: true,
+		ThinkingBudget:  &budget,
+	}
+
+	info := registry.GetGlobalRegistry().GetModelInfo(model)
+	minMaxTokens := cfg.BudgetTokens + 4000
+	if info != nil && info.MaxCompletionTokens > 0 {
+		minMaxTokens = info.MaxCompletionTokens
+	}
+
+	if req.MaxTokens == nil || *req.MaxTokens < minMaxTokens {
+		mt := minMaxTokens
+		req.MaxTokens = &mt
+	}
 }

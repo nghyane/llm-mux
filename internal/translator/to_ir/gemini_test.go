@@ -914,3 +914,103 @@ func TestMergeConsecutiveModelThinking_MultipleToolCalls(t *testing.T) {
 		}
 	}
 }
+
+func TestParseGeminiChunkWithState_OrphanSignatureMerge(t *testing.T) {
+	state := ir.NewGeminiStreamParserState()
+
+	// Chunk 1: thinking text without signature - gets buffered
+	chunk1 := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"text":"I am thinking..."}]}}]}`
+	events1, err := ParseGeminiChunkWithState([]byte(chunk1), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events1) != 0 {
+		t.Errorf("thinking without signature should be buffered, got %d events", len(events1))
+	}
+	if !state.HasPendingEvent() {
+		t.Error("state should have pending thinking event")
+	}
+
+	// Chunk 2: orphan signature - attaches to buffered event and emits
+	chunk2 := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"thoughtSignature":"c2lnMTIz"}]}}]}`
+	events2, err := ParseGeminiChunkWithState([]byte(chunk2), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events2) != 1 {
+		t.Fatalf("expected 1 event after signature attachment, got %d", len(events2))
+	}
+	if events2[0].Type != ir.EventTypeReasoning {
+		t.Errorf("expected reasoning event, got %v", events2[0].Type)
+	}
+	if events2[0].Reasoning != "I am thinking..." {
+		t.Errorf("reasoning = %q, want %q", events2[0].Reasoning, "I am thinking...")
+	}
+	if len(events2[0].ThoughtSignature) == 0 {
+		t.Error("signature should be attached to thinking event")
+	}
+	if state.HasPendingEvent() {
+		t.Error("pending event should be cleared after emission")
+	}
+}
+
+func TestParseGeminiChunkWithState_NilStateDropsOrphan(t *testing.T) {
+	chunk := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"thoughtSignature":"c2lnMTIz"}]}}]}`
+	events, err := ParseGeminiChunkWithState([]byte(chunk), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("with nil state, orphan signature should be dropped, got %d events", len(events))
+	}
+}
+
+func TestParseGeminiChunkWithState_SignatureOnContentPart(t *testing.T) {
+	state := ir.NewGeminiStreamParserState()
+
+	chunk := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"text":"Thinking...","thoughtSignature":"c2lnMTIz"}]}}]}`
+	events, err := ParseGeminiChunkWithState([]byte(chunk), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if len(events[0].ThoughtSignature) == 0 {
+		t.Error("signature should be attached when present on content part")
+	}
+	if state.HasPendingEvent() {
+		t.Error("no pending event expected when signature came with content")
+	}
+}
+
+func TestGeminiStreamParserState_Finalize(t *testing.T) {
+	state := ir.NewGeminiStreamParserState()
+
+	chunk := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"text":"thinking without sig"}]}}]}`
+	events, err := ParseGeminiChunkWithState([]byte(chunk), state)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("thinking without signature should be buffered, got %d", len(events))
+	}
+
+	finalEvent := state.Finalize()
+	if finalEvent == nil {
+		t.Fatal("expected final event with buffered thinking")
+	}
+	if finalEvent.Type != ir.EventTypeReasoning {
+		t.Errorf("expected reasoning event, got %v", finalEvent.Type)
+	}
+	if finalEvent.Reasoning != "thinking without sig" {
+		t.Errorf("reasoning = %q, want %q", finalEvent.Reasoning, "thinking without sig")
+	}
+
+	if state.HasPendingEvent() {
+		t.Error("pending event should be cleared after finalize")
+	}
+	if state.Finalize() != nil {
+		t.Error("second finalize should return nil")
+	}
+}

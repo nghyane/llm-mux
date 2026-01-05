@@ -847,6 +847,14 @@ func (p *VertexEnvelopeProvider) ParseStreamChunkWithContext(cj []byte, sc *ir.T
 	return to_ir.ParseGeminiChunkWithContext(cj, sc)
 }
 
+func (p *VertexEnvelopeProvider) ParseStreamChunkWithState(cj []byte, state *ir.GeminiStreamParserState) ([]ir.UnifiedEvent, error) {
+	return to_ir.ParseGeminiChunkWithState(cj, state)
+}
+
+func (p *VertexEnvelopeProvider) ParseStreamChunkWithStateContext(cj []byte, state *ir.GeminiStreamParserState, sc *ir.ToolSchemaContext) ([]ir.UnifiedEvent, error) {
+	return to_ir.ParseGeminiChunkWithStateContext(cj, state, sc)
+}
+
 func buildFunctionResponseObject(res string, isError bool) any {
 	if res == "" {
 		if isError {

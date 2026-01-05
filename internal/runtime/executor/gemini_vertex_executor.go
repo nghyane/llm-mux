@@ -348,12 +348,13 @@ type vertexStreamProcessor struct {
 }
 
 func (p *vertexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
+	state := p.translator.ctx.GeminiState
 	var events []ir.UnifiedEvent
 	var err error
 	if p.translator.ctx.ToolSchemaCtx != nil {
-		events, err = to_ir.ParseGeminiChunkWithContext(line, p.translator.ctx.ToolSchemaCtx)
+		events, err = to_ir.ParseGeminiChunkWithStateContext(line, state, p.translator.ctx.ToolSchemaCtx)
 	} else {
-		events, err = to_ir.ParseGeminiChunk(line)
+		events, err = to_ir.ParseGeminiChunkWithState(line, state)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -370,7 +371,7 @@ func (p *vertexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, e
 }
 
 func (p *vertexStreamProcessor) ProcessDone() ([][]byte, error) {
-	return p.translator.Flush(), nil
+	return p.translator.Flush()
 }
 
 func vertexCreds(a *provider.Auth) (projectID, location string, serviceAccountJSON []byte, err error) {

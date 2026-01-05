@@ -35,7 +35,7 @@ type geminiStreamProcessor struct {
 }
 
 func (p *geminiStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	events, err := to_ir.ParseGeminiChunk(line)
+	events, err := to_ir.ParseGeminiChunkWithState(line, p.translator.ctx.GeminiState)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -51,7 +51,7 @@ func (p *geminiStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, e
 }
 
 func (p *geminiStreamProcessor) ProcessDone() ([][]byte, error) {
-	return p.translator.Flush(), nil
+	return p.translator.Flush()
 }
 
 func (e *GeminiExecutor) Identifier() string { return "gemini" }
