@@ -708,7 +708,10 @@ func buildCacheControlMap(cc *ir.CacheControl) map[string]any {
 
 // hasThinkingParts checks if any part in the slice is a thinking block.
 // Vertex Claude API does not allow cacheControl on contents containing thinking parts.
-// We check both "thought: true" and "thoughtSignature" as indicators of thinking content.
+// We check for:
+// - "thought: true" flag
+// - "thoughtSignature" field (indicates thinking content)
+// - Redacted thinking (parts with "data" field but no "text" field)
 func hasThinkingParts(parts []any) bool {
 	for _, p := range parts {
 		if m, ok := p.(map[string]any); ok {
