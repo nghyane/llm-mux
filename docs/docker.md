@@ -11,7 +11,8 @@ docker run -d \
   -p 8317:8317 \
   -v ./config.yaml:/llm-mux/config.yaml \
   -v ./auth:/llm-mux/auth \
-  nghyane/llm-mux:latest
+  nghyane/llm-mux:latest \
+  ./llm-mux serve --config /llm-mux/config.yaml
 ```
 
 ## Docker Compose
@@ -21,6 +22,7 @@ services:
   llm-mux:
     image: nghyane/llm-mux:latest
     container_name: llm-mux
+    command: ["./llm-mux", "serve", "--config", "/llm-mux/config.yaml"]
     ports:
       - "8317:8317"
     volumes:
