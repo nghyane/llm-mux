@@ -87,7 +87,7 @@ func (p *ClaudeProvider) ConvertRequest(req *ir.UnifiedChatRequest) ([]byte, err
 		case ir.RoleAssistant:
 			if ps := ir.BuildClaudeContentParts(m, len(m.ToolCalls) > 0, thinkingEnabled); len(ps) > 0 {
 				obj := map[string]any{"role": ir.ClaudeRoleAssistant, "content": ps}
-				if m.CacheControl != nil {
+				if m.CacheControl != nil && !ir.HasThinkingParts(m) {
 					cc := map[string]any{"type": m.CacheControl.Type}
 					if m.CacheControl.TTL != nil {
 						cc["ttl"] = *m.CacheControl.TTL

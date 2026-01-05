@@ -545,3 +545,19 @@ func (b *ResponseBuilder) BuildUsageMap() map[string]any {
 
 	return usageMap
 }
+
+func HasThinkingParts(msg Message) bool {
+	for i := range msg.Content {
+		switch msg.Content[i].Type {
+		case ContentTypeReasoning:
+			if msg.Content[i].Reasoning != "" || len(msg.Content[i].ThoughtSignature) > 0 {
+				return true
+			}
+		case ContentTypeRedactedThinking:
+			if msg.Content[i].RedactedData != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
