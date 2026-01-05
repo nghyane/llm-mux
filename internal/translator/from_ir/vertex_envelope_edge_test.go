@@ -80,3 +80,133 @@ func TestVertexEnvelopeProvider_ThinkingWithToolCalls(t *testing.T) {
         }
     }
 }
+
+func TestVertexEnvelopeProvider_UserWithCacheControlFollowedByThinking(t *testing.T) {
+    // Edge case: user message with cacheControl followed by model message with thinking
+    req := &ir.UnifiedChatRequest{
+        Model: "claude-sonnet-4-20250514",
+        Messages: []ir.Message{
+            {
+                Role:    ir.RoleUser,
+                Content: []ir.ContentPart{{Type: ir.ContentTypeText, Text: "Hello"}},
+                CacheControl: &ir.CacheControl{Type: "ephemeral"},
+            },
+            {
+                Role: ir.RoleAssistant,
+                Content: []ir.ContentPart{
+                    {Type: ir.ContentTypeReasoning, Reasoning: "Let me think...", ThoughtSignature: []byte("sig123")},
+                    {Type: ir.ContentTypeText, Text: "Response"},
+                },
+                // NO CacheControl on this message
+            },
+            {
+                Role:    ir.RoleUser,
+                Content: []ir.ContentPart{{Type: ir.ContentTypeText, Text: "Follow up"}},
+                CacheControl: &ir.CacheControl{Type: "ephemeral"},
+            },
+        },
+        MaxTokens: ir.Ptr(1024),
+        Thinking: &ir.ThinkingConfig{
+            IncludeThoughts: true,
+            ThinkingBudget:  ir.Ptr(int32(5000)),
+        },
+    }
+
+    p := &VertexEnvelopeProvider{}
+    payload, err := p.ConvertRequest(req)
+    if err != nil {
+        t.Fatalf("ConvertRequest failed: %v", err)
+    }
+
+    parsed := gjson.ParseBytes(payload)
+    contents := parsed.Get("request.contents").Array()
+    
+    t.Logf("Payload: %s", parsed.String())
+
+    if len(contents) != 3 {
+        t.Fatalf("expected 3 contents, got %d", len(contents))
+    }
+
+    // Content 0 (user): should have cacheControl
+    if !contents[0].Get("cacheControl").Exists() {
+        t.Error("Content 0 (user): should have cacheControl")
+    }
+
+    // Content 1 (model): should NOT have cacheControl (has thinking)
+    if contents[1].Get("cacheControl").Exists() {
+        t.Error("Content 1 (model): should NOT have cacheControl because it has thinking parts")
+    }
+    
+    // Verify it has thinking parts
+    hasThinking := false
+    for _, part := range contents[1].Get("parts").Array() {
+        if part.Get("thought").Bool() || part.Get("thoughtSignature").Exists() {
+            hasThinking = true
+        }
+        // Verify no cacheControl on individual parts
+        if part.Get("cacheControl").Exists() {
+            t.Error("Part should NOT have cacheControl")
+        }
+    }
+    if !hasThinking {
+        t.Error("Content 1 should have thinking parts")
+    }
+
+    // Content 2 (user): should have cacheControl
+    if !contents[2].Get("cacheControl").Exists() {
+        t.Error("Content 2 (user): should have cacheControl")
+    }
+}
+
+func TestVertexEnvelopeProvider_RedactedThinkingNoCacheControl(t *testing.T) {
+    // Test that redacted thinking blocks prevent cacheControl from being added
+    req := &ir.UnifiedChatRequest{
+        Model: "claude-sonnet-4-20250514",
+        Messages: []ir.Message{
+            {
+                Role:    ir.RoleUser,
+                Content: []ir.ContentPart{{Type: ir.ContentTypeText, Text: "Hello"}},
+            },
+            {
+                Role: ir.RoleAssistant,
+                Content: []ir.ContentPart{
+                    {Type: ir.ContentTypeRedactedThinking, RedactedData: "encrypted_data_123"},
+                    {Type: ir.ContentTypeText, Text: "Response"},
+                },
+                CacheControl: &ir.CacheControl{Type: "ephemeral"},
+            },
+        },
+        MaxTokens: ir.Ptr(1024),
+    }
+
+    p := &VertexEnvelopeProvider{}
+    payload, err := p.ConvertRequest(req)
+    if err != nil {
+        t.Fatalf("ConvertRequest failed: %v", err)
+    }
+
+    parsed := gjson.ParseBytes(payload)
+    contents := parsed.Get("request.contents").Array()
+    
+    t.Logf("Payload: %s", parsed.String())
+
+    if len(contents) != 2 {
+        t.Fatalf("expected 2 contents, got %d", len(contents))
+    }
+
+    // Content 1 (model): should NOT have cacheControl (has redacted thinking)
+    if contents[1].Get("cacheControl").Exists() {
+        t.Error("Content 1 (model): should NOT have cacheControl because it has redacted thinking")
+    }
+    
+    // Verify the redacted thinking data is preserved
+    hasRedactedData := false
+    for _, part := range contents[1].Get("parts").Array() {
+        if part.Get("data").String() == "encrypted_data_123" {
+            hasRedactedData = true
+        }
+    }
+    if !hasRedactedData {
+        t.Error("Redacted thinking data should be preserved")
+    }
+}

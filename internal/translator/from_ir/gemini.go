@@ -603,6 +603,8 @@ func (p *VertexEnvelopeProvider) buildClaudeContents(req *ir.UnifiedChatRequest)
 	contents := make([]any, len(messages))
 	for i, m := range messages {
 		content := map[string]any{"role": m.role, "parts": m.parts}
+		// Only add cacheControl if message doesn't have thinking parts
+		// Vertex Claude API does not allow cacheControl on contents with thinking
 		if m.cacheControl != nil && !hasThinkingParts(m.parts) {
 			content["cacheControl"] = buildCacheControlMap(m.cacheControl)
 		}
@@ -706,11 +708,23 @@ func buildCacheControlMap(cc *ir.CacheControl) map[string]any {
 
 // hasThinkingParts checks if any part in the slice is a thinking block.
 // Vertex Claude API does not allow cacheControl on contents containing thinking parts.
+// We check both "thought: true" and "thoughtSignature" as indicators of thinking content.
 func hasThinkingParts(parts []any) bool {
 	for _, p := range parts {
 		if m, ok := p.(map[string]any); ok {
+			// Check for thought=true flag
 			if thought, exists := m["thought"]; exists {
 				if b, ok := thought.(bool); ok && b {
+					return true
+				}
+			}
+			// Also check for thoughtSignature as an indicator
+			if _, exists := m["thoughtSignature"]; exists {
+				return true
+			}
+			// Check for redacted thinking (parts with "data" field and no "text" field)
+			if _, hasData := m["data"]; hasData {
+				if _, hasText := m["text"]; !hasText {
 					return true
 				}
 			}
@@ -732,6 +746,12 @@ func (p *VertexEnvelopeProvider) buildClaudeAssistantParts(msg *ir.Message) []an
 					part["thoughtSignature"] = string(cp.ThoughtSignature)
 				}
 				parts = append(parts, part)
+			}
+		case ir.ContentTypeRedactedThinking:
+			// Redacted thinking blocks contain encrypted data that must be preserved
+			// In Gemini CLI format for Claude, this is represented with a data field
+			if cp.RedactedData != "" {
+				parts = append(parts, map[string]any{"data": cp.RedactedData})
 			}
 		case ir.ContentTypeText:
 			if cp.Text != "" {
