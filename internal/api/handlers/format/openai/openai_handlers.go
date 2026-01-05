@@ -103,8 +103,16 @@ func (h *OpenAIAPIHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	// Codex API (gpt-5 models) requires stream=true
+	modelName := gjson.GetBytes(rawJSON, "model").String()
+	isCodexModel := len(modelName) >= 5 && modelName[:5] == "gpt-5"
+
 	streamResult := gjson.GetBytes(rawJSON, "stream")
-	if streamResult.Type == gjson.True {
+	if streamResult.Type == gjson.True || isCodexModel {
+		// Force streaming for Codex models
+		if isCodexModel {
+			rawJSON, _ = sjson.SetBytes(rawJSON, "stream", true)
+		}
 		h.handleStreamingResponse(c, rawJSON)
 	} else {
 		h.handleNonStreamingResponse(c, rawJSON)
