@@ -160,6 +160,15 @@ type UnifiedEvent struct {
 	RedactedData      string
 }
 
+// ErrorMessage returns the error message safely, handling nil Error.
+// Returns "unknown error" if Error is nil.
+func (e *UnifiedEvent) ErrorMessage() string {
+	if e.Error != nil {
+		return e.Error.Error()
+	}
+	return "unknown error"
+}
+
 type Usage struct {
 	PromptTokens             int64
 	CompletionTokens         int64

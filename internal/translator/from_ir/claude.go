@@ -1,9 +1,8 @@
 package from_ir
 
 import (
+	"bytes"
 	"fmt"
-	"strings"
-	"sync"
 
 	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
@@ -277,15 +276,15 @@ func (p *ClaudeProvider) ParseStreamChunkWithState(cj []byte, state *ir.ClaudeSt
 }
 
 func ToClaudeSSE(ev ir.UnifiedEvent, state *ClaudeStreamState) ([]byte, error) {
-	res := ir.GetStringBuilder()
-	defer ir.PutStringBuilder(res)
+	buf := ir.GetBuffer()
+	defer ir.PutBuffer(buf)
 	switch ev.Type {
 	case ir.EventTypeStreamMeta:
 		if state != nil && !state.MessageStartSent && ev.StreamMeta != nil {
 			state.MessageStartSent = true
 			state.Model = ev.StreamMeta.Model
 			state.MessageID = ev.StreamMeta.MessageID
-			res.WriteString(formatSSE(ir.ClaudeSSEMessageStart, map[string]any{
+			writeSSE(buf, ir.ClaudeSSEMessageStart, map[string]any{
 				"type": ir.ClaudeSSEMessageStart,
 				"message": map[string]any{
 					"id":      ev.StreamMeta.MessageID,
@@ -300,34 +299,34 @@ func ToClaudeSSE(ev ir.UnifiedEvent, state *ClaudeStreamState) ([]byte, error) {
 						"cache_read_input_tokens":     int64(0),
 					},
 				},
-			}))
+			})
 		}
 	case ir.EventTypeToken:
-		emitTextDeltaTo(res, ev.Content, state)
+		emitTextDeltaTo(buf, ev.Content, state)
 	case ir.EventTypeReasoning:
 		if ev.RedactedData != "" {
-			emitRedactedThinkingDeltaTo(res, ev.RedactedData, state)
+			emitRedactedThinkingDeltaTo(buf, ev.RedactedData, state)
 		} else {
-			emitThinkingDeltaTo(res, ev.Reasoning, ev.ThoughtSignature, state)
+			emitThinkingDeltaTo(buf, ev.Reasoning, ev.ThoughtSignature, state)
 		}
 	case ir.EventTypeToolCall:
 		if ev.ToolCall != nil {
-			emitToolCallTo(res, ev.ToolCall, state)
+			emitToolCallTo(buf, ev.ToolCall, state)
 		}
 	case ir.EventTypeFinish:
 		if state != nil && !state.FinishSent {
 			state.FinishSent = true
-			emitFinishTo(res, ev.Usage, state)
+			emitFinishTo(buf, ev.Usage, state)
 		} else if state == nil {
-			emitFinishTo(res, ev.Usage, nil)
+			emitFinishTo(buf, ev.Usage, nil)
 		}
 	case ir.EventTypeError:
-		res.WriteString(formatSSE(ir.ClaudeSSEError, map[string]any{"type": ir.ClaudeSSEError, "error": map[string]any{"type": "api_error", "message": ev.Error.Error()}}))
+		writeSSE(buf, ir.ClaudeSSEError, map[string]any{"type": ir.ClaudeSSEError, "error": map[string]any{"type": "api_error", "message": ev.ErrorMessage()}})
 	}
-	if res.Len() == 0 {
+	if buf.Len() == 0 {
 		return nil, nil
 	}
-	return []byte(res.String()), nil
+	return bytes.Clone(buf.Bytes()), nil
 }
 
 func ToClaudeResponse(ms []ir.Message, us *ir.Usage, model, mid string) ([]byte, error) {
@@ -359,88 +358,81 @@ func ToClaudeResponse(ms []ir.Message, us *ir.Usage, model, mid string) ([]byte,
 	return json.Marshal(res)
 }
 
-var ssePool = sync.Pool{New: func() any { return &sseBuffer{data: make([]byte, 0, 512)} }}
-
-func formatSSE(et string, d any) string {
+func writeSSE(buf *bytes.Buffer, et string, d any) {
 	jb, _ := json.Marshal(d)
-	bw := ssePool.Get().(*sseBuffer)
-	b := bw.data[:0]
-	if cap(b) < 16+len(et)+len(jb) {
-		b = make([]byte, 0, 16+len(et)+len(jb))
-	}
-	b = append(append(append(append(append(b, "event: "...), et...), "\ndata: "...), jb...), "\n\n"...)
-	res := string(b)
-	bw.data = b[:0]
-	ssePool.Put(bw)
-	return res
+	buf.WriteString("event: ")
+	buf.WriteString(et)
+	buf.WriteString("\ndata: ")
+	buf.Write(jb)
+	buf.WriteString("\n\n")
 }
 
-func emitTextDeltaTo(res *strings.Builder, t string, s *ClaudeStreamState) {
+func emitTextDeltaTo(buf *bytes.Buffer, t string, s *ClaudeStreamState) {
 	idx := 0
 	if s != nil {
 		s.HasTextContent = true
 		if s.TextBlockStarted && s.CurrentBlockType != ir.ClaudeBlockText {
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
 			s.TextBlockStarted, s.TextBlockIndex = false, s.TextBlockIndex+1
 		}
 		idx = s.TextBlockIndex
 		if !s.TextBlockStarted {
 			s.TextBlockStarted, s.CurrentBlockType = true, ir.ClaudeBlockText
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""}}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""}})
 		}
 	}
-	res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "text_delta", "text": t}}))
+	writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "text_delta", "text": t}})
 }
 
-func emitThinkingDeltaTo(res *strings.Builder, t string, sig []byte, s *ClaudeStreamState) {
+func emitThinkingDeltaTo(buf *bytes.Buffer, t string, sig []byte, s *ClaudeStreamState) {
 	if t == "" && len(sig) > 0 {
 		if s != nil && s.TextBlockStarted && s.CurrentBlockType == ir.ClaudeBlockThinking {
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "signature_delta", "signature": string(sig)}}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "signature_delta", "signature": string(sig)}})
 		}
 		return
 	}
 	idx := 0
 	if s != nil {
 		if s.TextBlockStarted && s.CurrentBlockType != ir.ClaudeBlockThinking {
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
 			s.TextBlockStarted, s.TextBlockIndex = false, s.TextBlockIndex+1
 		}
 		idx = s.TextBlockIndex
 		if !s.TextBlockStarted {
 			s.TextBlockStarted, s.CurrentBlockType = true, ir.ClaudeBlockThinking
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockThinking, "thinking": ""}}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockThinking, "thinking": ""}})
 		}
 	}
 	if t != "" {
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "thinking_delta", "thinking": t}}))
+		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "thinking_delta", "thinking": t}})
 	}
 	if len(sig) > 0 {
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "signature_delta", "signature": string(sig)}}))
+		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "signature_delta", "signature": string(sig)}})
 	}
 }
 
-func emitRedactedThinkingDeltaTo(res *strings.Builder, d string, s *ClaudeStreamState) {
+func emitRedactedThinkingDeltaTo(buf *bytes.Buffer, d string, s *ClaudeStreamState) {
 	idx := 0
 	if s != nil {
 		if s.TextBlockStarted && s.CurrentBlockType != ir.ClaudeBlockRedactedThinking {
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
 			s.TextBlockStarted, s.TextBlockIndex = false, s.TextBlockIndex+1
 		}
 		idx = s.TextBlockIndex
 		if !s.TextBlockStarted {
 			s.TextBlockStarted, s.CurrentBlockType = true, ir.ClaudeBlockRedactedThinking
-			res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockRedactedThinking, "data": ""}}))
+			writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockRedactedThinking, "data": ""}})
 		}
 	}
-	res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": ir.ClaudeDeltaRedactedThinking, "data": d}}))
+	writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": ir.ClaudeDeltaRedactedThinking, "data": d}})
 }
 
-func emitToolCallTo(res *strings.Builder, tc *ir.ToolCall, s *ClaudeStreamState) {
+func emitToolCallTo(buf *bytes.Buffer, tc *ir.ToolCall, s *ClaudeStreamState) {
 	if s != nil && s.TextBlockStarted && s.CurrentBlockType == ir.ClaudeBlockThinking && len(tc.ThoughtSignature) > 0 {
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "signature_delta", "signature": string(tc.ThoughtSignature)}}))
+		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "signature_delta", "signature": string(tc.ThoughtSignature)}})
 	}
 	if s != nil && s.TextBlockStarted {
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex}))
+		writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
 		s.TextBlockStarted, s.TextBlockIndex, s.CurrentBlockType = false, s.TextBlockIndex+1, ""
 	}
 	idx := 0
@@ -448,24 +440,24 @@ func emitToolCallTo(res *strings.Builder, tc *ir.ToolCall, s *ClaudeStreamState)
 		s.HasToolCalls, idx = true, s.TextBlockIndex
 		s.TextBlockIndex++
 	}
-	res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockToolUse, "id": ir.ToClaudeToolID(tc.ID), "name": tc.Name, "input": map[string]any{}}}))
+	writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockToolUse, "id": ir.ToClaudeToolID(tc.ID), "name": tc.Name, "input": map[string]any{}}})
 	args := tc.Args
 	if args == "" {
 		args = "{}"
 	}
-	res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "input_json_delta", "partial_json": args}}))
-	res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": idx}))
+	writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "input_json_delta", "partial_json": args}})
+	writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": idx})
 }
 
-func emitFinishTo(res *strings.Builder, us *ir.Usage, s *ClaudeStreamState) {
+func emitFinishTo(buf *bytes.Buffer, us *ir.Usage, s *ClaudeStreamState) {
 	if s != nil && s.TextBlockStarted {
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex}))
+		writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
 		s.TextBlockStarted, s.TextBlockIndex, s.CurrentBlockType = false, s.TextBlockIndex+1, ""
 	}
 	if s != nil && !s.HasTextContent && !s.HasToolCalls {
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": s.TextBlockIndex, "content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""}}))
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "text_delta", "text": " "}}))
-		res.WriteString(formatSSE(ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex}))
+		writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": s.TextBlockIndex, "content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""}})
+		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "text_delta", "text": " "}})
+		writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
 	}
 	sr := ir.ClaudeStopEndTurn
 	if s != nil && s.HasToolCalls {
@@ -490,8 +482,6 @@ func emitFinishTo(res *strings.Builder, us *ir.Usage, s *ClaudeStreamState) {
 			um["cache_creation_input_tokens"] = us.CacheCreationInputTokens
 		}
 	}
-	res.WriteString(formatSSE(ir.ClaudeSSEMessageDelta, map[string]any{"type": ir.ClaudeSSEMessageDelta, "delta": map[string]any{"stop_reason": sr}, "usage": um}))
-	res.WriteString(formatSSE(ir.ClaudeSSEMessageStop, map[string]any{"type": ir.ClaudeSSEMessageStop}))
+	writeSSE(buf, ir.ClaudeSSEMessageDelta, map[string]any{"type": ir.ClaudeSSEMessageDelta, "delta": map[string]any{"stop_reason": sr}, "usage": um})
+	writeSSE(buf, ir.ClaudeSSEMessageStop, map[string]any{"type": ir.ClaudeSSEMessageStop})
 }
-
-type sseBuffer struct{ data []byte }

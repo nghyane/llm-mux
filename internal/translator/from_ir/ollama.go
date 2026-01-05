@@ -243,7 +243,7 @@ func ToOllamaChatChunk(ev ir.UnifiedEvent, model string) ([]byte, error) {
 			res["total_duration"], res["load_duration"], res["prompt_eval_duration"], res["eval_duration"] = 0, 0, 0, 0
 		}
 	case ir.EventTypeError:
-		return nil, fmt.Errorf("stream error: %v", ev.Error)
+		return nil, fmt.Errorf("stream error: %s", ev.ErrorMessage())
 	}
 	jb, _ := json.Marshal(res)
 	return append(jb, '\n'), nil
@@ -266,7 +266,7 @@ func ToOllamaGenerateChunk(ev ir.UnifiedEvent, model string) ([]byte, error) {
 			res["total_duration"], res["load_duration"], res["prompt_eval_duration"], res["eval_duration"] = 0, 0, 0, 0
 		}
 	case ir.EventTypeError:
-		return nil, fmt.Errorf("stream error: %v", ev.Error)
+		return nil, fmt.Errorf("stream error: %s", ev.ErrorMessage())
 	}
 	jb, _ := json.Marshal(res)
 	return append(jb, '\n'), nil

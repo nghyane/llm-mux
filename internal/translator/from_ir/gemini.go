@@ -428,7 +428,7 @@ func ToGeminiChunk(event ir.UnifiedEvent, model string) ([]byte, error) {
 			chunk["usageMetadata"] = um
 		}
 	case ir.EventTypeError:
-		return nil, fmt.Errorf("stream error: %v", event.Error)
+		return nil, fmt.Errorf("stream error: %s", event.ErrorMessage())
 	}
 	chunk["candidates"] = []any{candidate}
 	jb, err := json.Marshal(chunk)

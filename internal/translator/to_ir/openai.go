@@ -2,6 +2,7 @@ package to_ir
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -426,7 +427,11 @@ func parseResponsesStreamEvent(et string, root gjson.Result) ([]ir.UnifiedEvent,
 		}
 		return []ir.UnifiedEvent{ev}, nil
 	case "error":
-		return []ir.UnifiedEvent{{Type: ir.EventTypeError, FinishReason: ir.FinishReasonError}}, nil
+		errMsg := root.Get("error.message").String()
+		if errMsg == "" {
+			errMsg = "unknown error"
+		}
+		return []ir.UnifiedEvent{{Type: ir.EventTypeError, FinishReason: ir.FinishReasonError, Error: errors.New(errMsg)}}, nil
 	}
 	return nil, nil
 }

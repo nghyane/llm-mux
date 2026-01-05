@@ -652,7 +652,7 @@ func ToOpenAIChunkMeta(ev ir.UnifiedEvent, model, mid string, ci int, meta *ir.O
 			ch["grounding_metadata"] = buildOpenAIGroundingMetadata(ev.GroundingMetadata)
 		}
 	case ir.EventTypeError:
-		return nil, fmt.Errorf("stream error: %v", ev.Error)
+		return nil, fmt.Errorf("stream error: %s", ev.ErrorMessage())
 	}
 	if ev.Logprobs != nil && ev.Type != ir.EventTypeFinish {
 		c["logprobs"] = ev.Logprobs
