@@ -115,6 +115,24 @@ journalctl --user -u llm-mux -n 50     # Linux
 
 ---
 
+## Performance
+
+**Streaming with Large Context Windows**
+
+llm-mux is optimized for streaming responses with large context windows:
+- Buffer pools pre-allocate 4KB for event serialization (reduced reallocations)
+- Scanner uses 256KB buffer for efficient streaming (handles large chunks)
+- Memory management prevents pool bloat from oversized responses
+
+These optimizations provide:
+- Reduced memory allocations during streaming
+- Lower GC pressure on long-running instances
+- Better throughput for large responses
+
+No configuration needed - optimizations are automatic.
+
+---
+
 ## Reset
 
 ```bash
