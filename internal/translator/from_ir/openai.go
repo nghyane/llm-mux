@@ -160,7 +160,8 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 	if req.TopP != nil {
 		m["top_p"] = *req.TopP
 	}
-	if req.MaxTokens != nil {
+	// Codex API rejects max_output_tokens for gpt-5 models
+	if req.MaxTokens != nil && !strings.HasPrefix(req.Model, "gpt-5") {
 		m["max_output_tokens"] = *req.MaxTokens
 	}
 	// Get instructions - either from explicit field or from system messages
