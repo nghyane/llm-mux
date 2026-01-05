@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nghyane/llm-mux/internal/json"
+	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
@@ -162,8 +163,30 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 	if req.MaxTokens != nil {
 		m["max_output_tokens"] = *req.MaxTokens
 	}
-	if req.Instructions != "" {
-		m["instructions"] = req.Instructions
+	// Get instructions - either from explicit field or from system messages
+	instructions := req.Instructions
+	if instructions == "" {
+		// Extract instructions from system messages if not explicitly set
+		for _, msg := range req.Messages {
+			if msg.Role == ir.RoleSystem {
+				if sysText := ir.CombineTextParts(msg); sysText != "" {
+					instructions = sysText
+					break
+				}
+			}
+		}
+	}
+	// Validate instructions against Codex expected prompts.
+	// Codex API rejects custom instructions, so we must use known prompts.
+	if strings.HasPrefix(req.Model, "gpt-5") {
+		isValid, defaultInstructions := misc.CodexInstructionsForModel(req.Model, instructions)
+		if !isValid && defaultInstructions != "" {
+			// Use default Codex instructions for this model
+			instructions = defaultInstructions
+		}
+	}
+	if instructions != "" {
+		m["instructions"] = instructions
 	}
 	if req.AudioConfig != nil {
 		ac := map[string]any{}
@@ -183,7 +206,7 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 
 	var input []any
 	for _, msg := range req.Messages {
-		if msg.Role == ir.RoleSystem && req.Instructions != "" {
+		if msg.Role == ir.RoleSystem && instructions != "" {
 			continue
 		}
 		if item := convertMessageToResponsesInput(msg); item != nil {
@@ -269,8 +292,11 @@ func convertToResponsesAPIRequest(req *ir.UnifiedChatRequest) ([]byte, error) {
 	if req.PromptCacheKey != "" {
 		m["prompt_cache_key"] = req.PromptCacheKey
 	}
+	// Codex API requires store to be false
 	if req.Store != nil {
 		m["store"] = *req.Store
+	} else if strings.HasPrefix(req.Model, "gpt-5") {
+		m["store"] = false
 	}
 
 	return json.Marshal(m)
