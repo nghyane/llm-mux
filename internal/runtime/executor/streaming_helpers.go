@@ -119,7 +119,7 @@ func RunSSEStream(
 	processor StreamProcessor,
 	cfg StreamConfig,
 ) <-chan provider.StreamChunk {
-	out := make(chan provider.StreamChunk, 32)
+	out := make(chan provider.StreamChunk, 64) // Increased buffer for high concurrency
 
 	go func() {
 		defer close(out)
@@ -128,16 +128,19 @@ func RunSSEStream(
 				log.Errorf("%s: panic in stream goroutine: %v", cfg.ExecutorName, r)
 			}
 		}()
-		defer func() {
-			if errClose := body.Close(); errClose != nil {
-				log.Errorf("%s: close response body error: %v", cfg.ExecutorName, errClose)
-			}
-		}()
+
+		// Use StreamReader for context-aware cancellation and idle detection
+		idleTimeout := cfg.IdleTimeout
+		if idleTimeout == 0 {
+			idleTimeout = DefaultStreamIdleTimeout
+		}
+		streamReader := NewStreamReader(ctx, body, idleTimeout, cfg.ExecutorName)
+		defer streamReader.Close()
 
 		buf := scannerBufferPool.Get().([]byte)
 		defer scannerBufferPool.Put(buf)
 
-		scanner := bufio.NewScanner(body)
+		scanner := bufio.NewScanner(streamReader)
 		maxBufferSize := cfg.MaxBufferSize
 		if maxBufferSize == 0 {
 			maxBufferSize = DefaultStreamBufferSize

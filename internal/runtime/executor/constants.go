@@ -2,9 +2,15 @@ package executor
 
 import "time"
 
-const DefaultStreamBufferSize = 20 * 1024 * 1024
+const DefaultStreamBufferSize = 2 * 1024 * 1024 // 2MB - reduced from 20MB for better memory efficiency
 
 const DefaultScannerBufferSize = 64 * 1024
+
+// DefaultStreamIdleTimeout is the maximum time to wait without receiving any data.
+// This is a safety net for detecting stalled upstream connections.
+// Set high enough to accommodate reasoning models that may "think" for extended periods.
+// The watchdog checks periodically (every 30s max), so this won't affect normal operation.
+const DefaultStreamIdleTimeout = 5 * time.Minute
 
 const (
 	DefaultClaudeUserAgent      = "claude-cli/1.0.83 (external, cli)"

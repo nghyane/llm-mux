@@ -16,7 +16,7 @@ import (
 )
 
 // TransportConfig holds optimized HTTP transport settings for API gateway workloads.
-// These values are tuned for high-concurrency LLM API proxying.
+// These values are tuned for high-concurrency LLM API streaming.
 //
 // NOTE: This is a duplicate of executor.TransportConfig. We cannot import executor here
 // due to circular import (executor imports resilience for retry). Keep values in sync with
@@ -31,16 +31,30 @@ var TransportConfig = struct {
 	ResponseHeaderTimeout time.Duration
 	DialTimeout           time.Duration
 	KeepAlive             time.Duration
+	// HTTP/2 specific settings
+	H2ReadIdleTimeout            time.Duration
+	H2PingTimeout                time.Duration
+	H2StrictMaxConcurrentStreams bool
+	H2AllowHTTP                  bool
 }{
-	MaxIdleConns:          1000,
-	MaxIdleConnsPerHost:   100, // Default is 2, too low for API gateways
-	MaxConnsPerHost:       200,
-	IdleConnTimeout:       90 * time.Second,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 1 * time.Second,
-	ResponseHeaderTimeout: 600 * time.Second, // Increased to 10 minutes for large context processing
-	DialTimeout:           30 * time.Second,
-	KeepAlive:             30 * time.Second,
+	// Connection pool settings - optimized for high concurrency
+	MaxIdleConns:        1000, // Total idle connections across all hosts
+	MaxIdleConnsPerHost: 100,  // Idle connections per host (default is 2)
+	MaxConnsPerHost:     0,    // 0 = no limit, let HTTP/2 multiplex
+
+	// Timeout settings
+	IdleConnTimeout:       90 * time.Second,  // How long idle connections stay in pool
+	TLSHandshakeTimeout:   10 * time.Second,  // TLS handshake timeout
+	ExpectContinueTimeout: 1 * time.Second,   // 100-continue timeout
+	ResponseHeaderTimeout: 600 * time.Second, // 10 minutes for large context processing
+	DialTimeout:           30 * time.Second,  // TCP dial timeout
+	KeepAlive:             30 * time.Second,  // TCP keep-alive interval
+
+	// HTTP/2 settings for streaming stability
+	H2ReadIdleTimeout:            30 * time.Second, // Ping if no data received
+	H2PingTimeout:                15 * time.Second, // Wait for ping response
+	H2StrictMaxConcurrentStreams: false,            // Don't limit concurrent streams strictly
+	H2AllowHTTP:                  false,            // Require HTTPS for HTTP/2
 }
 
 // sharedTransport is the singleton transport for non-proxy requests.
@@ -64,6 +78,7 @@ func newDialer() *net.Dialer {
 	return &net.Dialer{
 		Timeout:   TransportConfig.DialTimeout,
 		KeepAlive: TransportConfig.KeepAlive,
+		DualStack: true, // Enable both IPv4 and IPv6
 	}
 }
 
@@ -71,32 +86,54 @@ func newDialer() *net.Dialer {
 // It does NOT set DialContext - caller should set it based on use case.
 func newBaseTransport() *http.Transport {
 	t := &http.Transport{
-		MaxIdleConns:          TransportConfig.MaxIdleConns,
-		MaxIdleConnsPerHost:   TransportConfig.MaxIdleConnsPerHost,
-		MaxConnsPerHost:       TransportConfig.MaxConnsPerHost,
-		IdleConnTimeout:       TransportConfig.IdleConnTimeout,
+		// Connection pooling
+		MaxIdleConns:        TransportConfig.MaxIdleConns,
+		MaxIdleConnsPerHost: TransportConfig.MaxIdleConnsPerHost,
+		MaxConnsPerHost:     TransportConfig.MaxConnsPerHost,
+		IdleConnTimeout:     TransportConfig.IdleConnTimeout,
+
+		// Timeouts
 		TLSHandshakeTimeout:   TransportConfig.TLSHandshakeTimeout,
 		ExpectContinueTimeout: TransportConfig.ExpectContinueTimeout,
 		ResponseHeaderTimeout: TransportConfig.ResponseHeaderTimeout,
-		ForceAttemptHTTP2:     true,
-		DisableCompression:    false,
+
+		// HTTP/2
+		ForceAttemptHTTP2: true,
+
+		// Compression
+		DisableCompression: false,
+
+		// TLS configuration
 		TLSClientConfig: &tls.Config{
 			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+				tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			},
 		},
+
+		// Buffer sizes for streaming
+		WriteBufferSize: 64 * 1024,
+		ReadBufferSize:  64 * 1024,
 	}
 	configureHTTP2(t)
 	return t
 }
 
-// configureHTTP2 enables HTTP/2 with optimized settings.
+// configureHTTP2 enables HTTP/2 with settings optimized for LLM streaming.
 func configureHTTP2(transport *http.Transport) {
 	h2Transport, err := http2.ConfigureTransports(transport)
 	if err != nil {
 		return
 	}
-	h2Transport.ReadIdleTimeout = 30 * time.Second
-	h2Transport.PingTimeout = 15 * time.Second
-	h2Transport.StrictMaxConcurrentStreams = true
+	h2Transport.ReadIdleTimeout = TransportConfig.H2ReadIdleTimeout
+	h2Transport.PingTimeout = TransportConfig.H2PingTimeout
+	h2Transport.StrictMaxConcurrentStreams = TransportConfig.H2StrictMaxConcurrentStreams
+	h2Transport.AllowHTTP = TransportConfig.H2AllowHTTP
 }
 
 // ProxyTransport creates a new transport configured with an HTTP/HTTPS proxy.
