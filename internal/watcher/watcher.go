@@ -20,6 +20,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"golang.org/x/sync/singleflight"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,6 +72,8 @@ type Watcher struct {
 	// This prevents the watcher from reacting to its own writes.
 	pendingWritesMu sync.RWMutex
 	pendingWrites   map[string]time.Time
+	// persistGroup deduplicates concurrent config persistence calls using singleflight
+	persistGroup singleflight.Group
 }
 
 type stableIDGenerator struct {

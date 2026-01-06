@@ -198,7 +198,7 @@ func (h *GeminiAPIHandler) handleStreamGenerateContent(c *gin.Context, modelName
 		return
 	}
 
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	h.forwardGeminiStream(c, flusher, alt, func(err error) { cliCancel(err) }, dataChan, errChan)
 }
@@ -206,7 +206,7 @@ func (h *GeminiAPIHandler) handleStreamGenerateContent(c *gin.Context, modelName
 func (h *GeminiAPIHandler) handleCountTokens(c *gin.Context, modelName string, rawJSON []byte) {
 	c.Header("Content-Type", "application/json")
 	alt := h.GetAlt(c)
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	resp, errMsg := h.ExecuteCountWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
@@ -220,7 +220,7 @@ func (h *GeminiAPIHandler) handleCountTokens(c *gin.Context, modelName string, r
 func (h *GeminiAPIHandler) handleGenerateContent(c *gin.Context, modelName string, rawJSON []byte) {
 	c.Header("Content-Type", "application/json")
 	alt := h.GetAlt(c)
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, alt)
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)

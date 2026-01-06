@@ -163,11 +163,11 @@ func (m *Manager) dispatch(item queueItem) {
 		if plugin == nil {
 			continue
 		}
-		safeInvoke(plugin, item.ctx, item.record)
+		safeInvoke(item.ctx, plugin, item.record)
 	}
 }
 
-func safeInvoke(plugin Plugin, ctx context.Context, record Record) {
+func safeInvoke(ctx context.Context, plugin Plugin, record Record) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Errorf("usage: plugin panic recovered: %v", r)

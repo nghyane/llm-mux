@@ -71,7 +71,7 @@ func (h *ClaudeCodeAPIHandler) ClaudeCountTokens(c *gin.Context) {
 	c.Header("Content-Type", "application/json")
 
 	alt := h.GetAlt(c)
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 
@@ -94,7 +94,7 @@ func (h *ClaudeCodeAPIHandler) ClaudeModels(c *gin.Context) {
 func (h *ClaudeCodeAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []byte) {
 	c.Header("Content-Type", "application/json")
 	alt := h.GetAlt(c)
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
 
@@ -147,7 +147,7 @@ func (h *ClaudeCodeAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON [
 	}
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, "")
 	h.forwardClaudeStream(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
 }

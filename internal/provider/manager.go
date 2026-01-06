@@ -13,6 +13,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/registry"
 	"github.com/nghyane/llm-mux/internal/resilience"
 	"github.com/sony/gobreaker"
+	"golang.org/x/sync/semaphore"
 )
 
 func init() {
@@ -105,6 +106,7 @@ type Manager struct {
 	rtProvider RoundTripperProvider
 
 	refreshCancel context.CancelFunc
+	refreshSem    *semaphore.Weighted // limits concurrent refresh goroutines
 
 	breakerMu         sync.RWMutex
 	breakers          map[string]*resilience.CircuitBreaker
@@ -135,6 +137,7 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		breakers:          make(map[string]*resilience.CircuitBreaker),
 		streamingBreakers: make(map[string]*resilience.StreamingCircuitBreaker),
 		retryBudget:       resilience.NewRetryBudget(100), // Allow up to 100 concurrent retries
+		refreshSem:        newRefreshSemaphore(),          // Bound concurrent refresh goroutines
 	}
 	// Initialize async result worker for reduced lock contention
 	m.resultWorker = newAsyncResultWorker(m, resultWorkerConfig{

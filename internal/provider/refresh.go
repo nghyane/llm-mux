@@ -6,13 +6,23 @@ import (
 	"time"
 
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"golang.org/x/sync/semaphore"
 )
 
 const (
+	// maxConcurrentRefreshes limits the number of concurrent refresh goroutines
+	// to prevent goroutine explosion under high load with many auths.
+	maxConcurrentRefreshes = 10
+
 	refreshCheckInterval  = 5 * time.Second
 	refreshPendingBackoff = time.Minute
 	refreshFailureBackoff = 5 * time.Minute
 )
+
+// newRefreshSemaphore creates a weighted semaphore for bounding concurrent refresh operations.
+func newRefreshSemaphore() *semaphore.Weighted {
+	return semaphore.NewWeighted(maxConcurrentRefreshes)
+}
 
 // StartAutoRefresh launches a background loop that evaluates auth freshness
 // every few seconds and triggers refresh operations when required.
@@ -64,6 +74,7 @@ func (m *Manager) StopAutoRefresh() {
 }
 
 // checkRefreshes evaluates all registered auths and triggers refreshes as needed.
+// Uses a semaphore to bound the number of concurrent refresh goroutines.
 func (m *Manager) checkRefreshes(ctx context.Context) {
 	now := time.Now()
 	snapshot := m.snapshotAuths()
@@ -81,7 +92,17 @@ func (m *Manager) checkRefreshes(ctx context.Context) {
 			if !m.markRefreshPending(a.ID, now) {
 				continue
 			}
-			go m.refreshAuth(ctx, a.ID)
+			// Use TryAcquire to avoid blocking the refresh loop.
+			// If semaphore is full, skip this refresh - it will be picked up next interval.
+			if m.refreshSem != nil && m.refreshSem.TryAcquire(1) {
+				go func(authID string) {
+					defer m.refreshSem.Release(1)
+					m.refreshAuth(ctx, authID)
+				}(a.ID)
+			} else if m.refreshSem == nil {
+				// Fallback for backwards compatibility if semaphore not initialized
+				go m.refreshAuth(ctx, a.ID)
+			}
 		}
 	}
 }

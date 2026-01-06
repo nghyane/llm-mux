@@ -146,21 +146,26 @@ func (w *Watcher) stopConfigReloadTimer() {
 	w.configReloadMu.Unlock()
 }
 
-// persistConfigAsync asynchronously persists the config change through the token store
+// persistConfigAsync asynchronously persists the config change through the token store.
+// Uses singleflight to deduplicate concurrent persistence calls under rapid config changes.
 func (w *Watcher) persistConfigAsync() {
 	if w == nil || w.storePersister == nil {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := w.storePersister.PersistConfig(ctx); err != nil {
-			log.Errorf("failed to persist config change: %v", err)
-		}
+		w.persistGroup.Do("config", func() (interface{}, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := w.storePersister.PersistConfig(ctx); err != nil {
+				log.Errorf("failed to persist config change: %v", err)
+			}
+			return nil, nil
+		})
 	}()
 }
 
-// persistAuthAsync asynchronously persists auth file changes through the token store
+// persistAuthAsync asynchronously persists auth file changes through the token store.
+// Uses singleflight to deduplicate concurrent persistence calls under rapid auth changes.
 func (w *Watcher) persistAuthAsync(message string, paths ...string) {
 	if w == nil || w.storePersister == nil {
 		return
@@ -175,10 +180,13 @@ func (w *Watcher) persistAuthAsync(message string, paths ...string) {
 		return
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := w.storePersister.PersistAuthFiles(ctx, message, filtered...); err != nil {
-			log.Errorf("failed to persist auth changes: %v", err)
-		}
+		w.persistGroup.Do("auth", func() (interface{}, error) {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := w.storePersister.PersistAuthFiles(ctx, message, filtered...); err != nil {
+				log.Errorf("failed to persist auth changes: %v", err)
+			}
+			return nil, nil
+		})
 	}()
 }

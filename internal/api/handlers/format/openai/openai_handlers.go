@@ -387,7 +387,7 @@ func (h *OpenAIAPIHandler) handleNonStreamingResponse(c *gin.Context, rawJSON []
 	c.Header("Content-Type", "application/json")
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
@@ -423,7 +423,7 @@ func (h *OpenAIAPIHandler) handleStreamingResponse(c *gin.Context, rawJSON []byt
 	}
 
 	modelName := gjson.GetBytes(rawJSON, "model").String()
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, rawJSON, h.GetAlt(c))
 	h.handleStreamResult(c, flusher, func(err error) { cliCancel(err) }, dataChan, errChan)
 }
@@ -441,7 +441,7 @@ func (h *OpenAIAPIHandler) handleCompletionsNonStreamingResponse(c *gin.Context,
 	chatCompletionsJSON := convertCompletionsRequestToChatCompletions(rawJSON)
 
 	modelName := gjson.GetBytes(chatCompletionsJSON, "model").String()
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	resp, errMsg := h.ExecuteWithAuthManager(cliCtx, h.HandlerType(), modelName, chatCompletionsJSON, "")
 	if errMsg != nil {
 		h.WriteErrorResponse(c, errMsg)
@@ -480,7 +480,7 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 	chatCompletionsJSON := convertCompletionsRequestToChatCompletions(rawJSON)
 
 	modelName := gjson.GetBytes(chatCompletionsJSON, "model").String()
-	cliCtx, cliCancel := h.GetContextWithCancel(h, c, c.Request.Context())
+	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, chatCompletionsJSON, "")
 
 	for {

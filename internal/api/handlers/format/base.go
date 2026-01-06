@@ -68,7 +68,7 @@ func (h *BaseAPIHandler) GetAlt(c *gin.Context) string {
 	return alt
 }
 
-func (h *BaseAPIHandler) GetContextWithCancel(handler interfaces.APIHandler, c *gin.Context, ctx context.Context) (context.Context, APIHandlerCancelFunc) {
+func (h *BaseAPIHandler) GetContextWithCancel(ctx context.Context, handler interfaces.APIHandler, c *gin.Context) (context.Context, APIHandlerCancelFunc) {
 	newCtx, cancel := context.WithCancel(ctx)
 	newCtx = context.WithValue(newCtx, ctxKeyGin, c)
 	newCtx = context.WithValue(newCtx, ctxKeyHandler, handler)
