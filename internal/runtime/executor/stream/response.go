@@ -1,9 +1,9 @@
-// Package executor provides request/response translation between API formats.
+// Package stream provides request/response translation between API formats.
 //
 // Non-streaming response translation architecture:
 //   - ResponseTranslator: Unified IR-to-format conversion (mirrors StreamTranslator)
 //   - TranslateResponseNonStream: Single entry point for all response translations
-package executor
+package stream
 
 import (
 	"github.com/nghyane/llm-mux/internal/config"
@@ -33,12 +33,12 @@ func NewResponseTranslator(cfg *config.Config, to, model string) *ResponseTransl
 		cfg:       cfg,
 		to:        to,
 		model:     model,
-		messageID: generateMessageID(to, model),
+		messageID: GenerateMessageID(to, model),
 	}
 }
 
-// generateMessageID creates format-appropriate message ID.
-func generateMessageID(to, model string) string {
+// GenerateMessageID creates format-appropriate message ID.
+func GenerateMessageID(to, model string) string {
 	switch to {
 	case "codex", "openai-response":
 		return "resp-" + model
@@ -81,8 +81,8 @@ type ParsedResponse struct {
 	Meta     *ir.OpenAIMeta
 }
 
-// parseOpenAIResponse parses OpenAI/Codex format to IR.
-func parseOpenAIResponse(response []byte) (*ParsedResponse, error) {
+// ParseOpenAIResponse parses OpenAI/Codex format to IR.
+func ParseOpenAIResponse(response []byte) (*ParsedResponse, error) {
 	messages, usage, err := to_ir.ParseOpenAIResponse(response)
 	if err != nil {
 		return nil, err
@@ -90,8 +90,8 @@ func parseOpenAIResponse(response []byte) (*ParsedResponse, error) {
 	return &ParsedResponse{Messages: messages, Usage: usage}, nil
 }
 
-// parseClaudeResponse parses Claude format to IR.
-func parseClaudeResponse(response []byte) (*ParsedResponse, error) {
+// ParseClaudeResponse parses Claude format to IR.
+func ParseClaudeResponse(response []byte) (*ParsedResponse, error) {
 	messages, usage, err := to_ir.ParseClaudeResponse(response)
 	if err != nil {
 		return nil, err
@@ -99,8 +99,8 @@ func parseClaudeResponse(response []byte) (*ParsedResponse, error) {
 	return &ParsedResponse{Messages: messages, Usage: usage}, nil
 }
 
-// parseGeminiResponse parses Gemini/Gemini-CLI format to IR with metadata.
-func parseGeminiResponse(response []byte) (*ParsedResponse, error) {
+// ParseGeminiResponse parses Gemini/Gemini-CLI format to IR with metadata.
+func ParseGeminiResponse(response []byte) (*ParsedResponse, error) {
 	messages, usage, meta, err := to_ir.ParseGeminiResponseMeta(response)
 	if err != nil {
 		return nil, err
@@ -131,13 +131,13 @@ func TranslateResponseNonStream(cfg *config.Config, from, to provider.Format, re
 
 	// Handle Gemini multi-candidate case (special OpenAI output)
 	if (fromStr == "gemini" || fromStr == "gemini-cli") && (toStr == "openai" || toStr == "cline") {
-		if hasMultipleCandidates(response) {
-			return translateGeminiCandidates(response, model)
+		if HasMultipleCandidates(response) {
+			return TranslateGeminiCandidates(response, model)
 		}
 	}
 
 	// Parse source format to IR
-	parsed, err := parseSourceResponse(fromStr, response)
+	parsed, err := ParseSourceResponse(fromStr, response)
 	if err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func handlePassthrough(from, to string, response []byte) []byte {
 
 	// Gemini format passthrough (with envelope unwrap)
 	case (to == "gemini" || to == "gemini-cli") && (from == "gemini" || from == "gemini-cli"):
-		return unwrapGeminiEnvelope(response)
+		return UnwrapGeminiEnvelope(response)
 
 	// Claude passthrough
 	case to == "claude" && from == "claude":
@@ -180,32 +180,32 @@ func handlePassthrough(from, to string, response []byte) []byte {
 	return nil
 }
 
-// unwrapGeminiEnvelope unwraps Antigravity envelope if present.
-func unwrapGeminiEnvelope(response []byte) []byte {
+// UnwrapGeminiEnvelope unwraps Antigravity envelope if present.
+func UnwrapGeminiEnvelope(response []byte) []byte {
 	if responseWrapper := gjson.GetBytes(response, "response"); responseWrapper.Exists() {
 		return []byte(responseWrapper.Raw)
 	}
 	return response
 }
 
-// parseSourceResponse parses response based on source format.
-func parseSourceResponse(from string, response []byte) (*ParsedResponse, error) {
+// ParseSourceResponse parses response based on source format.
+func ParseSourceResponse(from string, response []byte) (*ParsedResponse, error) {
 	switch from {
 	case "openai", "cline":
-		return parseOpenAIResponse(response)
+		return ParseOpenAIResponse(response)
 	case "codex", "openai-response":
-		return parseOpenAIResponse(response)
+		return ParseOpenAIResponse(response)
 	case "claude":
-		return parseClaudeResponse(response)
+		return ParseClaudeResponse(response)
 	case "gemini", "gemini-cli":
-		return parseGeminiResponse(response)
+		return ParseGeminiResponse(response)
 	default:
 		return nil, nil
 	}
 }
 
-// translateGeminiCandidates handles Gemini multi-candidate responses for OpenAI format.
-func translateGeminiCandidates(response []byte, model string) ([]byte, error) {
+// TranslateGeminiCandidates handles Gemini multi-candidate responses for OpenAI format.
+func TranslateGeminiCandidates(response []byte, model string) ([]byte, error) {
 	candidates, usage, meta, err := to_ir.ParseGeminiResponseCandidates(response, nil)
 	if err != nil {
 		return nil, err
@@ -230,4 +230,10 @@ func translateGeminiCandidates(response []byte, model string) ([]byte, error) {
 	}
 
 	return from_ir.ToOpenAIChatCompletionCandidates(candidates, usage, model, messageID, openaiMeta)
+}
+
+// HasMultipleCandidates checks if the response has multiple candidates.
+func HasMultipleCandidates(response []byte) bool {
+	parsed, _ := ir.UnwrapAntigravityEnvelope(response)
+	return parsed.Get("candidates.1").Exists()
 }

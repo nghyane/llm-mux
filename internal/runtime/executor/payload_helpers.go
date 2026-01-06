@@ -8,8 +8,13 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-func applyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
+func ApplyPayloadConfig(cfg *config.Config, model string, payload []byte) []byte {
 	return applyPayloadConfigWithRoot(cfg, model, "", "", payload)
+}
+
+// ApplyPayloadConfigWithRoot is an exported version for sub-packages.
+func ApplyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string, payload []byte) []byte {
+	return applyPayloadConfigWithRoot(cfg, model, protocol, root, payload)
 }
 
 func applyPayloadConfigWithRoot(cfg *config.Config, model, protocol, root string, payload []byte) []byte {

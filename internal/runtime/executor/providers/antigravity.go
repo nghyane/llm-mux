@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -19,6 +19,8 @@ import (
 	"github.com/nghyane/llm-mux/internal/oauth"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 
 	log "github.com/nghyane/llm-mux/internal/logging"
@@ -43,11 +45,11 @@ func alias2ModelName(modelID string) string {
 
 type AntigravityExecutor struct {
 	cfg          *config.Config
-	tokenRefresh *TokenRefreshGroup
+	tokenRefresh *executor.TokenRefreshGroup
 }
 
 func NewAntigravityExecutor(cfg *config.Config) *AntigravityExecutor {
-	return &AntigravityExecutor{cfg: cfg, tokenRefresh: NewTokenRefreshGroup()}
+	return &AntigravityExecutor{cfg: cfg, tokenRefresh: executor.NewTokenRefreshGroup()}
 }
 
 func (e *AntigravityExecutor) Identifier() string { return antigravityAuthType }
@@ -63,19 +65,19 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, 
 		auth = updatedAuth
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	translated, errTranslate := TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	translated, errTranslate := stream.TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if errTranslate != nil {
 		return resp, fmt.Errorf("failed to translate request: %w", errTranslate)
 	}
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
-	handler := NewRetryHandler(AntigravityRetryConfig())
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	handler := executor.NewRetryHandler(executor.AntigravityRetryConfig())
 
 	var lastStatus int
 	var lastBody []byte
@@ -99,15 +101,15 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, 
 				return resp, ctxErr
 			}
 			switch action {
-			case RetryActionContinueNext:
+			case executor.RetryActionContinueNext:
 				log.Debugf("antigravity executor: request error on base url %s, retrying with fallback", baseURL)
 				continue
-			case RetryActionRetryCurrent:
+			case executor.RetryActionRetryCurrent:
 				idx--
 				continue
 			default:
 				if errors.Is(errDo, context.DeadlineExceeded) {
-					return resp, NewTimeoutError("request timed out")
+					return resp, executor.NewTimeoutError("request timed out")
 				}
 				return resp, errDo
 			}
@@ -127,10 +129,10 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, 
 		}
 
 		switch action {
-		case RetryActionSuccess:
-			reporter.publish(ctx, extractUsageFromGeminiResponse(bodyBytes))
+		case executor.RetryActionSuccess:
+			reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(bodyBytes))
 			fromFormat := provider.FromString("gemini-cli")
-			translatedResp, errTranslateResp := TranslateResponseNonStream(e.cfg, fromFormat, from, bodyBytes, req.Model)
+			translatedResp, errTranslateResp := stream.TranslateResponseNonStream(e.cfg, fromFormat, from, bodyBytes, req.Model)
 			if errTranslateResp != nil {
 				return resp, fmt.Errorf("failed to translate response: %w", errTranslateResp)
 			}
@@ -139,40 +141,40 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, 
 			} else {
 				resp = provider.Response{Payload: bodyBytes}
 			}
-			reporter.ensurePublished(ctx)
+			reporter.EnsurePublished(ctx)
 			return resp, nil
 
-		case RetryActionContinueNext:
+		case executor.RetryActionContinueNext:
 			log.Debugf("antigravity executor: status %d on %s, trying next base url", httpResp.StatusCode, baseURL)
 			lastStatus, lastBody, lastErr = httpResp.StatusCode, append([]byte(nil), bodyBytes...), nil
 			continue
 
-		case RetryActionRetryCurrent:
+		case executor.RetryActionRetryCurrent:
 			lastStatus, lastBody, lastErr = httpResp.StatusCode, append([]byte(nil), bodyBytes...), nil
 			idx--
 			continue
 
-		case RetryActionFail:
-			log.Debugf("antigravity executor: upstream error status: %d, body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), bodyBytes))
-			retryAfter := ParseQuotaRetryDelay(bodyBytes)
-			return resp, NewStatusError(httpResp.StatusCode, string(bodyBytes), retryAfter)
+		case executor.RetryActionFail:
+			log.Debugf("antigravity executor: upstream error status: %d, body: %s", httpResp.StatusCode, executor.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), bodyBytes))
+			retryAfter := executor.ParseQuotaRetryDelay(bodyBytes)
+			return resp, executor.NewStatusError(httpResp.StatusCode, string(bodyBytes), retryAfter)
 		}
 	}
 
 	switch {
 	case lastStatus != 0:
-		retryAfter := ParseQuotaRetryDelay(lastBody)
-		err = NewStatusError(lastStatus, string(lastBody), retryAfter)
+		retryAfter := executor.ParseQuotaRetryDelay(lastBody)
+		err = executor.NewStatusError(lastStatus, string(lastBody), retryAfter)
 	case lastErr != nil:
 		err = lastErr
 	default:
-		err = NewStatusError(http.StatusServiceUnavailable, "antigravity executor: no base url available", nil)
+		err = executor.NewStatusError(http.StatusServiceUnavailable, "antigravity executor: no base url available", nil)
 	}
 	return resp, err
 }
 
-func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
-	ctx = context.WithValue(ctx, altContextKey{}, "")
+func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
+	ctx = context.WithValue(ctx, executor.AltContextKey{}, "")
 
 	token, updatedAuth, errToken := e.ensureAccessToken(ctx, auth)
 	if errToken != nil {
@@ -182,12 +184,12 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 		auth = updatedAuth
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	translation, errTranslate := TranslateToGeminiCLIWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	translation, errTranslate := stream.TranslateToGeminiCLIWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if errTranslate != nil {
 		return nil, fmt.Errorf("failed to translate request: %w", errTranslate)
 	}
@@ -195,8 +197,8 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 	estimatedInputTokens := translation.EstimatedInputTokens
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
-	handler := NewRetryHandler(AntigravityRetryConfig())
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	handler := executor.NewRetryHandler(executor.AntigravityRetryConfig())
 
 	var lastStatus int
 	var lastBody []byte
@@ -228,15 +230,15 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 				return nil, ctxErr
 			}
 			switch action {
-			case RetryActionContinueNext:
+			case executor.RetryActionContinueNext:
 				log.Debugf("antigravity executor: request error on base url %s, retrying with fallback", baseURL)
 				continue
-			case RetryActionRetryCurrent:
+			case executor.RetryActionRetryCurrent:
 				idx--
 				continue
 			default:
 				if errors.Is(errDo, context.DeadlineExceeded) {
-					return nil, NewTimeoutError("request timed out")
+					return nil, executor.NewTimeoutError("request timed out")
 				}
 				return nil, errDo
 			}
@@ -262,43 +264,43 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 			}
 
 			switch action {
-			case RetryActionContinueNext:
+			case executor.RetryActionContinueNext:
 				log.Debugf("antigravity executor: status %d on %s, trying next base url", httpResp.StatusCode, baseURL)
 				lastStatus, lastBody, lastErr = httpResp.StatusCode, append([]byte(nil), bodyBytes...), nil
 				continue
-			case RetryActionRetryCurrent:
+			case executor.RetryActionRetryCurrent:
 				lastStatus, lastBody, lastErr = httpResp.StatusCode, append([]byte(nil), bodyBytes...), nil
 				idx--
 				continue
-			case RetryActionFail:
-				retryAfter := ParseQuotaRetryDelay(bodyBytes)
-				return nil, NewStatusError(httpResp.StatusCode, string(bodyBytes), retryAfter)
+			case executor.RetryActionFail:
+				retryAfter := executor.ParseQuotaRetryDelay(bodyBytes)
+				return nil, executor.NewStatusError(httpResp.StatusCode, string(bodyBytes), retryAfter)
 			}
 		}
 
-		streamCtx := NewStreamContextWithTools(opts.OriginalRequest)
+		streamCtx := stream.NewStreamContextWithTools(opts.OriginalRequest)
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 
-		translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
-		processor := NewGeminiCLIStreamProcessor(translator)
+		translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
+		processor := stream.NewGeminiCLIStreamProcessor(translator)
 
-		stream = RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+		streamChan = stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 			ExecutorName:    "antigravity",
-			Preprocessor:    GeminiPreprocessor(),
+			Preprocessor:    stream.GeminiPreprocessor(),
 			EnsurePublished: true,
 		})
-		return stream, nil
+		return streamChan, nil
 	}
 
 	switch {
 	case lastStatus != 0:
-		retryAfter := ParseQuotaRetryDelay(lastBody)
-		err = NewStatusError(lastStatus, string(lastBody), retryAfter)
+		retryAfter := executor.ParseQuotaRetryDelay(lastBody)
+		err = executor.NewStatusError(lastStatus, string(lastBody), retryAfter)
 	case lastErr != nil:
 		err = lastErr
 	default:
-		err = NewStatusError(http.StatusServiceUnavailable, "antigravity executor: no base url available", nil)
+		err = executor.NewStatusError(http.StatusServiceUnavailable, "antigravity executor: no base url available", nil)
 	}
 	return nil, err
 }
@@ -324,7 +326,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Au
 	}
 
 	from := opts.SourceFormat
-	translated, errTranslate := TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	translated, errTranslate := stream.TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if errTranslate != nil {
 		return provider.Response{}, fmt.Errorf("failed to translate request: %w", errTranslate)
 	}
@@ -334,7 +336,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Au
 	translated = deleteJSONField(translated, "request.safetySettings")
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
@@ -350,7 +352,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Au
 		httpResp, errDo := httpClient.Do(httpReq)
 		if errDo != nil {
 			if errors.Is(errDo, context.DeadlineExceeded) {
-				return provider.Response{}, NewTimeoutError("count tokens request timed out")
+				return provider.Response{}, executor.NewTimeoutError("count tokens request timed out")
 			}
 			continue
 		}
@@ -371,18 +373,18 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Au
 	}
 
 	if lastStatus == 0 {
-		return provider.Response{}, NewStatusError(http.StatusServiceUnavailable, "all endpoints failed", nil)
+		return provider.Response{}, executor.NewStatusError(http.StatusServiceUnavailable, "all endpoints failed", nil)
 	}
-	return provider.Response{}, NewStatusError(lastStatus, string(lastBody), nil)
+	return provider.Response{}, executor.NewStatusError(lastStatus, string(lastBody), nil)
 }
 
 func (e *AntigravityExecutor) buildCountTokensRequest(ctx context.Context, token string, payload []byte, baseURL string) (*http.Request, error) {
 	if token == "" {
-		return nil, NewStatusError(http.StatusUnauthorized, "missing access token", nil)
+		return nil, executor.NewStatusError(http.StatusUnauthorized, "missing access token", nil)
 	}
 
 	base := strings.TrimSuffix(baseURL, "/")
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(128)
 	ub.WriteString(base)
@@ -393,7 +395,7 @@ func (e *AntigravityExecutor) buildCountTokensRequest(ctx context.Context, token
 		return nil, err
 	}
 
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("Accept", "application/json")
 	applyGeminiCLIHeaders(httpReq)
@@ -411,7 +413,7 @@ func FetchAntigravityModels(ctx context.Context, auth *provider.Auth, cfg *confi
 		auth = updatedAuth
 	}
 
-	httpClient := newProxyAwareHTTPClient(ctx, cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, cfg, auth, 0)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	fetchCfg := CloudCodeFetchConfig{
@@ -419,7 +421,7 @@ func FetchAntigravityModels(ctx context.Context, auth *provider.Auth, cfg *confi
 		Token:        token,
 		ProviderType: antigravityAuthType,
 		UserAgent:    resolveUserAgent(auth),
-		Host:         ResolveHost(baseURLs[0]),
+		Host:         executor.ResolveHost(baseURLs[0]),
 		AliasFunc:    modelName2Alias,
 	}
 
@@ -433,19 +435,19 @@ type tokenRefreshResult struct {
 
 func (e *AntigravityExecutor) ensureAccessToken(ctx context.Context, auth *provider.Auth) (string, *provider.Auth, error) {
 	if auth == nil {
-		return "", nil, NewStatusError(http.StatusUnauthorized, "missing auth", nil)
+		return "", nil, executor.NewStatusError(http.StatusUnauthorized, "missing auth", nil)
 	}
 
-	accessToken := MetaStringValue(auth.Metadata, "access_token")
-	expiry := TokenExpiry(auth.Metadata)
-	if accessToken != "" && expiry.After(time.Now().Add(DefaultRefreshSkew)) {
+	accessToken := executor.MetaStringValue(auth.Metadata, "access_token")
+	expiry := executor.TokenExpiry(auth.Metadata)
+	if accessToken != "" && expiry.After(time.Now().Add(executor.DefaultRefreshSkew)) {
 		return accessToken, nil, nil
 	}
 
 	result, err := e.tokenRefresh.Do(auth.ID, func(refreshCtx context.Context) (any, error) {
-		accessToken := MetaStringValue(auth.Metadata, "access_token")
-		expiry := TokenExpiry(auth.Metadata)
-		if accessToken != "" && expiry.After(time.Now().Add(DefaultRefreshSkew)) {
+		accessToken := executor.MetaStringValue(auth.Metadata, "access_token")
+		expiry := executor.TokenExpiry(auth.Metadata)
+		if accessToken != "" && expiry.After(time.Now().Add(executor.DefaultRefreshSkew)) {
 			return tokenRefreshResult{token: accessToken, auth: nil}, nil
 		}
 
@@ -454,7 +456,7 @@ func (e *AntigravityExecutor) ensureAccessToken(ctx context.Context, auth *provi
 			return nil, errRefresh
 		}
 		return tokenRefreshResult{
-			token: MetaStringValue(updated.Metadata, "access_token"),
+			token: executor.MetaStringValue(updated.Metadata, "access_token"),
 			auth:  updated,
 		}, nil
 	})
@@ -469,11 +471,11 @@ func (e *AntigravityExecutor) ensureAccessToken(ctx context.Context, auth *provi
 
 func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *provider.Auth) (*provider.Auth, error) {
 	if auth == nil {
-		return nil, NewStatusError(http.StatusUnauthorized, "missing auth", nil)
+		return nil, executor.NewStatusError(http.StatusUnauthorized, "missing auth", nil)
 	}
-	refreshToken := MetaStringValue(auth.Metadata, "refresh_token")
+	refreshToken := executor.MetaStringValue(auth.Metadata, "refresh_token")
 	if refreshToken == "" {
-		return auth, NewStatusError(http.StatusUnauthorized, "missing refresh token", nil)
+		return auth, executor.NewStatusError(http.StatusUnauthorized, "missing refresh token", nil)
 	}
 
 	form := url.Values{}
@@ -487,14 +489,14 @@ func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *provider.A
 		return auth, errReq
 	}
 	httpReq.Header.Set("Host", "oauth2.googleapis.com")
-	httpReq.Header.Set("User-Agent", DefaultAntigravityUserAgent)
+	httpReq.Header.Set("User-Agent", executor.DefaultAntigravityUserAgent)
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, errDo := httpClient.Do(httpReq)
 	if errDo != nil {
 		if errors.Is(errDo, context.DeadlineExceeded) {
-			return auth, NewTimeoutError("request timed out")
+			return auth, executor.NewTimeoutError("request timed out")
 		}
 		return auth, errDo
 	}
@@ -510,7 +512,7 @@ func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *provider.A
 	}
 
 	if httpResp.StatusCode < http.StatusOK || httpResp.StatusCode >= http.StatusMultipleChoices {
-		return auth, NewStatusError(httpResp.StatusCode, string(bodyBytes), nil)
+		return auth, executor.NewStatusError(httpResp.StatusCode, string(bodyBytes), nil)
 	}
 
 	var tokenResp struct {
@@ -524,10 +526,10 @@ func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *provider.A
 	}
 
 	if tokenResp.AccessToken == "" {
-		return auth, NewStatusError(http.StatusUnauthorized, "invalid token response: missing access_token", nil)
+		return auth, executor.NewStatusError(http.StatusUnauthorized, "invalid token response: missing access_token", nil)
 	}
 	if tokenResp.ExpiresIn < 0 {
-		return auth, NewStatusError(http.StatusUnauthorized, "invalid token response: negative expires_in", nil)
+		return auth, executor.NewStatusError(http.StatusUnauthorized, "invalid token response: negative expires_in", nil)
 	}
 	if tokenResp.ExpiresIn == 0 {
 		tokenResp.ExpiresIn = 3600
@@ -550,7 +552,7 @@ func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *provider.A
 
 func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *provider.Auth, token, modelName string, payload []byte, stream bool, alt, baseURL string) (*http.Request, error) {
 	if token == "" {
-		return nil, NewStatusError(http.StatusUnauthorized, "missing access token", nil)
+		return nil, executor.NewStatusError(http.StatusUnauthorized, "missing access token", nil)
 	}
 
 	base := strings.TrimSuffix(baseURL, "/")
@@ -561,7 +563,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *provider.A
 	if stream {
 		path = antigravityStreamPath
 	}
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(128)
 	ub.WriteString(base)
@@ -578,7 +580,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *provider.A
 		ub.WriteString(url.QueryEscape(alt))
 	}
 
-	projectID := MetaStringValue(auth.Metadata, "project_id")
+	projectID := executor.MetaStringValue(auth.Metadata, "project_id")
 	payload = geminiToAntigravity(modelName, payload, projectID)
 	payload, _ = sjson.SetBytes(payload, "model", alias2ModelName(modelName))
 
@@ -586,7 +588,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *provider.A
 	if errReq != nil {
 		return nil, errReq
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+token)
 	httpReq.Header.Set("User-Agent", resolveUserAgent(auth))
 	if stream {
@@ -594,7 +596,7 @@ func (e *AntigravityExecutor) buildRequest(ctx context.Context, auth *provider.A
 	} else {
 		httpReq.Header.Set("Accept", "application/json")
 	}
-	if host := ResolveHost(base); host != "" {
+	if host := executor.ResolveHost(base); host != "" {
 		httpReq.Host = host
 	}
 
@@ -605,19 +607,19 @@ func buildBaseURL(auth *provider.Auth) string {
 	if baseURLs := antigravityBaseURLFallbackOrder(auth); len(baseURLs) > 0 {
 		return baseURLs[0]
 	}
-	return AntigravityBaseURLDaily
+	return executor.AntigravityBaseURLDaily
 }
 
 func resolveUserAgent(auth *provider.Auth) string {
 	if auth != nil {
-		if ua := AttrStringValue(auth.Attributes, "user_agent"); ua != "" {
+		if ua := executor.AttrStringValue(auth.Attributes, "user_agent"); ua != "" {
 			return ua
 		}
-		if ua := MetaStringValue(auth.Metadata, "user_agent"); ua != "" {
+		if ua := executor.MetaStringValue(auth.Metadata, "user_agent"); ua != "" {
 			return ua
 		}
 	}
-	return DefaultAntigravityUserAgent
+	return executor.DefaultAntigravityUserAgent
 }
 
 func antigravityBaseURLFallbackOrder(auth *provider.Auth) []string {
@@ -625,8 +627,8 @@ func antigravityBaseURLFallbackOrder(auth *provider.Auth) []string {
 		return []string{base}
 	}
 	return []string{
-		AntigravityBaseURLDaily,
-		AntigravityBaseURLProd,
+		executor.AntigravityBaseURLDaily,
+		executor.AntigravityBaseURLProd,
 	}
 }
 
@@ -634,10 +636,10 @@ func resolveCustomAntigravityBaseURL(auth *provider.Auth) string {
 	if auth == nil {
 		return ""
 	}
-	if v := AttrStringValue(auth.Attributes, "base_url"); v != "" {
+	if v := executor.AttrStringValue(auth.Attributes, "base_url"); v != "" {
 		return strings.TrimSuffix(v, "/")
 	}
-	if v := MetaStringValue(auth.Metadata, "base_url"); v != "" {
+	if v := executor.MetaStringValue(auth.Metadata, "base_url"); v != "" {
 		return strings.TrimSuffix(v, "/")
 	}
 	return ""

@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bufio"
@@ -6,12 +6,12 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/nghyane/llm-mux/internal/json"
 	"hash/crc32"
 	"io"
 	"net/http"
-	"strings"
 	"time"
+
+	"github.com/nghyane/llm-mux/internal/json"
 
 	"github.com/google/uuid"
 	"github.com/nghyane/llm-mux/internal/auth/kiro"
@@ -19,13 +19,15 @@ import (
 	"github.com/nghyane/llm-mux/internal/constant"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/translator"
 	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 )
 
-const kiroAPIURL = KiroDefaultBaseURL
+const kiroAPIURL = executor.KiroDefaultBaseURL
 
 var kiroModelMapping = map[string]string{
 	"claude-sonnet-4-5":                  "CLAUDE_SONNET_4_5_20250929_V1_0",
@@ -49,6 +51,8 @@ func NewKiroExecutor(cfg *config.Config) *KiroExecutor { return &KiroExecutor{cf
 
 func (e *KiroExecutor) Identifier() string { return constant.Kiro }
 
+func (e *KiroExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error { return nil }
+
 func (e *KiroExecutor) ensureValidToken(ctx context.Context, auth *provider.Auth) (string, *provider.Auth, error) {
 	if auth == nil {
 		return "", nil, fmt.Errorf("kiro: auth is nil")
@@ -56,7 +60,7 @@ func (e *KiroExecutor) ensureValidToken(ctx context.Context, auth *provider.Auth
 	token := getMetaString(auth.Metadata, "access_token", "accessToken")
 	expiry := parseTokenExpiry(auth.Metadata)
 
-	if token != "" && expiry.After(time.Now().Add(KiroRefreshSkew)) {
+	if token != "" && expiry.After(time.Now().Add(executor.KiroRefreshSkew)) {
 		return token, nil, nil
 	}
 
@@ -90,7 +94,7 @@ func (e *KiroExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provi
 	return updatedAuth, nil
 }
 
-type requestContext struct {
+type kiroRequestContext struct {
 	ctx         context.Context
 	auth        *provider.Auth
 	req         provider.Request
@@ -101,8 +105,8 @@ type requestContext struct {
 	kiroBody    []byte
 }
 
-func (e *KiroExecutor) prepareRequest(ctx context.Context, auth *provider.Auth, req provider.Request) (*requestContext, error) {
-	rc := &requestContext{ctx: ctx, auth: auth, req: req, requestID: uuid.New().String()[:8]}
+func (e *KiroExecutor) prepareRequest(ctx context.Context, auth *provider.Auth, req provider.Request) (*kiroRequestContext, error) {
+	rc := &kiroRequestContext{ctx: ctx, auth: auth, req: req, requestID: uuid.New().String()[:8]}
 	var err error
 	rc.token, rc.auth, err = e.ensureValidToken(ctx, auth)
 	if err != nil {
@@ -129,12 +133,12 @@ func (e *KiroExecutor) prepareRequest(ctx context.Context, auth *provider.Auth, 
 	return rc, err
 }
 
-func (e *KiroExecutor) buildHTTPRequest(rc *requestContext) (*http.Request, error) {
+func (e *KiroExecutor) buildHTTPRequest(rc *kiroRequestContext) (*http.Request, error) {
 	httpReq, err := http.NewRequestWithContext(rc.ctx, "POST", kiroAPIURL, bytes.NewReader(rc.kiroBody))
 	if err != nil {
 		return nil, err
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	httpReq.Header.Set("Accept", "application/json")
 	httpReq.Header.Set("x-amzn-kiro-agent-mode", "vibe")
 	httpReq.Header.Set("x-amz-user-agent", "aws-sdk-js/1.0.7 KiroIDE-0.1.25 llm-mux")
@@ -155,7 +159,7 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 		return provider.Response{}, err
 	}
 
-	client := newProxyAwareHTTPClient(ctx, e.cfg, auth, KiroRequestTimeout)
+	client := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, executor.KiroRequestTimeout)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -168,18 +172,22 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 		return provider.Response{}, fmt.Errorf("upstream error %d: %s", resp.StatusCode, string(body))
 	}
 
-	if strings.HasPrefix(resp.Header.Get("Content-Type"), "application/vnd.amazon.eventstream") {
+	if hasEventStreamContentType(resp.Header.Get("Content-Type")) {
 		return e.handleEventStreamResponse(resp.Body, req.Model)
 	}
 	return e.handleJSONResponse(resp.Body, req.Model)
 }
 
+func hasEventStreamContentType(contentType string) bool {
+	return len(contentType) >= 37 && contentType[:37] == "application/vnd.amazon.eventstream"
+}
+
 func (e *KiroExecutor) handleEventStreamResponse(body io.ReadCloser, model string) (provider.Response, error) {
-	buf := scannerBufferPool.Get().([]byte)
-	defer scannerBufferPool.Put(buf)
+	buf := stream.ScannerBufferPool.Get().([]byte)
+	defer stream.ScannerBufferPool.Put(buf)
 
 	scanner := bufio.NewScanner(body)
-	scanner.Buffer(buf, DefaultStreamBufferSize)
+	scanner.Buffer(buf, executor.DefaultStreamBufferSize)
 	scanner.Split(splitAWSEventStream)
 	state := to_ir.NewKiroStreamState()
 
@@ -230,7 +238,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, r
 		return nil, err
 	}
 
-	client := newProxyAwareHTTPClient(ctx, e.cfg, rc.auth, 0)
+	client := executor.NewProxyAwareHTTPClient(ctx, e.cfg, rc.auth, 0)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -256,11 +264,11 @@ func (e *KiroExecutor) processStream(ctx context.Context, resp *http.Response, m
 		}
 	}()
 
-	buf := scannerBufferPool.Get().([]byte)
-	defer scannerBufferPool.Put(buf)
+	buf := stream.ScannerBufferPool.Get().([]byte)
+	defer stream.ScannerBufferPool.Put(buf)
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(buf, DefaultStreamBufferSize)
+	scanner.Buffer(buf, executor.DefaultStreamBufferSize)
 	scanner.Split(splitAWSEventStream)
 	state := to_ir.NewKiroStreamState()
 	messageID := "chatcmpl-" + uuid.New().String()

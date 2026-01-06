@@ -182,3 +182,8 @@ func decodeResponseBody(body io.ReadCloser, contentEncoding string) (io.ReadClos
 	}
 	return body, nil
 }
+
+// DecodeResponseBody is an exported alias for decodeResponseBody.
+func DecodeResponseBody(body io.ReadCloser, contentEncoding string) (io.ReadCloser, error) {
+	return decodeResponseBody(body, contentEncoding)
+}

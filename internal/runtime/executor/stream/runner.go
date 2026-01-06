@@ -1,4 +1,4 @@
-package executor
+package stream
 
 import (
 	"bufio"
@@ -19,7 +19,21 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var scannerBufferPool = sync.Pool{
+// UsageReporter interface for usage tracking (implemented by executor.usageReporter)
+type UsageReporter interface {
+	Publish(ctx context.Context, u *ir.Usage)
+	PublishFailure(ctx context.Context)
+	EnsurePublished(ctx context.Context)
+}
+
+// Constants for stream processing
+const (
+	DefaultStreamBufferSize  = 2 * 1024 * 1024 // 2MB
+	DefaultScannerBufferSize = 64 * 1024
+	DefaultStreamIdleTimeout = 5 * time.Minute
+)
+
+var ScannerBufferPool = sync.Pool{
 	New: func() any {
 		return make([]byte, DefaultScannerBufferSize)
 	},
@@ -53,7 +67,7 @@ func GeminiPreprocessor() StreamPreprocessor {
 	return func(line []byte) (payload []byte, skip bool) {
 		filtered := FilterSSEUsageMetadata(line)
 
-		payload = jsonPayload(filtered)
+		payload = JsonPayload(filtered)
 		if payload == nil {
 			return nil, true
 		}
@@ -92,7 +106,7 @@ func DataTagPreprocessor() StreamPreprocessor {
 	}
 }
 
-func sendChunk(ctx context.Context, out chan<- provider.StreamChunk, chunk provider.StreamChunk) bool {
+func SendChunk(ctx context.Context, out chan<- provider.StreamChunk, chunk provider.StreamChunk) bool {
 	select {
 	case out <- chunk:
 		return true
@@ -101,7 +115,7 @@ func sendChunk(ctx context.Context, out chan<- provider.StreamChunk, chunk provi
 	}
 }
 
-func isDoneLine(line []byte) bool {
+func IsDoneLine(line []byte) bool {
 	trimmed := bytes.TrimSpace(line)
 	if bytes.Equal(trimmed, doneMarker) {
 		return true
@@ -116,7 +130,7 @@ func isDoneLine(line []byte) bool {
 func RunSSEStream(
 	ctx context.Context,
 	body io.ReadCloser,
-	reporter *usageReporter,
+	reporter UsageReporter,
 	processor StreamProcessor,
 	cfg StreamConfig,
 ) <-chan provider.StreamChunk {
@@ -142,8 +156,8 @@ func RunSSEStream(
 		streamReader := NewStreamReader(ctx, body, idleTimeout, cfg.ExecutorName)
 		defer streamReader.Close()
 
-		buf := scannerBufferPool.Get().([]byte)
-		defer scannerBufferPool.Put(buf)
+		buf := ScannerBufferPool.Get().([]byte)
+		defer ScannerBufferPool.Put(buf)
 
 		scanner := bufio.NewScanner(streamReader)
 		maxBufferSize := cfg.MaxBufferSize
@@ -161,7 +175,7 @@ func RunSSEStream(
 
 			line := scanner.Bytes()
 
-			if isDoneLine(line) {
+			if IsDoneLine(line) {
 				if cfg.SkipDoneInData {
 					continue
 				}
@@ -169,7 +183,7 @@ func RunSSEStream(
 					doneChunks, doneErr := processor.ProcessDone()
 					if doneErr != nil {
 						if reporter != nil {
-							reporter.publishFailure(ctx)
+							reporter.PublishFailure(ctx)
 						}
 						pipeline.SendError(doneErr)
 						return nil
@@ -199,7 +213,7 @@ func RunSSEStream(
 			chunks, usage, err := processor.ProcessLine(payload)
 			if err != nil {
 				if reporter != nil {
-					reporter.publishFailure(ctx)
+					reporter.PublishFailure(ctx)
 				}
 				if processor != nil {
 					if flushed, _ := processor.ProcessDone(); len(flushed) > 0 {
@@ -216,7 +230,7 @@ func RunSSEStream(
 			}
 
 			if usage != nil && reporter != nil {
-				reporter.publish(ctx, usage)
+				reporter.Publish(ctx, usage)
 			}
 
 			if len(chunks) > 0 {
@@ -236,7 +250,7 @@ func RunSSEStream(
 			doneChunks, doneErr := processor.ProcessDone()
 			if doneErr != nil {
 				if reporter != nil {
-					reporter.publishFailure(ctx)
+					reporter.PublishFailure(ctx)
 				}
 				pipeline.SendError(doneErr)
 				return nil
@@ -250,7 +264,7 @@ func RunSSEStream(
 
 		if errScan := scanner.Err(); errScan != nil {
 			if reporter != nil {
-				reporter.publishFailure(ctx)
+				reporter.PublishFailure(ctx)
 			}
 			errorJSON := fmt.Sprintf(`data: {"error": {"message": "%s", "type": "server_error"}}`+"\n\n", errScan.Error())
 			pipeline.SendData([]byte(errorJSON))
@@ -258,7 +272,7 @@ func RunSSEStream(
 		}
 
 		if cfg.EnsurePublished && reporter != nil {
-			reporter.ensurePublished(ctx)
+			reporter.EnsurePublished(ctx)
 		}
 
 		return nil
@@ -268,7 +282,7 @@ func RunSSEStream(
 		pipeline.Close()
 	}()
 
-	return convertPipelineToStreamChunk(pipeline.Output())
+	return ConvertPipelineToStreamChunk(pipeline.Output())
 }
 
 type SimpleStreamProcessor struct {
@@ -355,11 +369,11 @@ func NewGeminiCLIStreamProcessor(translator *StreamTranslator) *GeminiCLIStreamP
 }
 
 func (p *GeminiCLIStreamProcessor) ProcessLine(payload []byte) ([][]byte, *ir.Usage, error) {
-	state := p.Translator.ctx.GeminiState
+	state := p.Translator.Ctx.GeminiState
 	var events []ir.UnifiedEvent
 	var err error
-	if p.Translator.ctx.ToolSchemaCtx != nil {
-		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunkWithStateContext(payload, state, p.Translator.ctx.ToolSchemaCtx)
+	if p.Translator.Ctx.ToolSchemaCtx != nil {
+		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunkWithStateContext(payload, state, p.Translator.Ctx.ToolSchemaCtx)
 	} else {
 		events, err = (&from_ir.VertexEnvelopeProvider{}).ParseStreamChunkWithState(payload, state)
 	}
@@ -379,4 +393,16 @@ func (p *GeminiCLIStreamProcessor) ProcessLine(payload []byte) ([][]byte, *ir.Us
 
 func (p *GeminiCLIStreamProcessor) ProcessDone() ([][]byte, error) {
 	return p.Translator.Flush()
+}
+
+// ConvertPipelineToStreamChunk converts pipeline output to provider.StreamChunk channel
+func ConvertPipelineToStreamChunk(input <-chan streamutil.Chunk) <-chan provider.StreamChunk {
+	out := make(chan provider.StreamChunk, 128)
+	go func() {
+		defer close(out)
+		for chunk := range input {
+			out <- provider.StreamChunk{Payload: chunk.Data, Err: chunk.Err}
+		}
+	}()
+	return out
 }

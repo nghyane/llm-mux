@@ -5,7 +5,7 @@ import (
 
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/provider"
-	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/providers"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
 )
 
@@ -28,7 +28,7 @@ func ensureExecutorsForAuth(a *provider.Auth, cfg *config.Config, coreManager *p
 		if compatProviderKey == "" {
 			compatProviderKey = "openai-compatibility"
 		}
-		coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(compatProviderKey, cfg))
+		coreManager.RegisterExecutor(providers.NewOpenAICompatExecutor(compatProviderKey, cfg))
 		return
 	}
 	registerProviderExecutor(a, cfg, coreManager, wsGateway)
@@ -39,38 +39,38 @@ func registerProviderExecutor(a *provider.Auth, cfg *config.Config, coreManager 
 	providerName := strings.ToLower(strings.TrimSpace(a.Provider))
 	switch providerName {
 	case "gemini":
-		coreManager.RegisterExecutor(executor.NewGeminiExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewGeminiExecutor(cfg))
 	case "vertex":
-		coreManager.RegisterExecutor(executor.NewGeminiVertexExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewVertexExecutor(cfg))
 	case "gemini-cli":
-		coreManager.RegisterExecutor(executor.NewGeminiCLIExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewGeminiCLIExecutor(cfg))
 	case "aistudio":
 		if wsGateway != nil {
-			coreManager.RegisterExecutor(executor.NewAIStudioExecutor(cfg, a.ID, wsGateway))
+			coreManager.RegisterExecutor(providers.NewAIStudioExecutor(cfg, a.ID, wsGateway))
 		}
 		return
 	case "antigravity":
-		coreManager.RegisterExecutor(executor.NewAntigravityExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewAntigravityExecutor(cfg))
 	case "claude":
-		coreManager.RegisterExecutor(executor.NewClaudeExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewClaudeExecutor(cfg))
 	case "codex":
-		coreManager.RegisterExecutor(executor.NewCodexExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewCodexExecutor(cfg))
 	case "qwen":
-		coreManager.RegisterExecutor(executor.NewQwenExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewQwenExecutor(cfg))
 	case "iflow":
-		coreManager.RegisterExecutor(executor.NewIFlowExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewIFlowExecutor(cfg))
 	case "cline":
-		coreManager.RegisterExecutor(executor.NewClineExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewClineExecutor(cfg))
 	case "kiro":
-		coreManager.RegisterExecutor(executor.NewKiroExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewKiroExecutor(cfg))
 	case "github-copilot":
-		coreManager.RegisterExecutor(executor.NewGitHubCopilotExecutor(cfg))
+		coreManager.RegisterExecutor(providers.NewCopilotExecutor(cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
 			providerKey = "openai-compatibility"
 		}
-		coreManager.RegisterExecutor(executor.NewOpenAICompatExecutor(providerKey, cfg))
+		coreManager.RegisterExecutor(providers.NewOpenAICompatExecutor(providerKey, cfg))
 	}
 }
 

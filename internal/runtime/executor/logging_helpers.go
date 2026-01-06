@@ -23,6 +23,11 @@ func summarizeErrorBody(contentType string, body []byte) string {
 	return string(body)
 }
 
+// SummarizeErrorBody is an exported alias for summarizeErrorBody.
+func SummarizeErrorBody(contentType string, body []byte) string {
+	return summarizeErrorBody(contentType, body)
+}
+
 func extractHTMLTitle(body []byte) string {
 	lower := bytes.ToLower(body)
 	start := bytes.Index(lower, []byte("<title"))

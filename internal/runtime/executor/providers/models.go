@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -9,14 +9,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nghyane/llm-mux/internal/registry"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/tidwall/gjson"
 )
 
 const (
 	cloudCodeModelsPath = "/v1internal:fetchAvailableModels"
 	glAPIModelsPath     = "/v1beta/models"
+	// GLAPIModelsPath is exported for use in sub-packages.
+	GLAPIModelsPath = glAPIModelsPath
 )
 
 type ModelAliasFunc func(upstreamName string) string
@@ -44,7 +47,7 @@ func FetchCloudCodeModels(ctx context.Context, httpClient *http.Client, cfg Clou
 		aliasFunc = DefaultGeminiAlias
 	}
 
-	handler := NewRetryHandler(AntigravityRetryConfig())
+	handler := executor.NewRetryHandler(executor.AntigravityRetryConfig())
 
 	for idx := 0; idx < len(cfg.BaseURLs); idx++ {
 		baseURL := cfg.BaseURLs[idx]
@@ -72,7 +75,7 @@ func FetchCloudCodeModels(ctx context.Context, httpClient *http.Client, cfg Clou
 				return nil
 			}
 			action, _ := handler.HandleError(ctx, err, hasNext)
-			if action == RetryActionContinueNext {
+			if action == executor.RetryActionContinueNext {
 				log.Debugf("%s: models request error on %s, retrying with fallback", cfg.ProviderType, baseURL)
 				continue
 			}
@@ -92,11 +95,11 @@ func FetchCloudCodeModels(ctx context.Context, httpClient *http.Client, cfg Clou
 		}
 
 		action, _ := handler.HandleResponse(ctx, httpResp.StatusCode, bodyBytes, hasNext)
-		if action == RetryActionContinueNext {
+		if action == executor.RetryActionContinueNext {
 			log.Debugf("%s: models request status %d on %s, trying next", cfg.ProviderType, httpResp.StatusCode, baseURL)
 			continue
 		}
-		if action != RetryActionSuccess {
+		if action != executor.RetryActionSuccess {
 			return nil
 		}
 
@@ -154,7 +157,7 @@ func FetchGLAPIModels(ctx context.Context, httpClient *http.Client, cfg GLAPIFet
 
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
-		baseURL = GeminiDefaultBaseURL
+		baseURL = executor.GeminiDefaultBaseURL
 	}
 
 	modelsURL := baseURL + glAPIModelsPath

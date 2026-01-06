@@ -7,9 +7,15 @@ import (
 
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/tidwall/gjson"
 	"github.com/tiktoken-go/tokenizer"
 )
+
+// TokenizerForModel is an exported version for sub-packages.
+func TokenizerForModel(model string) (tokenizer.Codec, error) {
+	return tokenizerForModel(model)
+}
 
 func tokenizerForModel(model string) (tokenizer.Codec, error) {
 	sanitized := strings.ToLower(strings.TrimSpace(model))
@@ -37,6 +43,11 @@ func tokenizerForModel(model string) (tokenizer.Codec, error) {
 	default:
 		return tokenizer.Get(tokenizer.O200kBase)
 	}
+}
+
+// CountOpenAIChatTokens is an exported version for sub-packages.
+func CountOpenAIChatTokens(enc tokenizer.Codec, payload []byte) (int64, error) {
+	return countOpenAIChatTokens(enc, payload)
 }
 
 func countOpenAIChatTokens(enc tokenizer.Codec, payload []byte) (int64, error) {
@@ -68,6 +79,11 @@ func countOpenAIChatTokens(enc tokenizer.Codec, payload []byte) (int64, error) {
 		return 0, err
 	}
 	return int64(count), nil
+}
+
+// BuildOpenAIUsageJSON is an exported version for sub-packages.
+func BuildOpenAIUsageJSON(count int64) []byte {
+	return buildOpenAIUsageJSON(count)
 }
 
 func buildOpenAIUsageJSON(count int64) []byte {
@@ -244,7 +260,7 @@ func CountTokensForOpenAIProvider(
 	payload []byte,
 	metadata map[string]any,
 ) (provider.Response, error) {
-	body, err := TranslateToOpenAI(cfg, from, model, payload, false, metadata)
+	body, err := stream.TranslateToOpenAI(cfg, from, model, payload, false, metadata)
 	if err != nil {
 		return provider.Response{}, err
 	}

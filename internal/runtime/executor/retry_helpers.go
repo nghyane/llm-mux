@@ -240,12 +240,25 @@ type rateLimitRetrier struct {
 	retryCount int
 }
 
+// RateLimitRetrier is an exported alias for rateLimitRetrier.
+type RateLimitRetrier = rateLimitRetrier
+
 type rateLimitAction int
+
+// RateLimitAction is an exported alias for rateLimitAction.
+type RateLimitAction = rateLimitAction
 
 const (
 	rateLimitActionContinue rateLimitAction = iota
 	rateLimitActionRetry
 	rateLimitActionMaxExceeded
+)
+
+// Exported constants for rate limit actions.
+const (
+	RateLimitActionContinue    = rateLimitActionContinue
+	RateLimitActionRetry       = rateLimitActionRetry
+	RateLimitActionMaxExceeded = rateLimitActionMaxExceeded
 )
 
 func (r *rateLimitRetrier) handleRateLimit(ctx context.Context, hasNextModel bool, errorBody []byte) (rateLimitAction, error) {
@@ -269,6 +282,11 @@ func (r *rateLimitRetrier) handleRateLimit(ctx context.Context, hasNextModel boo
 	}
 
 	return rateLimitActionRetry, nil
+}
+
+// HandleRateLimit is an exported alias for handleRateLimit.
+func (r *RateLimitRetrier) HandleRateLimit(ctx context.Context, hasNextModel bool, errorBody []byte) (RateLimitAction, error) {
+	return r.handleRateLimit(ctx, hasNextModel, errorBody)
 }
 
 func (r *rateLimitRetrier) calculateDelay(errorBody []byte) time.Duration {
@@ -315,6 +333,11 @@ func parseRetryDelay(errorBody []byte) (*time.Duration, error) {
 	}
 
 	return nil, fmt.Errorf("no RetryInfo found")
+}
+
+// ParseRetryDelay is an exported alias for parseRetryDelay.
+func ParseRetryDelay(errorBody []byte) (*time.Duration, error) {
+	return parseRetryDelay(errorBody)
 }
 
 func ParseQuotaRetryDelay(errorBody []byte) *time.Duration {
