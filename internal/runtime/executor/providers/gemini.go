@@ -77,7 +77,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 		body = util.ApplyGeminiThinkingConfig(body, budgetOverride, includeOverride)
 	}
 	body = util.StripThinkingConfigIfUnsupported(req.Model, body)
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	action := "generateContent"
 	if req.Metadata != nil {
@@ -173,7 +173,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		body = util.ApplyGeminiThinkingConfig(body, budgetOverride, includeOverride)
 	}
 	body = util.StripThinkingConfigIfUnsupported(req.Model, body)
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	baseURL := resolveGeminiBaseURL(auth)
 	ub := executor.GetURLBuilder()

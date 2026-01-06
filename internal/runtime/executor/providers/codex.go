@@ -17,6 +17,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -54,7 +55,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	}
 
 	body = e.setReasoningEffortByAlias(req.Model, body)
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
@@ -134,7 +135,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	}
 
 	body = e.setReasoningEffortByAlias(req.Model, body)
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"

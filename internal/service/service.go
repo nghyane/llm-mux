@@ -18,7 +18,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
-	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/transport"
 	"github.com/nghyane/llm-mux/internal/usage"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/nghyane/llm-mux/internal/watcher"
@@ -287,7 +287,7 @@ func (s *Service) applyRetryConfig(cfg *config.Config) {
 	s.coreManager.SetRetryConfig(cfg.RequestRetry, maxInterval)
 
 	if cfg.StreamTimeout > 0 {
-		executor.TransportConfig.ResponseHeaderTimeout = time.Duration(cfg.StreamTimeout) * time.Second
+		transport.Config.ResponseHeaderTimeout = time.Duration(cfg.StreamTimeout) * time.Second
 	}
 }
 

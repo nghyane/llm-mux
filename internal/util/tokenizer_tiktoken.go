@@ -426,7 +426,7 @@ func countTokensWithCache(enc tokenizer.Codec, s string, cache *TokenCache) int6
 	return tokens
 }
 
-// countJSONTokens is unused but kept for potential future use.
+// countRoleTokens counts tokens for a role string with caching.
 func countRoleTokens(enc tokenizer.Codec, role string) int64 {
 	roleTokenCacheMu.RLock()
 	count, ok := roleTokenCache[role]

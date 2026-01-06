@@ -16,6 +16,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/tidwall/sjson"
 )
 
@@ -53,7 +54,7 @@ func (e *CopilotExecutor) Execute(ctx context.Context, auth *provider.Auth, req 
 	if errTranslate != nil {
 		return resp, errTranslate
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.SetBytes(body, "stream", false)
 
 	url := executor.GitHubCopilotDefaultBaseURL + executor.GitHubCopilotChatPath
@@ -116,7 +117,7 @@ func (e *CopilotExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth
 	if errTranslate != nil {
 		return nil, errTranslate
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.SetBytes(body, "stream_options.include_usage", true)
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/nghyane/llm-mux/internal/config"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 )
 
 // Context keys for executor-specific values (merged from context_keys.go)
@@ -36,7 +37,7 @@ func (b *BaseExecutor) NewUsageReporter(ctx context.Context, prov, model string,
 }
 
 func (b *BaseExecutor) ApplyPayloadConfig(model string, payload []byte) []byte {
-	return ApplyPayloadConfig(b.Cfg, model, payload)
+	return sseutil.ApplyPayloadConfig(b.Cfg, model, payload)
 }
 
 func (b *BaseExecutor) RefreshNoOp(_ context.Context, auth *provider.Auth) (*provider.Auth, error) {

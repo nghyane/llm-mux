@@ -327,7 +327,7 @@ func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.
 		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
 	}
 	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = executor.ApplyPayloadConfig(e.cfg, req.Model, payload)
+	payload = sseutil.ApplyPayloadConfig(e.cfg, req.Model, payload)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
@@ -359,7 +359,7 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts
 		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
 	}
 	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = executor.ApplyPayloadConfig(e.cfg, req.Model, payload)
+	payload = sseutil.ApplyPayloadConfig(e.cfg, req.Model, payload)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")

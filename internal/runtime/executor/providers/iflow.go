@@ -16,6 +16,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -49,7 +50,7 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	if err != nil {
 		return resp, err
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	endpoint := strings.TrimSuffix(baseURL, "/") + executor.IFlowDefaultEndpoint
 
@@ -121,7 +122,7 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	if toolsResult.Exists() && toolsResult.IsArray() && len(toolsResult.Array()) == 0 {
 		body = ensureToolsArray(body)
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	endpoint := strings.TrimSuffix(baseURL, "/") + executor.IFlowDefaultEndpoint
 

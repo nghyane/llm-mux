@@ -17,6 +17,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -103,7 +104,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	if !strings.HasPrefix(modelForUpstream, "claude-3-5-haiku") {
 		body = checkSystemInstructions(body)
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	body = ensureMaxTokensForThinking(req.Model, body)
 
@@ -199,7 +200,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 	body = e.injectThinkingConfig(req.Model, body)
 	body = checkSystemInstructions(body)
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	body = ensureMaxTokensForThinking(req.Model, body)
 

@@ -45,7 +45,7 @@ func TranslateToGeminiWithTokens(cfg *config.Config, from provider.Format, model
 	}
 
 	result := &TranslationResult{
-		Payload: ApplyPayloadConfigToIR(cfg, model, geminiJSON),
+		Payload: sseutil.ApplyPayloadConfig(cfg, model, geminiJSON),
 		IR:      irReq,
 	}
 
@@ -57,7 +57,7 @@ func TranslateToGeminiWithTokens(cfg *config.Config, from provider.Format, model
 }
 
 func ConvertRequestToIR(from provider.Format, model string, payload []byte, metadata map[string]any) (*ir.UnifiedChatRequest, error) {
-	payload = SanitizeUndefinedValues(payload)
+	payload = sseutil.SanitizeUndefinedValues(payload)
 
 	formatStr := from.String()
 	irReq, err := translator.ParseRequest(formatStr, payload)
@@ -182,7 +182,7 @@ func TranslateToClaude(cfg *config.Config, from provider.Format, model string, p
 func TranslateToOpenAI(cfg *config.Config, from provider.Format, model string, payload []byte, streaming bool, metadata map[string]any) ([]byte, error) {
 	fromStr := from.String()
 	if fromStr == "openai" || fromStr == "cline" {
-		return ApplyPayloadConfigToIR(cfg, model, payload), nil
+		return sseutil.ApplyPayloadConfig(cfg, model, payload), nil
 	}
 
 	irReq, err := ConvertRequestToIR(from, model, payload, metadata)
@@ -193,7 +193,7 @@ func TranslateToOpenAI(cfg *config.Config, from provider.Format, model string, p
 	if err != nil {
 		return nil, err
 	}
-	return ApplyPayloadConfigToIR(cfg, model, openaiJSON), nil
+	return sseutil.ApplyPayloadConfig(cfg, model, openaiJSON), nil
 }
 
 func TranslateToGemini(cfg *config.Config, from provider.Format, model string, payload []byte, streaming bool, metadata map[string]any) ([]byte, error) {
@@ -202,18 +202,6 @@ func TranslateToGemini(cfg *config.Config, from provider.Format, model string, p
 		return nil, err
 	}
 	return result.Payload, nil
-}
-
-// SanitizeUndefinedValues removes undefined JavaScript values from JSON.
-// Delegates to sseutil for shared implementation.
-func SanitizeUndefinedValues(payload []byte) []byte {
-	return sseutil.SanitizeUndefinedValues(payload)
-}
-
-// ApplyPayloadConfigToIR applies configuration to the payload.
-// Delegates to sseutil for shared implementation.
-func ApplyPayloadConfigToIR(cfg *config.Config, model string, payload []byte) []byte {
-	return sseutil.ApplyPayloadConfig(cfg, model, payload)
 }
 
 // ApplyThinkingToIR applies thinking configuration to the IR request

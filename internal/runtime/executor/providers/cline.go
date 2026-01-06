@@ -11,10 +11,11 @@ import (
 
 	clineauth "github.com/nghyane/llm-mux/internal/auth/cline"
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 )
 
 type ClineExecutor struct {
@@ -45,7 +46,7 @@ func (e *ClineExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	if err != nil {
 		return resp, err
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/api/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -112,7 +113,7 @@ func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	if err != nil {
 		return nil, err
 	}
-	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/api/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))

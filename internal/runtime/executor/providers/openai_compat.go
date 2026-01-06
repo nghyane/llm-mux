@@ -14,6 +14,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/tidwall/sjson"
 )
@@ -49,7 +50,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = executor.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
+	translated = sseutil.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
@@ -121,7 +122,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = executor.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
+	translated = sseutil.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
