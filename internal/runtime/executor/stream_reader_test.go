@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -12,7 +13,7 @@ import (
 // mockReadCloser wraps a reader to implement io.ReadCloser
 type mockReadCloser struct {
 	reader    io.Reader
-	closed    bool
+	closed    atomic.Bool
 	readDelay time.Duration
 }
 
@@ -24,8 +25,12 @@ func (m *mockReadCloser) Read(p []byte) (int, error) {
 }
 
 func (m *mockReadCloser) Close() error {
-	m.closed = true
+	m.closed.Store(true)
 	return nil
+}
+
+func (m *mockReadCloser) IsClosed() bool {
+	return m.closed.Load()
 }
 
 func TestStreamReader_BasicRead(t *testing.T) {
@@ -61,6 +66,7 @@ func TestStreamReader_ContextCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sr := NewStreamReader(ctx, mock, 0, "test")
+	defer sr.Close()
 
 	// Cancel context
 	cancel()
@@ -69,7 +75,7 @@ func TestStreamReader_ContextCancellation(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	// Body should be closed
-	if !mock.closed {
+	if !mock.IsClosed() {
 		t.Fatal("body should be closed after context cancellation")
 	}
 
@@ -77,8 +83,6 @@ func TestStreamReader_ContextCancellation(t *testing.T) {
 	if !sr.closed.Load() {
 		t.Fatal("StreamReader should be marked as closed")
 	}
-
-	sr.Close()
 }
 
 func TestStreamReader_Close(t *testing.T) {
@@ -146,6 +150,7 @@ func TestStreamReader_IdleTimeout(t *testing.T) {
 	ctx := context.Background()
 	// Very short idle timeout for testing
 	sr := NewStreamReader(ctx, blockingReader, 100*time.Millisecond, "test")
+	defer sr.Close()
 
 	// Wait for idle watchdog to trigger
 	time.Sleep(200 * time.Millisecond)
@@ -154,12 +159,10 @@ func TestStreamReader_IdleTimeout(t *testing.T) {
 	// Note: The actual close might take a bit due to the watchdog check interval
 	time.Sleep(50 * time.Millisecond)
 
-	if !blockingReader.closed {
+	if !blockingReader.IsClosed() {
 		// The watchdog interval is 1/4 of timeout, so for 100ms timeout,
 		// it checks every 25ms (but min is 10s in production).
 		// For this test, we're checking that the mechanism works.
 		t.Log("Note: idle timeout test may not trigger immediately due to check interval")
 	}
-
-	sr.Close()
 }

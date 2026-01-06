@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+// newTestState creates an AuthQuotaState with the given values for testing.
+func newTestState(tokensUsed, activeRequests int64) *AuthQuotaState {
+	state := &AuthQuotaState{}
+	state.TotalTokensUsed.Store(tokensUsed)
+	state.ActiveRequests.Store(activeRequests)
+	return state
+}
+
 func TestQuotaManager_CalculatePriority(t *testing.T) {
 	m := NewQuotaManager()
 
@@ -25,27 +33,18 @@ func TestQuotaManager_CalculatePriority(t *testing.T) {
 			expectedBetter: true,
 		},
 		{
-			name: "low usage has lower priority",
-			state: &AuthQuotaState{
-				TotalTokensUsed: 100_000,
-				ActiveRequests:  0,
-			},
+			name:           "low usage has lower priority",
+			state:          newTestState(100_000, 0),
 			expectedBetter: true,
 		},
 		{
-			name: "high usage has higher priority",
-			state: &AuthQuotaState{
-				TotalTokensUsed: 400_000,
-				ActiveRequests:  0,
-			},
+			name:           "high usage has higher priority",
+			state:          newTestState(400_000, 0),
 			expectedBetter: false,
 		},
 	}
 
-	baseState := &AuthQuotaState{
-		TotalTokensUsed: 200_000,
-		ActiveRequests:  0,
-	}
+	baseState := newTestState(200_000, 0)
 	basePriority := m.calculatePriority(baseState, config)
 
 	for _, tt := range tests {
@@ -70,15 +69,8 @@ func TestQuotaManager_CalculatePriority_ActiveRequestsPenalty(t *testing.T) {
 		EstimatedLimit: 500_000,
 	}
 
-	idleState := &AuthQuotaState{
-		TotalTokensUsed: 100_000,
-		ActiveRequests:  0,
-	}
-
-	busyState := &AuthQuotaState{
-		TotalTokensUsed: 100_000,
-		ActiveRequests:  3,
-	}
+	idleState := newTestState(100_000, 0)
+	busyState := newTestState(100_000, 3)
 
 	idlePriority := m.calculatePriority(idleState, config)
 	busyPriority := m.calculatePriority(busyState, config)

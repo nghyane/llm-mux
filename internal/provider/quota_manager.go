@@ -3,13 +3,75 @@ package provider
 import (
 	"context"
 	"fmt"
+	"hash"
+	"hash/fnv"
 	"math/rand"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
+// AuthQuotaState tracks quota and rate limit state for a single auth.
+// ActiveRequests uses atomic operations for lock-free increment/decrement.
 type AuthQuotaState struct {
+	ActiveRequests  atomic.Int64
+	CooldownUntil   atomic.Int64 // Unix nano timestamp
+	TotalTokensUsed atomic.Int64
+	LastExhaustedAt atomic.Int64 // Unix nano timestamp
+	LearnedLimit    atomic.Int64
+	LearnedCooldown atomic.Int64 // Duration in nanoseconds
+}
+
+// GetCooldownUntil returns the cooldown deadline as time.Time.
+func (s *AuthQuotaState) GetCooldownUntil() time.Time {
+	ns := s.CooldownUntil.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
+
+// SetCooldownUntil sets the cooldown deadline.
+func (s *AuthQuotaState) SetCooldownUntil(t time.Time) {
+	if t.IsZero() {
+		s.CooldownUntil.Store(0)
+	} else {
+		s.CooldownUntil.Store(t.UnixNano())
+	}
+}
+
+// GetLastExhaustedAt returns the last exhausted time.
+func (s *AuthQuotaState) GetLastExhaustedAt() time.Time {
+	ns := s.LastExhaustedAt.Load()
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, ns)
+}
+
+// SetLastExhaustedAt sets the last exhausted time.
+func (s *AuthQuotaState) SetLastExhaustedAt(t time.Time) {
+	if t.IsZero() {
+		s.LastExhaustedAt.Store(0)
+	} else {
+		s.LastExhaustedAt.Store(t.UnixNano())
+	}
+}
+
+// GetLearnedCooldown returns the learned cooldown duration.
+func (s *AuthQuotaState) GetLearnedCooldown() time.Duration {
+	return time.Duration(s.LearnedCooldown.Load())
+}
+
+// SetLearnedCooldown sets the learned cooldown duration.
+func (s *AuthQuotaState) SetLearnedCooldown(d time.Duration) {
+	s.LearnedCooldown.Store(int64(d))
+}
+
+// AuthQuotaStateSnapshot is a point-in-time copy of AuthQuotaState for external use.
+// All fields are regular values (not atomics) for easy consumption.
+type AuthQuotaStateSnapshot struct {
 	CooldownUntil   time.Time
 	ActiveRequests  int64
 	TotalTokensUsed int64
@@ -18,9 +80,31 @@ type AuthQuotaState struct {
 	LearnedCooldown time.Duration
 }
 
-type QuotaManager struct {
+// Snapshot creates a point-in-time snapshot of the state.
+func (s *AuthQuotaState) Snapshot() *AuthQuotaStateSnapshot {
+	return &AuthQuotaStateSnapshot{
+		CooldownUntil:   s.GetCooldownUntil(),
+		ActiveRequests:  s.ActiveRequests.Load(),
+		TotalTokensUsed: s.TotalTokensUsed.Load(),
+		LastExhaustedAt: s.GetLastExhaustedAt(),
+		LearnedLimit:    s.LearnedLimit.Load(),
+		LearnedCooldown: s.GetLearnedCooldown(),
+	}
+}
+
+const (
+	numQuotaShards = 32 // More shards than StickyStore since this is hotter
+)
+
+// quotaShard holds a subset of auth states.
+type quotaShard struct {
 	mu     sync.RWMutex
 	states map[string]*AuthQuotaState
+}
+
+// QuotaManager provides sharded, low-contention quota tracking.
+type QuotaManager struct {
+	shards [numQuotaShards]*quotaShard
 	sticky *StickyStore
 
 	stopChan chan struct{}
@@ -28,12 +112,34 @@ type QuotaManager struct {
 	wg       sync.WaitGroup
 }
 
+var quotaHasherPool = sync.Pool{
+	New: func() any { return fnv.New64a() },
+}
+
+func quotaHashKey(key string) uint64 {
+	h := quotaHasherPool.Get().(hash.Hash64)
+	h.Reset()
+	h.Write([]byte(key))
+	sum := h.Sum64()
+	quotaHasherPool.Put(h)
+	return sum
+}
+
 func NewQuotaManager() *QuotaManager {
-	return &QuotaManager{
-		states:   make(map[string]*AuthQuotaState),
+	m := &QuotaManager{
 		sticky:   NewStickyStore(),
 		stopChan: make(chan struct{}),
 	}
+	for i := range m.shards {
+		m.shards[i] = &quotaShard{
+			states: make(map[string]*AuthQuotaState),
+		}
+	}
+	return m
+}
+
+func (m *QuotaManager) getShard(authID string) *quotaShard {
+	return m.shards[quotaHashKey(authID)%numQuotaShards]
 }
 
 func (m *QuotaManager) Start() {
@@ -96,9 +202,6 @@ func (m *QuotaManager) Pick(
 }
 
 func (m *QuotaManager) selectOptimal(auths []*Auth, config *ProviderQuotaConfig) *Auth {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	type scored struct {
 		auth     *Auth
 		priority int64
@@ -106,8 +209,9 @@ func (m *QuotaManager) selectOptimal(auths []*Auth, config *ProviderQuotaConfig)
 
 	candidates := make([]scored, 0, len(auths))
 
+	// Gather scores - each state access is lock-free via atomics
 	for _, auth := range auths {
-		state := m.states[auth.ID]
+		state := m.getState(auth.ID)
 		priority := m.calculatePriority(state, config)
 		candidates = append(candidates, scored{auth: auth, priority: priority})
 	}
@@ -143,14 +247,16 @@ func (m *QuotaManager) calculatePriority(state *AuthQuotaState, config *Provider
 
 	var priority int64
 
-	priority += state.ActiveRequests * 1000
+	// Lock-free read of active requests
+	priority += state.ActiveRequests.Load() * 1000
 
-	limit := state.LearnedLimit
+	limit := state.LearnedLimit.Load()
 	if limit <= 0 {
 		limit = config.EstimatedLimit
 	}
 	if limit > 0 {
-		usagePercent := float64(state.TotalTokensUsed) / float64(limit)
+		tokensUsed := state.TotalTokensUsed.Load()
+		usagePercent := float64(tokensUsed) / float64(limit)
 		priority += int64(usagePercent * 500)
 	}
 
@@ -158,17 +264,16 @@ func (m *QuotaManager) calculatePriority(state *AuthQuotaState, config *Provider
 }
 
 func (m *QuotaManager) filterAvailable(auths []*Auth, model string, now time.Time) []*Auth {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	available := make([]*Auth, 0, len(auths))
+
 	for _, auth := range auths {
 		if auth.Disabled {
 			continue
 		}
 
-		state := m.states[auth.ID]
-		if state != nil && now.Before(state.CooldownUntil) {
+		// Lock-free check of cooldown via atomic
+		state := m.getState(auth.ID)
+		if state != nil && now.Before(state.GetCooldownUntil()) {
 			continue
 		}
 
@@ -183,18 +288,17 @@ func (m *QuotaManager) filterAvailable(auths []*Auth, model string, now time.Tim
 }
 
 func (m *QuotaManager) buildRetryError(auths []*Auth, now time.Time) error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	var earliest time.Time
+
 	for _, auth := range auths {
-		state := m.states[auth.ID]
+		state := m.getState(auth.ID)
 		if state == nil {
 			continue
 		}
-		if state.CooldownUntil.After(now) {
-			if earliest.IsZero() || state.CooldownUntil.Before(earliest) {
-				earliest = state.CooldownUntil
+		cooldownUntil := state.GetCooldownUntil()
+		if cooldownUntil.After(now) {
+			if earliest.IsZero() || cooldownUntil.Before(earliest) {
+				earliest = cooldownUntil
 			}
 		}
 	}
@@ -216,68 +320,107 @@ func (m *QuotaManager) RecordRequestStart(authID string) {
 }
 
 func (m *QuotaManager) RecordRequestEnd(authID string, tokens int64, failed bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	state := m.getOrCreateState(authID)
-	if state.ActiveRequests > 0 {
-		state.ActiveRequests--
+
+	// Atomic decrement with CAS loop to prevent going negative
+	for {
+		current := state.ActiveRequests.Load()
+		if current <= 0 {
+			break
+		}
+		if state.ActiveRequests.CompareAndSwap(current, current-1) {
+			break
+		}
 	}
 
+	// Lock-free token update
 	if !failed && tokens > 0 {
-		state.TotalTokensUsed += tokens
+		state.TotalTokensUsed.Add(tokens)
 	}
 }
 
 func (m *QuotaManager) RecordQuotaHit(authID, provider, model string, cooldown *time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	state := m.getOrCreateState(authID)
 	now := time.Now()
 
-	state.LastExhaustedAt = now
+	state.SetLastExhaustedAt(now)
 
-	if state.TotalTokensUsed > state.LearnedLimit {
-		state.LearnedLimit = state.TotalTokensUsed
+	// Update learned limit if we exceeded it
+	tokensUsed := state.TotalTokensUsed.Load()
+	for {
+		currentLimit := state.LearnedLimit.Load()
+		if tokensUsed <= currentLimit {
+			break
+		}
+		if state.LearnedLimit.CompareAndSwap(currentLimit, tokensUsed) {
+			break
+		}
 	}
 
+	// Set cooldown
 	if cooldown != nil && *cooldown > 0 {
-		state.CooldownUntil = now.Add(*cooldown)
-		state.LearnedCooldown = *cooldown
-	} else if state.LearnedCooldown > 0 {
-		state.CooldownUntil = now.Add(state.LearnedCooldown)
+		state.SetCooldownUntil(now.Add(*cooldown))
+		state.SetLearnedCooldown(*cooldown)
+	} else if learned := state.GetLearnedCooldown(); learned > 0 {
+		state.SetCooldownUntil(now.Add(learned))
 	} else {
-		state.CooldownUntil = now.Add(5 * time.Hour)
+		state.SetCooldownUntil(now.Add(5 * time.Hour))
 	}
 
-	state.TotalTokensUsed = 0
+	// Reset token counter
+	state.TotalTokensUsed.Store(0)
 }
 
+// incrementActive atomically increments the active request counter.
 func (m *QuotaManager) incrementActive(authID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	state := m.getOrCreateState(authID)
-	state.ActiveRequests++
+	state.ActiveRequests.Add(1)
 }
 
-func (m *QuotaManager) getOrCreateState(authID string) *AuthQuotaState {
-	state, ok := m.states[authID]
-	if !ok {
-		state = &AuthQuotaState{}
-		m.states[authID] = state
-	}
+// getState returns the state for the given auth ID, or nil if not found.
+// This is lock-free for the common case where state exists.
+func (m *QuotaManager) getState(authID string) *AuthQuotaState {
+	shard := m.getShard(authID)
+	shard.mu.RLock()
+	state := shard.states[authID]
+	shard.mu.RUnlock()
 	return state
 }
 
-func (m *QuotaManager) GetState(authID string) *AuthQuotaState {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	if state, ok := m.states[authID]; ok {
-		copy := *state
-		return &copy
+// getOrCreateState returns the state for the given auth ID, creating it if needed.
+// Uses optimistic locking: tries RLock first, upgrades to Lock only if creation needed.
+func (m *QuotaManager) getOrCreateState(authID string) *AuthQuotaState {
+	shard := m.getShard(authID)
+
+	// Fast path: state already exists
+	shard.mu.RLock()
+	state, ok := shard.states[authID]
+	shard.mu.RUnlock()
+
+	if ok {
+		return state
 	}
-	return nil
+
+	// Slow path: need to create state
+	shard.mu.Lock()
+	// Double-check after acquiring write lock
+	state, ok = shard.states[authID]
+	if !ok {
+		state = &AuthQuotaState{}
+		shard.states[authID] = state
+	}
+	shard.mu.Unlock()
+
+	return state
+}
+
+// GetState returns a snapshot of the state for external use.
+func (m *QuotaManager) GetState(authID string) *AuthQuotaStateSnapshot {
+	state := m.getState(authID)
+	if state == nil {
+		return nil
+	}
+	return state.Snapshot()
 }
 
 func (m *QuotaManager) cleanupLoop() {
@@ -296,18 +439,20 @@ func (m *QuotaManager) cleanupLoop() {
 }
 
 func (m *QuotaManager) cleanup() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	now := time.Now()
 	maxAge := 24 * time.Hour
 
-	for authID, state := range m.states {
-		if state.ActiveRequests == 0 &&
-			now.After(state.CooldownUntil) &&
-			now.Sub(state.LastExhaustedAt) > maxAge {
-			delete(m.states, authID)
+	// Clean up each shard independently to minimize lock contention
+	for _, shard := range m.shards {
+		shard.mu.Lock()
+		for authID, state := range shard.states {
+			if state.ActiveRequests.Load() == 0 &&
+				now.After(state.GetCooldownUntil()) &&
+				now.Sub(state.GetLastExhaustedAt()) > maxAge {
+				delete(shard.states, authID)
+			}
 		}
+		shard.mu.Unlock()
 	}
 }
 
