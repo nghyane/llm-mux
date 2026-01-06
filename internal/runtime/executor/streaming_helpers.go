@@ -12,6 +12,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/streamutil"
 	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
@@ -119,10 +120,14 @@ func RunSSEStream(
 	processor StreamProcessor,
 	cfg StreamConfig,
 ) <-chan provider.StreamChunk {
-	out := make(chan provider.StreamChunk, 64) // Increased buffer for high concurrency
+	pipeline := streamutil.NewPipeline(ctx, streamutil.PipelineConfig{
+		BufferSize: 128,
+		OnError: func(err error) {
+			log.Errorf("%s: stream error: %v", cfg.ExecutorName, err)
+		},
+	})
 
-	go func() {
-		defer close(out)
+	pipeline.Go(func(ctx context.Context) error {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Errorf("%s: panic in stream goroutine: %v", cfg.ExecutorName, r)
@@ -150,7 +155,7 @@ func RunSSEStream(
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
-				return
+				return nil
 			default:
 			}
 
@@ -166,12 +171,12 @@ func RunSSEStream(
 						if reporter != nil {
 							reporter.publishFailure(ctx)
 						}
-						sendChunk(ctx, out, provider.StreamChunk{Err: doneErr})
-						return
+						pipeline.SendError(doneErr)
+						return nil
 					}
 					for _, chunk := range doneChunks {
-						if !sendChunk(ctx, out, provider.StreamChunk{Payload: chunk}) {
-							return
+						if !pipeline.SendData(chunk) {
+							return nil
 						}
 					}
 				}
@@ -199,15 +204,15 @@ func RunSSEStream(
 				if processor != nil {
 					if flushed, _ := processor.ProcessDone(); len(flushed) > 0 {
 						for _, chunk := range flushed {
-							if !sendChunk(ctx, out, provider.StreamChunk{Payload: chunk}) {
-								return
+							if !pipeline.SendData(chunk) {
+								return nil
 							}
 						}
 					}
 				}
 				errorJSON := fmt.Sprintf(`data: {"error": {"message": "%s", "type": "server_error"}}`+"\n\n", err.Error())
-				sendChunk(ctx, out, provider.StreamChunk{Payload: []byte(errorJSON)})
-				return
+				pipeline.SendData([]byte(errorJSON))
+				return nil
 			}
 
 			if usage != nil && reporter != nil {
@@ -216,13 +221,13 @@ func RunSSEStream(
 
 			if len(chunks) > 0 {
 				for _, chunk := range chunks {
-					if !sendChunk(ctx, out, provider.StreamChunk{Payload: chunk}) {
-						return
+					if !pipeline.SendData(chunk) {
+						return nil
 					}
 				}
 			} else if cfg.PassthroughOnEmpty {
-				if !sendChunk(ctx, out, provider.StreamChunk{Payload: bytes.Clone(payload)}) {
-					return
+				if !pipeline.SendData(bytes.Clone(payload)) {
+					return nil
 				}
 			}
 		}
@@ -233,12 +238,12 @@ func RunSSEStream(
 				if reporter != nil {
 					reporter.publishFailure(ctx)
 				}
-				sendChunk(ctx, out, provider.StreamChunk{Err: doneErr})
-				return
+				pipeline.SendError(doneErr)
+				return nil
 			}
 			for _, chunk := range doneChunks {
-				if !sendChunk(ctx, out, provider.StreamChunk{Payload: chunk}) {
-					return
+				if !pipeline.SendData(chunk) {
+					return nil
 				}
 			}
 		}
@@ -248,16 +253,22 @@ func RunSSEStream(
 				reporter.publishFailure(ctx)
 			}
 			errorJSON := fmt.Sprintf(`data: {"error": {"message": "%s", "type": "server_error"}}`+"\n\n", errScan.Error())
-			sendChunk(ctx, out, provider.StreamChunk{Payload: []byte(errorJSON)})
-			return
+			pipeline.SendData([]byte(errorJSON))
+			return nil
 		}
 
 		if cfg.EnsurePublished && reporter != nil {
 			reporter.ensurePublished(ctx)
 		}
+
+		return nil
+	})
+
+	go func() {
+		pipeline.Close()
 	}()
 
-	return out
+	return convertPipelineToStreamChunk(pipeline.Output())
 }
 
 type SimpleStreamProcessor struct {

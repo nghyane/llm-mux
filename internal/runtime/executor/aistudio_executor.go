@@ -13,6 +13,7 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/streamutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -131,11 +132,14 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		}
 		return nil, NewStatusError(firstEvent.Status, body.String(), nil)
 	}
-	out := make(chan provider.StreamChunk, 32)
-	stream = out
+	pipeline := streamutil.NewPipeline(ctx, streamutil.PipelineConfig{
+		BufferSize: 128,
+		OnError: func(err error) {
+			log.Errorf("aistudio executor: stream error: %v", err)
+		},
+	})
 
-	go func(first wsrelay.StreamEvent, inputTokens int64) {
-		defer close(out)
+	pipeline.Go(func(ctx context.Context) error {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Errorf("aistudio executor: panic in stream goroutine: %v", r)
@@ -143,7 +147,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		}()
 
 		streamCtx := NewStreamContext()
-		streamCtx.EstimatedInputTokens = inputTokens
+		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 		translator := NewStreamTranslator(e.cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
 		processor := &aistudioStreamProcessor{
@@ -153,10 +157,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		processEvent := func(event wsrelay.StreamEvent) bool {
 			if event.Err != nil {
 				reporter.publishFailure(ctx)
-				select {
-				case out <- provider.StreamChunk{Err: fmt.Errorf("wsrelay: %v", event.Err)}:
-				case <-ctx.Done():
-				}
+				pipeline.SendError(fmt.Errorf("wsrelay: %v", event.Err))
 				return false
 			}
 			switch event.Type {
@@ -167,19 +168,14 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 
 					chunks, usage, err := processor.ProcessLine(bytes.Clone(filtered))
 					if err != nil {
-						select {
-						case out <- provider.StreamChunk{Err: err}:
-						case <-ctx.Done():
-						}
+						pipeline.SendError(err)
 						return false
 					}
 					if usage != nil {
 						reporter.publish(ctx, usage)
 					}
 					for _, chunk := range chunks {
-						select {
-						case out <- provider.StreamChunk{Payload: ensureColonSpacedJSON(chunk)}:
-						case <-ctx.Done():
+						if !pipeline.SendData(ensureColonSpacedJSON(chunk)) {
 							return false
 						}
 					}
@@ -187,16 +183,11 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 				}
 			case wsrelay.MessageTypeStreamEnd:
 				if chunks, err := processor.ProcessDone(); err != nil {
-					select {
-					case out <- provider.StreamChunk{Err: err}:
-					case <-ctx.Done():
-					}
+					pipeline.SendError(err)
 					return false
 				} else {
 					for _, chunk := range chunks {
-						select {
-						case out <- provider.StreamChunk{Payload: ensureColonSpacedJSON(chunk)}:
-						case <-ctx.Done():
+						if !pipeline.SendData(ensureColonSpacedJSON(chunk)) {
 							return false
 						}
 					}
@@ -206,22 +197,15 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 				fromFormat := provider.FromString("gemini")
 				translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, event.Payload, req.Model)
 				if err != nil {
-					select {
-					case out <- provider.StreamChunk{Err: err}:
-					case <-ctx.Done():
-					}
+					pipeline.SendError(err)
 					return false
 				}
 				if translatedResp != nil {
-					select {
-					case out <- provider.StreamChunk{Payload: ensureColonSpacedJSON(translatedResp)}:
-					case <-ctx.Done():
+					if !pipeline.SendData(ensureColonSpacedJSON(translatedResp)) {
 						return false
 					}
 				} else {
-					select {
-					case out <- provider.StreamChunk{Payload: ensureColonSpacedJSON(event.Payload)}:
-					case <-ctx.Done():
+					if !pipeline.SendData(ensureColonSpacedJSON(event.Payload)) {
 						return false
 					}
 				}
@@ -229,24 +213,27 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 				return false
 			case wsrelay.MessageTypeError:
 				reporter.publishFailure(ctx)
-				select {
-				case out <- provider.StreamChunk{Err: fmt.Errorf("wsrelay: %v", event.Err)}:
-				case <-ctx.Done():
-				}
+				pipeline.SendError(fmt.Errorf("wsrelay: %v", event.Err))
 				return false
 			}
 			return true
 		}
-		if !processEvent(first) {
-			return
+		if !processEvent(firstEvent) {
+			return nil
 		}
 		for event := range wsStream {
 			if !processEvent(event) {
-				return
+				return nil
 			}
 		}
-	}(firstEvent, estimatedInputTokens)
-	return stream, nil
+		return nil
+	})
+
+	go func() {
+		pipeline.Close()
+	}()
+
+	return convertAIStudioPipelineToStreamChunk(pipeline.Output()), nil
 }
 
 func (e *AIStudioExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
@@ -484,4 +471,15 @@ func FetchAIStudioModels(ctx context.Context, auth *provider.Auth, relay *wsrela
 	}
 
 	return ParseGLAPIModels(resp.Body, "aistudio")
+}
+
+func convertAIStudioPipelineToStreamChunk(input <-chan streamutil.Chunk) <-chan provider.StreamChunk {
+	out := make(chan provider.StreamChunk, 128)
+	go func() {
+		defer close(out)
+		for chunk := range input {
+			out <- provider.StreamChunk{Payload: chunk.Data, Err: chunk.Err}
+		}
+	}()
+	return out
 }

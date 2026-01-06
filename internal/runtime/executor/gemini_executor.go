@@ -15,6 +15,7 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/streamutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/preprocess"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
@@ -216,13 +217,16 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
-	out := make(chan provider.StreamChunk, 32)
-	stream = out
-
 	estimatedInputTokens := translation.EstimatedInputTokens
 
-	go func() {
-		defer close(out)
+	pipeline := streamutil.NewPipeline(ctx, streamutil.PipelineConfig{
+		BufferSize: 128,
+		OnError: func(err error) {
+			log.Errorf("gemini executor: stream error: %v", err)
+		},
+	})
+
+	pipeline.Go(func(ctx context.Context) error {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Errorf("gemini executor: panic in stream goroutine: %v", r)
@@ -248,7 +252,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		for scanner.Scan() {
 			select {
 			case <-ctx.Done():
-				return
+				return nil
 			default:
 			}
 
@@ -263,49 +267,43 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 			if err != nil {
 				if flushed, _ := processor.ProcessDone(); len(flushed) > 0 {
 					for _, chunk := range flushed {
-						select {
-						case out <- provider.StreamChunk{Payload: chunk}:
-						case <-ctx.Done():
-							return
+						if !pipeline.SendData(chunk) {
+							return nil
 						}
 					}
 				}
-				select {
-				case out <- provider.StreamChunk{Err: err}:
-				case <-ctx.Done():
-				}
-				return
+				pipeline.SendError(err)
+				return nil
 			}
 			if usage != nil {
 				reporter.publish(ctx, usage)
 			}
 			for _, chunk := range chunks {
-				select {
-				case out <- provider.StreamChunk{Payload: chunk}:
-				case <-ctx.Done():
-					return
+				if !pipeline.SendData(chunk) {
+					return nil
 				}
 			}
 		}
 		if errScan := scanner.Err(); errScan != nil {
 			reporter.publishFailure(ctx)
-			select {
-			case out <- provider.StreamChunk{Err: errScan}:
-			case <-ctx.Done():
-			}
-			return
+			pipeline.SendError(errScan)
+			return nil
 		}
 		if flushed, _ := processor.ProcessDone(); len(flushed) > 0 {
 			for _, chunk := range flushed {
-				select {
-				case out <- provider.StreamChunk{Payload: chunk}:
-				case <-ctx.Done():
-					return
+				if !pipeline.SendData(chunk) {
+					return nil
 				}
 			}
 		}
+		return nil
+	})
+
+	go func() {
+		pipeline.Close()
 	}()
-	return stream, nil
+
+	return convertPipelineToStreamChunk(pipeline.Output()), nil
 }
 
 func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
@@ -511,4 +509,15 @@ func FetchGeminiModels(ctx context.Context, auth *provider.Auth, cfg *config.Con
 	}
 
 	return FetchGLAPIModels(ctx, httpClient, fetchCfg)
+}
+
+func convertPipelineToStreamChunk(input <-chan streamutil.Chunk) <-chan provider.StreamChunk {
+	out := make(chan provider.StreamChunk, 128)
+	go func() {
+		defer close(out)
+		for chunk := range input {
+			out <- provider.StreamChunk{Payload: chunk.Data, Err: chunk.Err}
+		}
+	}()
+	return out
 }
