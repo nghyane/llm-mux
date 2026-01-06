@@ -1,10 +1,10 @@
 package ir
 
 import (
-	"fmt"
-	"github.com/nghyane/llm-mux/internal/json"
+	stdjson "encoding/json"
 	"strings"
 
+	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/tidwall/gjson"
 )
 
@@ -225,234 +225,18 @@ func BuildToolMaps(messages []Message) (map[string]string, map[string]*ToolResul
 	return idToName, results
 }
 
-// ValidateAndNormalizeJSON ensures a string is valid JSON, wrapping it if not.
-func ValidateAndNormalizeJSON(s string) string {
-	if s == "" {
-		return "{}"
-	}
-	if !json.Valid([]byte(s)) {
-		b, _ := json.Marshal(s)
-		return string(b)
-	}
-	return s
-}
+var emptyJSONObject = stdjson.RawMessage("{}")
 
-// ParseToolCallArgs parses tool call arguments, tolerating barewords.
-func ParseToolCallArgs(argsJSON string) map[string]any {
-	trimmed := strings.TrimSpace(argsJSON)
+func ArgsAsRaw(args string) stdjson.RawMessage {
+	trimmed := strings.TrimSpace(args)
 	if trimmed == "" || trimmed == "{}" {
-		return map[string]any{}
+		return emptyJSONObject
 	}
-	var argsObj map[string]any
-	if json.Unmarshal([]byte(trimmed), &argsObj) == nil {
-		return argsObj
+	if !json.Valid([]byte(trimmed)) {
+		b, _ := json.Marshal(trimmed)
+		return stdjson.RawMessage(b)
 	}
-	if tolerant := tolerantParseJSONMap(trimmed); len(tolerant) > 0 {
-		return tolerant
-	}
-	return map[string]any{}
-}
-
-// tolerantParseJSONMap attempts to parse JSON-like string with barewords.
-func tolerantParseJSONMap(s string) map[string]any {
-	start, end := strings.Index(s, "{"), strings.LastIndex(s, "}")
-	if start == -1 || end == -1 || start >= end {
-		return map[string]any{}
-	}
-	runes := []rune(s[start+1 : end])
-	n, i := len(runes), 0
-	result := make(map[string]any)
-
-	for i < n {
-		// Skip whitespace/commas
-		for i < n && isSpaceOrComma(runes[i]) {
-			i++
-		}
-		if i >= n {
-			break
-		}
-
-		// Expect quoted key
-		if runes[i] != '"' {
-			for i < n && runes[i] != ',' {
-				i++
-			}
-			continue
-		}
-
-		keyToken, nextIdx := parseJSONStringRunes(runes, i)
-		if nextIdx == -1 {
-			break
-		}
-		keyName := jsonStringTokenToRawString(keyToken)
-		i = nextIdx
-
-		// Skip to colon
-		for i < n && isSpace(runes[i]) {
-			i++
-		}
-		if i >= n || runes[i] != ':' {
-			break
-		}
-		i++ // skip ':'
-
-		// Skip to value
-		for i < n && isSpace(runes[i]) {
-			i++
-		}
-		if i >= n {
-			break
-		}
-
-		// Parse value
-		var value any
-		switch runes[i] {
-		case '"':
-			valToken, ni := parseJSONStringRunes(runes, i)
-			if ni == -1 {
-				value, i = "", n
-			} else {
-				value, i = jsonStringTokenToRawString(valToken), ni
-			}
-		case '{', '[':
-			seg, ni := captureBracketed(runes, i)
-			if ni == -1 {
-				i = n
-			} else {
-				var anyVal any
-				if json.Unmarshal([]byte(seg), &anyVal) == nil {
-					value = anyVal
-				} else {
-					value = seg
-				}
-				i = ni
-			}
-		default:
-			j := i
-			for j < n && runes[j] != ',' {
-				j++
-			}
-			token := strings.TrimSpace(string(runes[i:j]))
-			if token == "true" {
-				value = true
-			} else if token == "false" {
-				value = false
-			} else if token == "null" {
-				value = nil
-			} else if numVal, ok := tryParseNumber(token); ok {
-				value = numVal
-			} else {
-				value = token
-			}
-			i = j
-		}
-		result[keyName] = value
-
-		// Skip trailing
-		for i < n && isSpace(runes[i]) {
-			i++
-		}
-		if i < n && runes[i] == ',' {
-			i++
-		}
-	}
-	return result
-}
-
-func isSpace(r rune) bool {
-	return r == ' ' || r == '\n' || r == '\r' || r == '\t'
-}
-
-func isSpaceOrComma(r rune) bool {
-	return isSpace(r) || r == ','
-}
-
-func parseJSONStringRunes(runes []rune, start int) (string, int) {
-	if start >= len(runes) || runes[start] != '"' {
-		return "", -1
-	}
-	i, escaped := start+1, false
-	for i < len(runes) {
-		if runes[i] == '\\' && !escaped {
-			escaped = true
-			i++
-			continue
-		}
-		if runes[i] == '"' && !escaped {
-			return string(runes[start : i+1]), i + 1
-		}
-		escaped = false
-		i++
-	}
-	return string(runes[start:]), -1
-}
-
-func jsonStringTokenToRawString(token string) string {
-	var s string
-	if json.Unmarshal([]byte(token), &s) == nil {
-		return s
-	}
-	if len(token) >= 2 && token[0] == '"' && token[len(token)-1] == '"' {
-		return token[1 : len(token)-1]
-	}
-	return token
-}
-
-func captureBracketed(runes []rune, i int) (string, int) {
-	if i >= len(runes) {
-		return "", -1
-	}
-	startRune := runes[i]
-	var endRune rune
-	switch startRune {
-	case '{':
-		endRune = '}'
-	case '[':
-		endRune = ']'
-	default:
-		return "", -1
-	}
-
-	depth, j, inString, escaped := 1, i+1, false, false
-	for j < len(runes) && depth > 0 {
-		r := runes[j]
-		if inString {
-			if r == '\\' && !escaped {
-				escaped = true
-			} else {
-				if r == '"' && !escaped {
-					inString = false
-				}
-				escaped = false
-			}
-		} else {
-			switch r {
-			case '"':
-				inString = true
-			case startRune:
-				depth++
-			case endRune:
-				depth--
-			}
-		}
-		j++
-	}
-	if depth != 0 {
-		return "", -1
-	}
-	return string(runes[i:j]), j
-}
-
-func tryParseNumber(s string) (any, bool) {
-	var intVal int64
-	if _, err := fmt.Sscanf(s, "%d", &intVal); err == nil && fmt.Sprintf("%d", intVal) == s {
-		return intVal, true
-	}
-	var floatVal float64
-	if _, err := fmt.Sscanf(s, "%f", &floatVal); err == nil {
-		return floatVal, true
-	}
-	return nil, false
+	return stdjson.RawMessage(trimmed)
 }
 
 // ParseOpenAIStyleToolCalls parses tool_calls array in OpenAI/Ollama format.

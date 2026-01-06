@@ -444,3 +444,240 @@ func formatResponsesSSEBytes(eventType string, data []byte) []byte {
 	buf = append(buf, "\n\n"...)
 	return buf
 }
+
+// -----------------------------------------------------------------------------
+// OpenAI Tool Call Delta - Typed Struct for Fast Marshaling (HOT PATH)
+// Tool calls are frequent in agentic workflows - every tool invocation triggers this.
+// -----------------------------------------------------------------------------
+
+// OpenAIToolCallDelta represents a tool call delta event.
+// Using typed struct instead of map[string]any reduces allocations by ~3x.
+type OpenAIToolCallDelta struct {
+	ID      string                      `json:"id"`
+	Object  string                      `json:"object"`
+	Created int64                       `json:"created"`
+	Model   string                      `json:"model"`
+	Choices []OpenAIToolCallDeltaChoice `json:"choices"`
+}
+
+type OpenAIToolCallDeltaChoice struct {
+	Index int                        `json:"index"`
+	Delta OpenAIToolCallDeltaContent `json:"delta"`
+}
+
+type OpenAIToolCallDeltaContent struct {
+	Role      string                `json:"role,omitempty"`
+	ToolCalls []OpenAIToolCallEntry `json:"tool_calls,omitempty"`
+}
+
+type OpenAIToolCallEntry struct {
+	Index        int                         `json:"index"`
+	ID           string                      `json:"id,omitempty"`
+	Type         string                      `json:"type,omitempty"`
+	Function     *OpenAIToolCallFunction     `json:"function,omitempty"`
+	ExtraContent *OpenAIToolCallExtraContent `json:"extra_content,omitempty"`
+}
+
+type OpenAIToolCallFunction struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+type OpenAIToolCallExtraContent struct {
+	Google *OpenAIToolCallGoogle `json:"google,omitempty"`
+}
+
+type OpenAIToolCallGoogle struct {
+	ThoughtSignature string `json:"thought_signature,omitempty"`
+}
+
+// Pool for OpenAI tool call delta events
+var openaiToolCallDeltaPool = sync.Pool{
+	New: func() any {
+		return &OpenAIToolCallDelta{
+			Object:  "chat.completion.chunk",
+			Choices: make([]OpenAIToolCallDeltaChoice, 1),
+		}
+	},
+}
+
+// GetOpenAIToolCallDelta retrieves a pre-allocated OpenAI tool call delta from the pool.
+func GetOpenAIToolCallDelta() *OpenAIToolCallDelta {
+	d := openaiToolCallDeltaPool.Get().(*OpenAIToolCallDelta)
+	// Ensure Choices[0].Delta.ToolCalls has capacity
+	if cap(d.Choices[0].Delta.ToolCalls) == 0 {
+		d.Choices[0].Delta.ToolCalls = make([]OpenAIToolCallEntry, 0, 1)
+	}
+	return d
+}
+
+// PutOpenAIToolCallDelta returns an OpenAI tool call delta to the pool.
+func PutOpenAIToolCallDelta(d *OpenAIToolCallDelta) {
+	// Reset fields
+	d.ID = ""
+	d.Model = ""
+	d.Created = 0
+	if len(d.Choices) > 0 {
+		d.Choices[0].Index = 0
+		d.Choices[0].Delta.Role = ""
+		d.Choices[0].Delta.ToolCalls = d.Choices[0].Delta.ToolCalls[:0] // Reset slice but keep capacity
+	}
+	openaiToolCallDeltaPool.Put(d)
+}
+
+// BuildOpenAIToolCallDeltaSSE builds an SSE chunk for a tool call delta.
+// This is a HOT PATH for agentic workflows - called for every tool call in streaming.
+func BuildOpenAIToolCallDeltaSSE(id, model string, created int64, toolCallIndex int, toolCallID, funcName, funcArgs string, thoughtSig []byte) []byte {
+	delta := GetOpenAIToolCallDelta()
+	defer PutOpenAIToolCallDelta(delta)
+
+	delta.ID = id
+	delta.Model = model
+	delta.Created = created
+	delta.Choices[0].Delta.Role = "assistant"
+
+	// Build tool call entry
+	entry := OpenAIToolCallEntry{
+		Index: toolCallIndex,
+		ID:    toolCallID,
+		Type:  "function",
+		Function: &OpenAIToolCallFunction{
+			Name:      funcName,
+			Arguments: funcArgs,
+		},
+	}
+
+	// Add thought signature if present (Gemini 3 compatibility)
+	if len(thoughtSig) > 0 {
+		entry.ExtraContent = &OpenAIToolCallExtraContent{
+			Google: &OpenAIToolCallGoogle{
+				ThoughtSignature: string(thoughtSig),
+			},
+		}
+	}
+
+	delta.Choices[0].Delta.ToolCalls = append(delta.Choices[0].Delta.ToolCalls, entry)
+
+	jb, _ := json.Marshal(delta)
+	return BuildSSEChunk(jb)
+}
+
+// BuildOpenAIToolCallArgsDeltaSSE builds an SSE chunk for tool call arguments delta (streaming args).
+// Used when only arguments are being streamed (no ID/name).
+func BuildOpenAIToolCallArgsDeltaSSE(id, model string, created int64, toolCallIndex int, funcArgs string) []byte {
+	delta := GetOpenAIToolCallDelta()
+	defer PutOpenAIToolCallDelta(delta)
+
+	delta.ID = id
+	delta.Model = model
+	delta.Created = created
+
+	entry := OpenAIToolCallEntry{
+		Index: toolCallIndex,
+		Function: &OpenAIToolCallFunction{
+			Arguments: funcArgs,
+		},
+	}
+
+	delta.Choices[0].Delta.ToolCalls = append(delta.Choices[0].Delta.ToolCalls, entry)
+
+	jb, _ := json.Marshal(delta)
+	return BuildSSEChunk(jb)
+}
+
+// -----------------------------------------------------------------------------
+// Claude Tool Call SSE - Typed Structs for Fast Marshaling (HOT PATH)
+// -----------------------------------------------------------------------------
+
+type ClaudeToolCallBlockStart struct {
+	Type         string                     `json:"type"`
+	Index        int                        `json:"index"`
+	ContentBlock ClaudeToolCallContentBlock `json:"content_block"`
+}
+
+type ClaudeToolCallContentBlock struct {
+	Type  string         `json:"type"`
+	ID    string         `json:"id"`
+	Name  string         `json:"name"`
+	Input map[string]any `json:"input"`
+}
+
+type ClaudeToolCallInputDelta struct {
+	Type  string                        `json:"type"`
+	Index int                           `json:"index"`
+	Delta ClaudeToolCallInputDeltaInner `json:"delta"`
+}
+
+type ClaudeToolCallInputDeltaInner struct {
+	Type        string `json:"type"`
+	PartialJSON string `json:"partial_json"`
+}
+
+var emptyInputMap = map[string]any{}
+
+var claudeToolCallBlockStartPool = sync.Pool{
+	New: func() any {
+		return &ClaudeToolCallBlockStart{
+			Type: ClaudeSSEContentBlockStart,
+			ContentBlock: ClaudeToolCallContentBlock{
+				Type:  ClaudeBlockToolUse,
+				Input: emptyInputMap,
+			},
+		}
+	},
+}
+
+func GetClaudeToolCallBlockStart() *ClaudeToolCallBlockStart {
+	return claudeToolCallBlockStartPool.Get().(*ClaudeToolCallBlockStart)
+}
+
+func PutClaudeToolCallBlockStart(d *ClaudeToolCallBlockStart) {
+	d.Index = 0
+	d.ContentBlock.ID = ""
+	d.ContentBlock.Name = ""
+	claudeToolCallBlockStartPool.Put(d)
+}
+
+var claudeToolCallInputDeltaPool = sync.Pool{
+	New: func() any {
+		return &ClaudeToolCallInputDelta{
+			Type: ClaudeSSEContentBlockDelta,
+			Delta: ClaudeToolCallInputDeltaInner{
+				Type: "input_json_delta",
+			},
+		}
+	},
+}
+
+func GetClaudeToolCallInputDelta() *ClaudeToolCallInputDelta {
+	return claudeToolCallInputDeltaPool.Get().(*ClaudeToolCallInputDelta)
+}
+
+func PutClaudeToolCallInputDelta(d *ClaudeToolCallInputDelta) {
+	d.Index = 0
+	d.Delta.PartialJSON = ""
+	claudeToolCallInputDeltaPool.Put(d)
+}
+
+func BuildClaudeToolCallBlockStartSSE(index int, toolID, name string) []byte {
+	d := GetClaudeToolCallBlockStart()
+	defer PutClaudeToolCallBlockStart(d)
+
+	d.Index = index
+	d.ContentBlock.ID = toolID
+	d.ContentBlock.Name = name
+
+	jb, _ := json.Marshal(d)
+	return BuildSSEEvent(ClaudeSSEContentBlockStart, jb)
+}
+
+func BuildClaudeToolCallInputDeltaSSE(index int, partialJSON string) []byte {
+	d := GetClaudeToolCallInputDelta()
+	defer PutClaudeToolCallInputDelta(d)
+
+	d.Index = index
+	d.Delta.PartialJSON = partialJSON
+
+	jb, _ := json.Marshal(d)
+	return BuildSSEEvent(ClaudeSSEContentBlockDelta, jb)
+}

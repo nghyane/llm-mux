@@ -185,7 +185,7 @@ func (p *GeminiProvider) buildAssistantAndToolParts(msg *ir.Message, toolIDToNam
 		if id == "" {
 			id = fmt.Sprintf("call_%d_%d", time.Now().UnixNano(), i)
 		}
-		part := map[string]any{"functionCall": map[string]any{"name": tc.Name, "args": json.RawMessage(ir.ValidateAndNormalizeJSON(tc.Args)), "id": id}}
+		part := map[string]any{"functionCall": map[string]any{"name": tc.Name, "args": ir.ArgsAsRaw(tc.Args), "id": id}}
 		if ir.IsValidThoughtSignature(tc.ThoughtSignature) {
 			part["thoughtSignature"] = string(tc.ThoughtSignature)
 		} else if ir.IsGemini3(model) {
@@ -382,11 +382,7 @@ func ToGeminiChunk(event ir.UnifiedEvent, model string) ([]byte, error) {
 		candidate["content"].(map[string]any)["parts"] = []any{p}
 	case ir.EventTypeToolCall:
 		if event.ToolCall != nil {
-			var args any = map[string]any{}
-			if event.ToolCall.Args != "" && event.ToolCall.Args != "{}" {
-				json.Unmarshal([]byte(event.ToolCall.Args), &args)
-			}
-			p := map[string]any{"functionCall": map[string]any{"name": event.ToolCall.Name, "args": args}}
+			p := map[string]any{"functionCall": map[string]any{"name": event.ToolCall.Name, "args": ir.ArgsAsRaw(event.ToolCall.Args)}}
 			if len(event.ThoughtSignature) > 0 {
 				p["thoughtSignature"] = string(event.ThoughtSignature)
 			} else if len(event.ToolCall.ThoughtSignature) > 0 {

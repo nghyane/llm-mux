@@ -282,7 +282,7 @@ func buildClaudeAssistantParts(msg *ir.Message) []any {
 		part := map[string]any{
 			"functionCall": map[string]any{
 				"name": tc.Name,
-				"args": json.RawMessage(ir.ValidateAndNormalizeJSON(tc.Args)),
+				"args": ir.ArgsAsRaw(tc.Args),
 				"id":   ir.ToClaudeToolID(id),
 			},
 		}
