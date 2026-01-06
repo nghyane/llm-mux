@@ -1,4 +1,4 @@
-package executor
+package stream
 
 import (
 	"github.com/nghyane/llm-mux/internal/config"
@@ -49,14 +49,14 @@ func NewStreamContext() *StreamContext {
 }
 
 func NewStreamContextWithTools(originalRequest []byte) *StreamContext {
-	ctx := NewStreamContext()
+	Ctx := NewStreamContext()
 	if len(originalRequest) > 0 {
 		tools := gjson.GetBytes(originalRequest, "tools").Array()
 		if len(tools) > 0 {
-			ctx.ToolSchemaCtx = ir.NewToolSchemaContextFromGJSON(tools)
+			Ctx.ToolSchemaCtx = ir.NewToolSchemaContextFromGJSON(tools)
 		}
 	}
-	return ctx
+	return Ctx
 }
 
 func (s *StreamContext) MarkFinishSent() bool {
@@ -82,15 +82,15 @@ type StreamTranslator struct {
 	to             string
 	model          string
 	messageID      string
-	ctx            *StreamContext
+	Ctx            *StreamContext
 	eventBuffer    EventBufferStrategy
 	chunkBuffer    ChunkBufferStrategy
 	streamMetaSent bool
 }
 
-func NewStreamTranslator(cfg *config.Config, from provider.Format, to, model, messageID string, ctx *StreamContext) *StreamTranslator {
-	if ctx == nil {
-		ctx = NewStreamContext()
+func NewStreamTranslator(cfg *config.Config, from provider.Format, to, model, messageID string, Ctx *StreamContext) *StreamTranslator {
+	if Ctx == nil {
+		Ctx = NewStreamContext()
 	}
 	st := &StreamTranslator{
 		cfg:       cfg,
@@ -98,7 +98,7 @@ func NewStreamTranslator(cfg *config.Config, from provider.Format, to, model, me
 		to:        to,
 		model:     model,
 		messageID: messageID,
-		ctx:       ctx,
+		Ctx:       Ctx,
 	}
 
 	if to == "gemini" || to == "gemini-cli" {
@@ -123,7 +123,7 @@ func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslati
 			StreamMeta: &ir.StreamMeta{
 				MessageID:            t.messageID,
 				Model:                t.model,
-				EstimatedInputTokens: t.ctx.EstimatedInputTokens,
+				EstimatedInputTokens: t.Ctx.EstimatedInputTokens,
 			},
 		}
 		if chunk, err := t.convertEvent(&metaEvent); err != nil {
@@ -150,7 +150,7 @@ func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslati
 		}
 	}
 
-	usage := extractUsageFromEvents(events)
+	usage := ExtractUsageFromEvents(events)
 
 	return &StreamTranslationResult{
 		Chunks: allChunks,
@@ -179,8 +179,8 @@ func (t *StreamTranslator) Flush() ([][]byte, error) {
 	var allChunks [][]byte
 
 	// Finalize Claude parser state (embedded in ClaudeState)
-	if t.ctx != nil && t.ctx.ClaudeState != nil && t.ctx.ClaudeState.ParserState != nil {
-		if finalEvent := t.ctx.ClaudeState.ParserState.Finalize(); finalEvent != nil {
+	if t.Ctx != nil && t.Ctx.ClaudeState != nil && t.Ctx.ClaudeState.ParserState != nil {
+		if finalEvent := t.Ctx.ClaudeState.ParserState.Finalize(); finalEvent != nil {
 			chunks, err := t.convertAndBuffer(finalEvent)
 			if err != nil {
 				return nil, err
@@ -189,8 +189,8 @@ func (t *StreamTranslator) Flush() ([][]byte, error) {
 		}
 	}
 
-	if t.ctx != nil && t.ctx.GeminiState != nil {
-		if finalEvent := t.ctx.GeminiState.Finalize(); finalEvent != nil {
+	if t.Ctx != nil && t.Ctx.GeminiState != nil {
+		if finalEvent := t.Ctx.GeminiState.Finalize(); finalEvent != nil {
 			chunks, err := t.convertAndBuffer(finalEvent)
 			if err != nil {
 				return nil, err
@@ -217,35 +217,35 @@ func (t *StreamTranslator) preprocess(event *ir.UnifiedEvent) bool {
 	// Track tool calls - mark HasToolCalls but don't increment index yet
 	// Index increment happens in convertEvent to maintain correct 0-based indexing
 	if event.Type == ir.EventTypeToolCall {
-		t.ctx.HasToolCalls = true
+		t.Ctx.HasToolCalls = true
 	}
 
 	// Track reasoning content for token estimation
 	if event.Type == ir.EventTypeReasoning && event.Reasoning != "" {
-		t.ctx.AccumulateReasoning(event.Reasoning)
+		t.Ctx.AccumulateReasoning(event.Reasoning)
 	}
 	if event.Type == ir.EventTypeReasoningSummary && event.ReasoningSummary != "" {
-		t.ctx.AccumulateReasoning(event.ReasoningSummary)
+		t.Ctx.AccumulateReasoning(event.ReasoningSummary)
 	}
 
 	// Handle finish event with deduplication and token estimation
 	if event.Type == ir.EventTypeFinish {
-		if !t.ctx.MarkFinishSent() {
+		if !t.Ctx.MarkFinishSent() {
 			return true // skip duplicate finish
 		}
 
 		// Override finish_reason if tool calls were seen
-		if t.ctx.HasToolCalls {
+		if t.Ctx.HasToolCalls {
 			event.FinishReason = ir.FinishReasonToolCalls
 		}
 
 		// Estimate reasoning tokens if provider didn't provide them
-		if t.ctx.ReasoningCharsAccum > 0 {
+		if t.Ctx.ReasoningCharsAccum > 0 {
 			if event.Usage == nil {
 				event.Usage = &ir.Usage{}
 			}
 			if event.Usage.ThoughtsTokenCount == 0 {
-				event.Usage.ThoughtsTokenCount = t.ctx.EstimateReasoningTokens()
+				event.Usage.ThoughtsTokenCount = t.Ctx.EstimateReasoningTokens()
 			}
 		}
 	}
@@ -259,17 +259,17 @@ func (t *StreamTranslator) convertEvent(event *ir.UnifiedEvent) ([]byte, error) 
 	case "openai", "cline":
 		idx := 0
 		if event.Type == ir.EventTypeToolCall {
-			idx = t.ctx.ToolCallIndex
-			t.ctx.ToolCallIndex++ // Increment AFTER getting current index
+			idx = t.Ctx.ToolCallIndex
+			t.Ctx.ToolCallIndex++ // Increment AFTER getting current index
 		} else if event.Type == ir.EventTypeToolCallDelta {
 			// For deltas, use PREVIOUS index (the tool call we're continuing)
-			if t.ctx.ToolCallIndex > 0 {
-				idx = t.ctx.ToolCallIndex - 1
+			if t.Ctx.ToolCallIndex > 0 {
+				idx = t.Ctx.ToolCallIndex - 1
 			}
 		}
 		return from_ir.ToOpenAIChunk(*event, t.model, t.messageID, idx)
 	case "claude":
-		return from_ir.ToClaudeSSE(*event, t.ctx.ClaudeState)
+		return from_ir.ToClaudeSSE(*event, t.Ctx.ClaudeState)
 	case "gemini", "gemini-cli":
 		return from_ir.ToGeminiChunk(*event, t.model)
 	case "ollama":

@@ -1,4 +1,4 @@
-package executor
+package stream
 
 import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
@@ -35,7 +35,7 @@ func NewDelayOneBuffer(mergeFn MergeFinishFunc) *DelayOneBuffer {
 }
 
 func NewGeminiDelayBuffer() *DelayOneBuffer {
-	return NewDelayOneBuffer(mergeGeminiFinishChunk)
+	return NewDelayOneBuffer(MergeGeminiFinishChunk)
 }
 
 func (p *PassthroughBuffer) Process(chunk []byte, finishEvent *ir.UnifiedEvent) [][]byte {
@@ -123,12 +123,12 @@ func (d *DelayOneBuffer) IsFinished() bool {
 	return d.finishSent
 }
 
-func mergeGeminiFinishChunk(chunk []byte, finishEvent *ir.UnifiedEvent) ([]byte, error) {
+func MergeGeminiFinishChunk(chunk []byte, finishEvent *ir.UnifiedEvent) ([]byte, error) {
 	if len(chunk) > 0 && chunk[len(chunk)-1] == '\n' {
 		chunk = chunk[:len(chunk)-1]
 	}
 
-	finishReason := mapFinishReasonToGemini(finishEvent.FinishReason)
+	finishReason := MapFinishReasonToGemini(finishEvent.FinishReason)
 
 	result, err := sjson.SetBytes(chunk, "candidates.0.finishReason", finishReason)
 	if err != nil {
@@ -156,7 +156,7 @@ func mergeGeminiFinishChunk(chunk []byte, finishEvent *ir.UnifiedEvent) ([]byte,
 	return append(result, '\n'), nil
 }
 
-func mapFinishReasonToGemini(reason ir.FinishReason) string {
+func MapFinishReasonToGemini(reason ir.FinishReason) string {
 	switch reason {
 	case ir.FinishReasonStop, ir.FinishReasonStopSequence:
 		return "STOP"

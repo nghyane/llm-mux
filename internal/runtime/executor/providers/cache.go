@@ -1,34 +1,34 @@
-package executor
+package providers
 
 import (
 	"sync"
 	"time"
 )
 
-type codexCache struct {
+type CodexCache struct {
 	ID     string
 	Expire time.Time
 }
 
 var (
-	codexCacheMap  = map[string]codexCache{}
+	codexCacheMap  = map[string]CodexCache{}
 	codexCacheMu   sync.RWMutex
 	codexCacheOnce sync.Once
 )
 
-func initCodexCacheCleanup() {
+func InitCodexCacheCleanup() {
 	codexCacheOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(10 * time.Minute)
 			defer ticker.Stop()
 			for range ticker.C {
-				cleanupExpiredCodexCache()
+				CleanupExpiredCodexCache()
 			}
 		}()
 	})
 }
 
-func cleanupExpiredCodexCache() {
+func CleanupExpiredCodexCache() {
 	now := time.Now()
 	codexCacheMu.Lock()
 	defer codexCacheMu.Unlock()
@@ -39,19 +39,19 @@ func cleanupExpiredCodexCache() {
 	}
 }
 
-func getCodexCache(key string) (codexCache, bool) {
-	initCodexCacheCleanup()
+func GetCodexCache(key string) (CodexCache, bool) {
+	InitCodexCacheCleanup()
 	codexCacheMu.RLock()
 	defer codexCacheMu.RUnlock()
 	c, ok := codexCacheMap[key]
 	if !ok || c.Expire.Before(time.Now()) {
-		return codexCache{}, false
+		return CodexCache{}, false
 	}
 	return c, true
 }
 
-func setCodexCache(key string, c codexCache) {
-	initCodexCacheCleanup()
+func SetCodexCache(key string, c CodexCache) {
+	InitCodexCacheCleanup()
 	codexCacheMu.Lock()
 	defer codexCacheMu.Unlock()
 	codexCacheMap[key] = c

@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -15,6 +15,8 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -40,19 +42,19 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	apiKey, baseURL := codexCreds(auth)
 
 	if baseURL == "" {
-		baseURL = CodexDefaultBaseURL
+		baseURL = executor.CodexDefaultBaseURL
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToCodex(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToCodex(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
 
 	body = e.setReasoningEffortByAlias(req.Model, body)
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
@@ -63,11 +65,11 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		return resp, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey)
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
@@ -77,7 +79,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		}
 	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "codex executor")
+		result := executor.HandleHTTPError(httpResp, "codex executor")
 		return resp, result.Error
 	}
 	data, err := io.ReadAll(httpResp.Body)
@@ -87,7 +89,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 
 	lines := bytes.Split(data, []byte("\n"))
 	for _, line := range lines {
-		if !bytes.HasPrefix(line, dataTag) {
+		if !bytes.HasPrefix(line, []byte("data:")) {
 			continue
 		}
 
@@ -96,12 +98,12 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 			continue
 		}
 
-		if detail := extractUsageFromOpenAIResponse(line); detail != nil {
-			reporter.publish(ctx, detail)
+		if detail := executor.ExtractUsageFromOpenAIResponse(line); detail != nil {
+			reporter.Publish(ctx, detail)
 		}
 
 		fromFormat := provider.FromString("codex")
-		translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, line, req.Model)
+		translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, from, line, req.Model)
 		if err != nil {
 			return resp, err
 		}
@@ -112,27 +114,27 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		}
 		return resp, nil
 	}
-	err = NewStatusError(408, "stream error: stream disconnected before completion: stream closed before response.completed", nil)
+	err = executor.NewStatusError(408, "stream error: stream disconnected before completion: stream closed before response.completed", nil)
 	return resp, err
 }
 
-func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	apiKey, baseURL := codexCreds(auth)
 
 	if baseURL == "" {
-		baseURL = CodexDefaultBaseURL
+		baseURL = executor.CodexDefaultBaseURL
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToCodex(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	body, err := stream.TranslateToCodex(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
 
 	body = e.setReasoningEffortByAlias(req.Model, body)
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
@@ -142,11 +144,11 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	}
 	applyCodexHeaders(httpReq, auth, apiKey)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
@@ -158,25 +160,25 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 		if readErr != nil {
 			return nil, readErr
 		}
-		log.Debugf("codex executor: error status: %d, body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
-		return nil, NewStatusError(httpResp.StatusCode, string(data), nil)
+		log.Debugf("codex executor: error status: %d, body: %s", httpResp.StatusCode, executor.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+		return nil, executor.NewStatusError(httpResp.StatusCode, string(data), nil)
 	}
 
 	messageID := "resp-" + req.Model
-	streamCtx := NewStreamContext()
-	translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
+	streamCtx := stream.NewStreamContext()
+	translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
 	processor := &codexStreamProcessor{
 		translator: translator,
 	}
 
-	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:   "codex",
 		SkipEmptyLines: true,
 	}), nil
 }
 
 type codexStreamProcessor struct {
-	translator *StreamTranslator
+	translator *stream.StreamTranslator
 }
 
 func (p *codexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
@@ -201,7 +203,7 @@ func (p *codexStreamProcessor) ProcessDone() ([][]byte, error) {
 
 func (e *CodexExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
 	from := opts.SourceFormat
-	body, err := TranslateToCodex(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToCodex(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -442,7 +444,7 @@ func countCodexInputTokens(enc tokenizer.Codec, body []byte) (int64, error) {
 
 func (e *CodexExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provider.Auth, error) {
 	if auth == nil {
-		return nil, NewStatusError(500, "codex executor: auth is nil", nil)
+		return nil, executor.NewStatusError(500, "codex executor: auth is nil", nil)
 	}
 	var refreshToken string
 	if auth.Metadata != nil {
@@ -478,18 +480,18 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*prov
 }
 
 func (e *CodexExecutor) cacheHelper(ctx context.Context, from provider.Format, url string, req provider.Request, rawJSON []byte) (*http.Request, error) {
-	var cache codexCache
+	var cache CodexCache
 	if from == "claude" {
 		userIDResult := gjson.GetBytes(req.Payload, "metadata.user_id")
 		if userIDResult.Exists() {
 			var hasKey bool
 			key := fmt.Sprintf("%s-%s", req.Model, userIDResult.String())
-			if cache, hasKey = getCodexCache(key); !hasKey {
-				cache = codexCache{
+			if cache, hasKey = GetCodexCache(key); !hasKey {
+				cache = CodexCache{
 					ID:     uuid.New().String(),
 					Expire: time.Now().Add(1 * time.Hour),
 				}
-				setCodexCache(key, cache)
+				SetCodexCache(key, cache)
 			}
 		}
 	} else if from == "openai-response" {
@@ -510,7 +512,7 @@ func (e *CodexExecutor) cacheHelper(ctx context.Context, from provider.Format, u
 }
 
 func applyCodexHeaders(r *http.Request, auth *provider.Auth, token string) {
-	SetCommonHeaders(r, "application/json")
+	executor.SetCommonHeaders(r, "application/json")
 	r.Header.Set("Authorization", "Bearer "+token)
 
 	var ginHeaders http.Header
@@ -521,19 +523,19 @@ func applyCodexHeaders(r *http.Request, auth *provider.Auth, token string) {
 	misc.EnsureHeader(r.Header, ginHeaders, "Version", "0.21.0")
 	misc.EnsureHeader(r.Header, ginHeaders, "Openai-Beta", "responses=experimental")
 	misc.EnsureHeader(r.Header, ginHeaders, "Session_id", uuid.NewString())
-	misc.EnsureHeader(r.Header, ginHeaders, "User-Agent", DefaultCodexUserAgent)
+	misc.EnsureHeader(r.Header, ginHeaders, "User-Agent", executor.DefaultCodexUserAgent)
 
 	r.Header.Set("Accept", "text/event-stream")
 
 	isAPIKey := false
 	if auth != nil {
-		if v := AttrStringValue(auth.Attributes, "api_key"); v != "" {
+		if v := executor.AttrStringValue(auth.Attributes, "api_key"); v != "" {
 			isAPIKey = true
 		}
 	}
 	if !isAPIKey {
 		r.Header.Set("Originator", "codex_cli_rs")
-		if accountID := MetaStringValue(auth.Metadata, "account_id"); accountID != "" {
+		if accountID := executor.MetaStringValue(auth.Metadata, "account_id"); accountID != "" {
 			r.Header.Set("Chatgpt-Account-Id", accountID)
 		}
 	}
@@ -545,5 +547,5 @@ func applyCodexHeaders(r *http.Request, auth *provider.Auth, token string) {
 }
 
 func codexCreds(a *provider.Auth) (apiKey, baseURL string) {
-	return ExtractCreds(a, CodexCredsConfig)
+	return executor.ExtractCreds(a, executor.CodexCredsConfig)
 }

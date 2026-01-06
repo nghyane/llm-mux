@@ -17,7 +17,8 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-type usageReporter struct {
+// UsageReporter handles usage metrics reporting for executor requests.
+type UsageReporter struct {
 	provider    string
 	model       string
 	authID      string
@@ -28,7 +29,10 @@ type usageReporter struct {
 	once        sync.Once
 }
 
-func newUsageReporter(ctx context.Context, provider, model string, auth *provider.Auth) *usageReporter {
+// For internal compatibility
+type usageReporter = UsageReporter
+
+func NewUsageReporter(ctx context.Context, provider, model string, auth *provider.Auth) *UsageReporter {
 	apiKey := apiKeyFromContext(ctx)
 	reporter := &usageReporter{
 		provider:    provider,
@@ -48,8 +52,18 @@ func (r *usageReporter) publish(ctx context.Context, u *ir.Usage) {
 	r.publishWithOutcome(ctx, u, false)
 }
 
+// Publish implements stream.UsageReporter interface
+func (r *usageReporter) Publish(ctx context.Context, u *ir.Usage) {
+	r.publish(ctx, u)
+}
+
 func (r *usageReporter) publishFailure(ctx context.Context) {
 	r.publishWithOutcome(ctx, nil, true)
+}
+
+// PublishFailure implements stream.UsageReporter interface
+func (r *usageReporter) PublishFailure(ctx context.Context) {
+	r.publishFailure(ctx)
 }
 
 func (r *usageReporter) trackFailure(ctx context.Context, errPtr *error) {
@@ -61,6 +75,11 @@ func (r *usageReporter) trackFailure(ctx context.Context, errPtr *error) {
 			r.publishFailure(ctx)
 		}
 	}
+}
+
+// TrackFailure is an exported alias for trackFailure.
+func (r *UsageReporter) TrackFailure(ctx context.Context, errPtr *error) {
+	r.trackFailure(ctx, errPtr)
 }
 
 func isUserError(err error) bool {
@@ -124,6 +143,11 @@ func (r *usageReporter) ensurePublished(ctx context.Context) {
 			Usage:       nil,
 		})
 	})
+}
+
+// EnsurePublished implements stream.UsageReporter interface
+func (r *usageReporter) EnsurePublished(ctx context.Context) {
+	r.ensurePublished(ctx)
 }
 
 func apiKeyFromContext(ctx context.Context) string {
@@ -197,6 +221,11 @@ func extractUsageFromClaudeResponse(data []byte) *ir.Usage {
 	return usage
 }
 
+// ExtractUsageFromClaudeResponse is an exported alias for extractUsageFromClaudeResponse.
+func ExtractUsageFromClaudeResponse(data []byte) *ir.Usage {
+	return extractUsageFromClaudeResponse(data)
+}
+
 func extractUsageFromOpenAIResponse(data []byte) *ir.Usage {
 	_, usage, err := to_ir.ParseOpenAIResponse(data)
 	if err != nil {
@@ -205,12 +234,22 @@ func extractUsageFromOpenAIResponse(data []byte) *ir.Usage {
 	return usage
 }
 
+// ExtractUsageFromOpenAIResponse is an exported alias for extractUsageFromOpenAIResponse.
+func ExtractUsageFromOpenAIResponse(data []byte) *ir.Usage {
+	return extractUsageFromOpenAIResponse(data)
+}
+
 func extractUsageFromGeminiResponse(data []byte) *ir.Usage {
 	_, _, usage, err := to_ir.ParseGeminiResponse(data)
 	if err != nil {
 		return nil
 	}
 	return usage
+}
+
+// ExtractUsageFromGeminiResponse is an exported alias for extractUsageFromGeminiResponse.
+func ExtractUsageFromGeminiResponse(data []byte) *ir.Usage {
+	return extractUsageFromGeminiResponse(data)
 }
 
 var (
@@ -401,4 +440,9 @@ func jsonPayload(line []byte) []byte {
 		return nil
 	}
 	return trimmed
+}
+
+// JSONPayload is an exported alias for jsonPayload.
+func JSONPayload(line []byte) []byte {
+	return jsonPayload(line)
 }

@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -12,6 +12,8 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/tidwall/sjson"
 )
@@ -21,8 +23,8 @@ type OpenAICompatExecutor struct {
 	provider string
 }
 
-func NewOpenAICompatExecutor(provider string, cfg *config.Config) *OpenAICompatExecutor {
-	return &OpenAICompatExecutor{cfg: cfg, provider: provider}
+func NewOpenAICompatExecutor(providerName string, cfg *config.Config) *OpenAICompatExecutor {
+	return &OpenAICompatExecutor{cfg: cfg, provider: providerName}
 }
 
 func (e *OpenAICompatExecutor) Identifier() string { return e.provider }
@@ -30,31 +32,31 @@ func (e *OpenAICompatExecutor) Identifier() string { return e.provider }
 func (e *OpenAICompatExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error { return nil }
 
 func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	baseURL, apiKey := e.resolveCredentials(auth)
 	if baseURL == "" {
-		err = NewStatusError(http.StatusUnauthorized, "missing provider baseURL", nil)
+		err = executor.NewStatusError(http.StatusUnauthorized, "missing provider baseURL", nil)
 		return
 	}
 
 	from := opts.SourceFormat
-	translated, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, opts.Stream, nil)
+	translated, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, opts.Stream, nil)
 	if err != nil {
 		return resp, err
 	}
 	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
+	translated = executor.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
 	if err != nil {
 		return resp, err
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	if apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
@@ -65,11 +67,11 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 	}
 	util.ApplyCustomHeadersFromAttrs(httpReq, attrs)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
@@ -79,18 +81,18 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 		}
 	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "openai-compat executor")
+		result := executor.HandleHTTPError(httpResp, "openai-compat executor")
 		return resp, result.Error
 	}
 	body, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return resp, err
 	}
-	reporter.publish(ctx, extractUsageFromOpenAIResponse(body))
-	reporter.ensurePublished(ctx)
+	reporter.Publish(ctx, executor.ExtractUsageFromOpenAIResponse(body))
+	reporter.EnsurePublished(ctx)
 
 	fromOpenAI := provider.FromString("openai")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, body, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromOpenAI, from, body, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -102,31 +104,31 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 	return resp, nil
 }
 
-func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	baseURL, apiKey := e.resolveCredentials(auth)
 	if baseURL == "" {
-		err = NewStatusError(http.StatusUnauthorized, "missing provider baseURL", nil)
+		err = executor.NewStatusError(http.StatusUnauthorized, "missing provider baseURL", nil)
 		return nil, err
 	}
 	from := opts.SourceFormat
-	translated, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, nil)
+	translated, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, nil)
 	if err != nil {
 		return nil, err
 	}
 	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = applyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
+	translated = executor.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
 	if err != nil {
 		return nil, err
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	if apiKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
@@ -139,25 +141,25 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 	httpReq.Header.Set("Accept", "text/event-stream")
 	httpReq.Header.Set("Cache-Control", "no-cache")
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "openai-compat executor")
+		result := executor.HandleHTTPError(httpResp, "openai-compat executor")
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
 
 	messageID := "chatcmpl-" + req.Model
-	processor := NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
-	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+	processor := stream.NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:     "openai-compat",
-		Preprocessor:     DataTagPreprocessor(),
+		Preprocessor:     stream.DataTagPreprocessor(),
 		HandleDoneSignal: true,
 		EnsurePublished:  true,
 	}), nil
@@ -165,7 +167,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 
 func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
 	from := opts.SourceFormat
-	translated, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, nil)
+	translated, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, nil)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -176,17 +178,17 @@ func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *provider.A
 		modelForCounting = modelOverride
 	}
 
-	enc, err := tokenizerForModel(modelForCounting)
+	enc, err := executor.TokenizerForModel(modelForCounting)
 	if err != nil {
 		return provider.Response{}, fmt.Errorf("openai compat executor: tokenizer init failed: %w", err)
 	}
 
-	count, err := countOpenAIChatTokens(enc, translated)
+	count, err := executor.CountOpenAIChatTokens(enc, translated)
 	if err != nil {
 		return provider.Response{}, fmt.Errorf("openai compat executor: token counting failed: %w", err)
 	}
 
-	usageJSON := buildOpenAIUsageJSON(count)
+	usageJSON := executor.BuildOpenAIUsageJSON(count)
 	return provider.Response{Payload: usageJSON}, nil
 }
 
@@ -199,8 +201,8 @@ func (e *OpenAICompatExecutor) resolveCredentials(auth *provider.Auth) (baseURL,
 	if auth == nil {
 		return "", ""
 	}
-	baseURL = AttrStringValue(auth.Attributes, "base_url")
-	apiKey = AttrStringValue(auth.Attributes, "api_key")
+	baseURL = executor.AttrStringValue(auth.Attributes, "base_url")
+	apiKey = executor.AttrStringValue(auth.Attributes, "api_key")
 	return
 }
 
@@ -235,23 +237,23 @@ func (e *OpenAICompatExecutor) resolveCompatConfig(auth *provider.Auth) *config.
 		return nil
 	}
 	candidates := make([]string, 0, 3)
-	if v := AttrStringValue(auth.Attributes, "compat_name"); v != "" {
+	if v := executor.AttrStringValue(auth.Attributes, "compat_name"); v != "" {
 		candidates = append(candidates, v)
 	}
-	if v := AttrStringValue(auth.Attributes, "provider_key"); v != "" {
+	if v := executor.AttrStringValue(auth.Attributes, "provider_key"); v != "" {
 		candidates = append(candidates, v)
 	}
 	if v := strings.TrimSpace(auth.Provider); v != "" {
 		candidates = append(candidates, v)
 	}
 	for i := range e.cfg.Providers {
-		provider := &e.cfg.Providers[i]
-		if provider.Type != config.ProviderTypeOpenAI {
+		prov := &e.cfg.Providers[i]
+		if prov.Type != config.ProviderTypeOpenAI {
 			continue
 		}
 		for _, candidate := range candidates {
-			if candidate != "" && strings.EqualFold(strings.TrimSpace(candidate), provider.Name) {
-				return provider
+			if candidate != "" && strings.EqualFold(strings.TrimSpace(candidate), prov.Name) {
+				return prov
 			}
 		}
 	}

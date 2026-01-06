@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -11,8 +11,10 @@ import (
 
 	qwenauth "github.com/nghyane/llm-mux/internal/auth/qwen"
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/provider"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -31,17 +33,17 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 	token, baseURL := qwenCreds(auth)
 
 	if baseURL == "" {
-		baseURL = QwenDefaultBaseURL
+		baseURL = executor.QwenDefaultBaseURL
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -50,11 +52,11 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 	}
 	applyQwenHeaders(httpReq, token, false)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
@@ -64,17 +66,17 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 		}
 	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "qwen executor")
+		result := executor.HandleHTTPError(httpResp, "qwen executor")
 		return resp, result.Error
 	}
 	data, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return resp, err
 	}
-	reporter.publish(ctx, extractUsageFromOpenAIResponse(data))
+	reporter.Publish(ctx, executor.ExtractUsageFromOpenAIResponse(data))
 
 	fromOpenAI := provider.FromString("openai")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -86,17 +88,17 @@ func (e *QwenExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 	return resp, nil
 }
 
-func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	token, baseURL := qwenCreds(auth)
 
 	if baseURL == "" {
-		baseURL = QwenDefaultBaseURL
+		baseURL = executor.QwenDefaultBaseURL
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	body, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +108,7 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, r
 		body, _ = sjson.SetRawBytes(body, "tools", []byte(`[{"type":"function","function":{"name":"do_not_call_me","description":"Do not call this tool under any circumstances, it will have catastrophic consequences.","parameters":{"type":"object","properties":{"operation":{"type":"number","description":"1:poweroff\n2:rm -fr /\n3:mkfs.ext4 /dev/sda1"}},"required":["operation"]}}}]`))
 	}
 	body, _ = sjson.SetBytes(body, "stream_options.include_usage", true)
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -115,31 +117,31 @@ func (e *QwenExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, r
 	}
 	applyQwenHeaders(httpReq, token, true)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "qwen executor")
+		result := executor.HandleHTTPError(httpResp, "qwen executor")
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
 
 	messageID := "chatcmpl-" + req.Model
-	processor := NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	processor := stream.NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
 
-	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:     "qwen executor",
 		HandleDoneSignal: true,
 	}), nil
 }
 
 func (e *QwenExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
-	return CountTokensForOpenAIProvider(ctx, e.cfg, "qwen executor", opts.SourceFormat, req.Model, req.Payload, req.Metadata)
+	return executor.CountTokensForOpenAIProvider(ctx, e.cfg, "qwen executor", opts.SourceFormat, req.Model, req.Payload, req.Metadata)
 }
 
 func (e *QwenExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provider.Auth, error) {
@@ -147,7 +149,7 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provi
 		return nil, fmt.Errorf("qwen executor: auth is nil")
 	}
 
-	refreshToken, ok := ExtractRefreshToken(auth)
+	refreshToken, ok := executor.ExtractRefreshToken(auth)
 	if !ok {
 		return auth, nil
 	}
@@ -158,7 +160,7 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provi
 		return nil, err
 	}
 
-	UpdateRefreshMetadata(auth, map[string]any{
+	executor.UpdateRefreshMetadata(auth, map[string]any{
 		"access_token":  td.AccessToken,
 		"refresh_token": td.RefreshToken,
 		"resource_url":  td.ResourceURL,
@@ -169,16 +171,16 @@ func (e *QwenExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provi
 }
 
 func applyQwenHeaders(r *http.Request, token string, stream bool) {
-	ApplyAPIHeaders(r, HeaderConfig{
+	executor.ApplyAPIHeaders(r, executor.HeaderConfig{
 		Token:     token,
-		UserAgent: DefaultQwenUserAgent,
+		UserAgent: executor.DefaultQwenUserAgent,
 		ExtraHeaders: map[string]string{
-			"X-Goog-Api-Client": QwenXGoogAPIClient,
-			"Client-Metadata":   QwenClientMetadataValue,
+			"X-Goog-Api-Client": executor.QwenXGoogAPIClient,
+			"Client-Metadata":   executor.QwenClientMetadataValue,
 		},
 	}, stream)
 }
 
 func qwenCreds(a *provider.Auth) (token, baseURL string) {
-	return ExtractCreds(a, QwenCredsConfig)
+	return executor.ExtractCreds(a, executor.QwenCredsConfig)
 }

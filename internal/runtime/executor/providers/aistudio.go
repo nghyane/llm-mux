@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -13,6 +13,8 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/streamutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
@@ -37,8 +39,8 @@ func (e *AIStudioExecutor) Identifier() string { return "aistudio" }
 func (e *AIStudioExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error { return nil }
 
 func (e *AIStudioExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	_, body, err := e.translateRequest(req, opts, false)
 	if err != nil {
@@ -62,12 +64,12 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *provider.Auth, req
 		return resp, err
 	}
 	if wsResp.Status < 200 || wsResp.Status >= 300 {
-		return resp, NewStatusError(wsResp.Status, string(wsResp.Body), nil)
+		return resp, executor.NewStatusError(wsResp.Status, string(wsResp.Body), nil)
 	}
-	reporter.publish(ctx, extractUsageFromGeminiResponse(wsResp.Body))
+	reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(wsResp.Body))
 
 	fromFormat := provider.FromString("gemini")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, wsResp.Body, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, wsResp.Body, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -79,9 +81,9 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *provider.Auth, req
 	return resp, nil
 }
 
-func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	body, estimatedInputTokens, err := e.translateRequestWithTokens(req, opts, true)
 	if err != nil {
@@ -114,7 +116,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 			body.Write(firstEvent.Payload)
 		}
 		if firstEvent.Type == wsrelay.MessageTypeStreamEnd {
-			return nil, NewStatusError(firstEvent.Status, body.String(), nil)
+			return nil, executor.NewStatusError(firstEvent.Status, body.String(), nil)
 		}
 		for event := range wsStream {
 			if event.Err != nil {
@@ -130,7 +132,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 				break
 			}
 		}
-		return nil, NewStatusError(firstEvent.Status, body.String(), nil)
+		return nil, executor.NewStatusError(firstEvent.Status, body.String(), nil)
 	}
 	pipeline := streamutil.NewPipeline(ctx, streamutil.PipelineConfig{
 		BufferSize: 128,
@@ -146,17 +148,17 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 			}
 		}()
 
-		streamCtx := NewStreamContext()
+		streamCtx := stream.NewStreamContext()
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
-		translator := NewStreamTranslator(e.cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
+		translator := stream.NewStreamTranslator(e.cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
 		processor := &aistudioStreamProcessor{
 			translator: translator,
 		}
 
 		processEvent := func(event wsrelay.StreamEvent) bool {
 			if event.Err != nil {
-				reporter.publishFailure(ctx)
+				reporter.PublishFailure(ctx)
 				pipeline.SendError(fmt.Errorf("wsrelay: %v", event.Err))
 				return false
 			}
@@ -164,7 +166,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 			case wsrelay.MessageTypeStreamStart:
 			case wsrelay.MessageTypeStreamChunk:
 				if len(event.Payload) > 0 {
-					filtered := FilterSSEUsageMetadata(event.Payload)
+					filtered := executor.FilterSSEUsageMetadata(event.Payload)
 
 					chunks, usage, err := processor.ProcessLine(bytes.Clone(filtered))
 					if err != nil {
@@ -172,7 +174,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 						return false
 					}
 					if usage != nil {
-						reporter.publish(ctx, usage)
+						reporter.Publish(ctx, usage)
 					}
 					for _, chunk := range chunks {
 						if !pipeline.SendData(ensureColonSpacedJSON(chunk)) {
@@ -195,7 +197,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 				return false
 			case wsrelay.MessageTypeHTTPResp:
 				fromFormat := provider.FromString("gemini")
-				translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, event.Payload, req.Model)
+				translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, event.Payload, req.Model)
 				if err != nil {
 					pipeline.SendError(err)
 					return false
@@ -209,10 +211,10 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 						return false
 					}
 				}
-				reporter.publish(ctx, extractUsageFromGeminiResponse(event.Payload))
+				reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(event.Payload))
 				return false
 			case wsrelay.MessageTypeError:
-				reporter.publishFailure(ctx)
+				reporter.PublishFailure(ctx)
 				pipeline.SendError(fmt.Errorf("wsrelay: %v", event.Err))
 				return false
 			}
@@ -233,7 +235,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		pipeline.Close()
 	}()
 
-	return convertAIStudioPipelineToStreamChunk(pipeline.Output()), nil
+	return stream.ConvertPipelineToStreamChunk(pipeline.Output()), nil
 }
 
 func (e *AIStudioExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
@@ -262,7 +264,7 @@ func (e *AIStudioExecutor) CountTokens(ctx context.Context, auth *provider.Auth,
 		return provider.Response{}, err
 	}
 	if resp.Status < 200 || resp.Status >= 300 {
-		return provider.Response{}, NewStatusError(resp.Status, string(resp.Body), nil)
+		return provider.Response{}, executor.NewStatusError(resp.Status, string(resp.Body), nil)
 	}
 	totalTokens := gjson.GetBytes(resp.Body, "totalTokens").Int()
 	if totalTokens <= 0 {
@@ -283,15 +285,15 @@ type translatedPayload struct {
 }
 
 type aistudioStreamProcessor struct {
-	translator *StreamTranslator
+	translator *stream.StreamTranslator
 }
 
 func (p *aistudioStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	state := p.translator.ctx.GeminiState
+	state := p.translator.Ctx.GeminiState
 	var events []ir.UnifiedEvent
 	var err error
-	if p.translator.ctx.ToolSchemaCtx != nil {
-		events, err = to_ir.ParseGeminiChunkWithStateContext(line, state, p.translator.ctx.ToolSchemaCtx)
+	if p.translator.Ctx.ToolSchemaCtx != nil {
+		events, err = to_ir.ParseGeminiChunkWithStateContext(line, state, p.translator.Ctx.ToolSchemaCtx)
 	} else {
 		events, err = to_ir.ParseGeminiChunkWithState(line, state)
 	}
@@ -313,10 +315,10 @@ func (p *aistudioStreamProcessor) ProcessDone() ([][]byte, error) {
 	return p.translator.Flush()
 }
 
-func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.Options, stream bool) ([]byte, translatedPayload, error) {
+func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.Options, isStreaming bool) ([]byte, translatedPayload, error) {
 	from := opts.SourceFormat
 	formatGemini := provider.FromString("gemini")
-	payload, err := TranslateToGemini(e.cfg, from, req.Model, req.Payload, stream, req.Metadata)
+	payload, err := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return nil, translatedPayload{}, fmt.Errorf("translate request: %w", err)
 	}
@@ -324,7 +326,7 @@ func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.
 		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
 	}
 	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = applyPayloadConfig(e.cfg, req.Model, payload)
+	payload = executor.ApplyPayloadConfig(e.cfg, req.Model, payload)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
@@ -335,18 +337,18 @@ func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.
 		}
 	}
 	action := metadataAction
-	if stream && action != "countTokens" {
+	if isStreaming && action != "countTokens" {
 		action = "streamGenerateContent"
 	}
 	payload, _ = sjson.DeleteBytes(payload, "session_id")
 	return payload, translatedPayload{payload: payload, action: action, toFormat: formatGemini}, nil
 }
 
-func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts provider.Options, stream bool) (translatedPayload, int64, error) {
+func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts provider.Options, isStreaming bool) (translatedPayload, int64, error) {
 	from := opts.SourceFormat
 	formatGemini := provider.FromString("gemini")
 
-	translation, err := TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, stream, req.Metadata)
+	translation, err := stream.TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return translatedPayload{}, 0, fmt.Errorf("translate request: %w", err)
 	}
@@ -356,7 +358,7 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts
 		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
 	}
 	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = applyPayloadConfig(e.cfg, req.Model, payload)
+	payload = executor.ApplyPayloadConfig(e.cfg, req.Model, payload)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
@@ -368,7 +370,7 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts
 		}
 	}
 	action := metadataAction
-	if stream && action != "countTokens" {
+	if isStreaming && action != "countTokens" {
 		action = "streamGenerateContent"
 	}
 	payload, _ = sjson.DeleteBytes(payload, "session_id")
@@ -377,12 +379,12 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts
 }
 
 func (e *AIStudioExecutor) buildEndpoint(model, action, alt string) string {
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(128)
-	ub.WriteString(GeminiDefaultBaseURL)
+	ub.WriteString(executor.GeminiDefaultBaseURL)
 	ub.WriteString("/")
-	ub.WriteString(GeminiGLAPIVersion)
+	ub.WriteString(executor.GeminiGLAPIVersion)
 	ub.WriteString("/models/")
 	ub.WriteString(model)
 	ub.WriteString(":")
@@ -455,7 +457,7 @@ func FetchAIStudioModels(ctx context.Context, auth *provider.Auth, relay *wsrela
 		authID = auth.ID
 	}
 
-	modelsURL := GeminiDefaultBaseURL + glAPIModelsPath
+	modelsURL := executor.GeminiDefaultBaseURL + GLAPIModelsPath
 	wsReq := &wsrelay.HTTPRequest{
 		Method:  http.MethodGet,
 		URL:     modelsURL,
@@ -471,15 +473,4 @@ func FetchAIStudioModels(ctx context.Context, auth *provider.Auth, relay *wsrela
 	}
 
 	return ParseGLAPIModels(resp.Body, "aistudio")
-}
-
-func convertAIStudioPipelineToStreamChunk(input <-chan streamutil.Chunk) <-chan provider.StreamChunk {
-	out := make(chan provider.StreamChunk, 128)
-	go func() {
-		defer close(out)
-		for chunk := range input {
-			out <- provider.StreamChunk{Payload: chunk.Data, Err: chunk.Err}
-		}
-	}()
-	return out
 }

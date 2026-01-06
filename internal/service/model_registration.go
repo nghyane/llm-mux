@@ -10,7 +10,7 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
-	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/providers"
 	"github.com/nghyane/llm-mux/internal/wsrelay"
 )
 
@@ -56,7 +56,7 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 	case "gemini":
 		// Try dynamic fetch first, fallback to static
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		models = executor.FetchGeminiModels(ctx, a, cfg)
+		models = providers.FetchGeminiModels(ctx, a, cfg)
 		cancel()
 		if len(models) == 0 {
 			models = registry.GetGeminiModelsForProvider("gemini")
@@ -70,7 +70,7 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 	case "vertex":
 		// Try dynamic fetch first (API key mode only), fallback to static
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		models = executor.FetchVertexModels(ctx, a, cfg)
+		models = providers.FetchVertexModels(ctx, a, cfg)
 		cancel()
 		if len(models) == 0 {
 			models = registry.GetGeminiModelsForProvider("vertex")
@@ -84,7 +84,7 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 	case "gemini-cli":
 		// Try dynamic fetch first, fallback to static
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		models = executor.FetchGeminiCLIModels(ctx, a, cfg)
+		models = providers.FetchGeminiCLIModels(ctx, a, cfg)
 		cancel()
 		if len(models) == 0 {
 			models = registry.GetGeminiModelsForProvider("gemini-cli")
@@ -94,7 +94,7 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 		// Try dynamic fetch via wsrelay, fallback to static
 		if wsGateway != nil {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			models = executor.FetchAIStudioModels(ctx, a, wsGateway)
+			models = providers.FetchAIStudioModels(ctx, a, wsGateway)
 			cancel()
 		}
 		if len(models) == 0 {
@@ -103,7 +103,7 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 		models = applyExcludedModels(models, excluded)
 	case "antigravity":
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		models = executor.FetchAntigravityModels(ctx, a, cfg)
+		models = providers.FetchAntigravityModels(ctx, a, cfg)
 		cancel()
 		models = applyExcludedModels(models, excluded)
 	case "claude":

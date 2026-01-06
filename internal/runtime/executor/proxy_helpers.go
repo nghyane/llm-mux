@@ -13,7 +13,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func newProxyAwareHTTPClient(ctx context.Context, cfg *config.Config, auth *provider.Auth, timeout time.Duration) *http.Client {
+func NewProxyAwareHTTPClient(ctx context.Context, cfg *config.Config, auth *provider.Auth, timeout time.Duration) *http.Client {
 	httpClient := AcquireHTTPClient()
 	if timeout > 0 {
 		httpClient.Timeout = timeout

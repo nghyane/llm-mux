@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -15,6 +15,8 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -29,13 +31,13 @@ type ClaudeExecutor struct {
 }
 
 type claudeStreamProcessor struct {
-	translator *StreamTranslator
+	translator *stream.StreamTranslator
 }
 
 func (p *claudeStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
 	var parserState *ir.ClaudeStreamParserState
-	if p.translator.ctx.ClaudeState != nil {
-		parserState = p.translator.ctx.ClaudeState.ParserState
+	if p.translator.Ctx.ClaudeState != nil {
+		parserState = p.translator.Ctx.ClaudeState.ParserState
 	}
 	events, err := to_ir.ParseClaudeChunkWithState(line, parserState)
 	if err != nil {
@@ -63,7 +65,7 @@ func (p *claudePassthroughProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usa
 	if err != nil {
 		return nil, nil, nil
 	}
-	usage := extractUsageFromEvents(events)
+	usage := stream.ExtractUsageFromEvents(events)
 	return nil, usage, nil
 }
 
@@ -81,13 +83,13 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	apiKey, baseURL := claudeCreds(auth)
 
 	if baseURL == "" {
-		baseURL = ClaudeDefaultBaseURL
+		baseURL = executor.ClaudeDefaultBaseURL
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 	from := opts.SourceFormat
-	stream := from.String() != "claude"
-	body, err := TranslateToClaude(e.cfg, from, req.Model, req.Payload, stream, req.Metadata)
+	isStreaming := from.String() != "claude"
+	body, err := stream.TranslateToClaude(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
@@ -101,14 +103,14 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	if !strings.HasPrefix(modelForUpstream, "claude-3-5-haiku") {
 		body = checkSystemInstructions(body)
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	body = ensureMaxTokensForThinking(req.Model, body)
 
 	var extraBetas []string
 	extraBetas, body = extractAndRemoveBetas(body)
 
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(64)
 	ub.WriteString(baseURL)
@@ -120,24 +122,24 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	}
 	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(httpResp.Body)
-		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
-		err = NewStatusError(httpResp.StatusCode, string(b), nil)
+		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, executor.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
+		err = executor.NewStatusError(httpResp.StatusCode, string(b), nil)
 		if errClose := httpResp.Body.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
 		}
 		return resp, err
 	}
-	decodedBody, err := decodeResponseBody(httpResp.Body, httpResp.Header.Get("Content-Encoding"))
+	decodedBody, err := executor.DecodeResponseBody(httpResp.Body, httpResp.Header.Get("Content-Encoding"))
 	if err != nil {
 		if errClose := httpResp.Body.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
@@ -153,21 +155,21 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	if err != nil {
 		return resp, err
 	}
-	if stream {
+	if isStreaming {
 		lines := bytes.Split(data, []byte("\n"))
 		for _, line := range lines {
 			if events, err := to_ir.ParseClaudeChunk(line); err == nil && len(events) > 0 {
-				if u := extractUsageFromEvents(events); u != nil {
-					reporter.publish(ctx, u)
+				if u := stream.ExtractUsageFromEvents(events); u != nil {
+					reporter.Publish(ctx, u)
 				}
 			}
 		}
 	} else {
-		reporter.publish(ctx, extractUsageFromClaudeResponse(data))
+		reporter.Publish(ctx, executor.ExtractUsageFromClaudeResponse(data))
 	}
 
 	claudeFrom := provider.FromString("claude")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, claudeFrom, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, claudeFrom, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -179,16 +181,16 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	return resp, nil
 }
 
-func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	apiKey, baseURL := claudeCreds(auth)
 
 	if baseURL == "" {
-		baseURL = ClaudeDefaultBaseURL
+		baseURL = executor.ClaudeDefaultBaseURL
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 	from := opts.SourceFormat
-	body, err := TranslateToClaude(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	body, err := stream.TranslateToClaude(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +199,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 	body = e.injectThinkingConfig(req.Model, body)
 	body = checkSystemInstructions(body)
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	body = ensureMaxTokensForThinking(req.Model, body)
 
@@ -206,7 +208,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	var extraBetas []string
 	extraBetas, body = extractAndRemoveBetas(body)
 
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(64)
 	ub.WriteString(baseURL)
@@ -218,24 +220,24 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 	applyClaudeHeaders(httpReq, auth, apiKey, true, extraBetas)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		b, _ := io.ReadAll(httpResp.Body)
-		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
+		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, executor.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), b))
 		if errClose := httpResp.Body.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
 		}
-		err = NewStatusError(httpResp.StatusCode, string(b), nil)
+		err = executor.NewStatusError(httpResp.StatusCode, string(b), nil)
 		return nil, err
 	}
-	decodedBody, err := decodeResponseBody(httpResp.Body, httpResp.Header.Get("Content-Encoding"))
+	decodedBody, err := executor.DecodeResponseBody(httpResp.Body, httpResp.Header.Get("Content-Encoding"))
 	if err != nil {
 		if errClose := httpResp.Body.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
@@ -245,18 +247,18 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 
 	if from.String() == "claude" {
 		processor := &claudePassthroughProcessor{}
-		return RunSSEStream(ctx, decodedBody, reporter, processor, StreamConfig{
+		return stream.RunSSEStream(ctx, decodedBody, reporter, processor, stream.StreamConfig{
 			ExecutorName:       "claude",
 			PassthroughOnEmpty: true,
 		}), nil
 	}
 
-	streamCtx := NewStreamContext()
-	translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, "msg-"+req.Model, streamCtx)
+	streamCtx := stream.NewStreamContext()
+	translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, "msg-"+req.Model, streamCtx)
 	processor := &claudeStreamProcessor{
 		translator: translator,
 	}
-	return RunSSEStream(ctx, decodedBody, reporter, processor, StreamConfig{
+	return stream.RunSSEStream(ctx, decodedBody, reporter, processor, stream.StreamConfig{
 		ExecutorName: "claude",
 	}), nil
 }
@@ -265,12 +267,12 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	apiKey, baseURL := claudeCreds(auth)
 
 	if baseURL == "" {
-		baseURL = ClaudeDefaultBaseURL
+		baseURL = executor.ClaudeDefaultBaseURL
 	}
 
 	from := opts.SourceFormat
-	stream := from.String() != "claude"
-	body, err := TranslateToClaude(e.cfg, from, req.Model, req.Payload, stream, req.Metadata)
+	isStreaming := from.String() != "claude"
+	body, err := stream.TranslateToClaude(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -287,7 +289,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	var extraBetas []string
 	extraBetas, body = extractAndRemoveBetas(body)
 
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(64)
 	ub.WriteString(baseURL)
@@ -299,11 +301,11 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	}
 	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return provider.Response{}, NewTimeoutError("request timed out")
+			return provider.Response{}, executor.NewTimeoutError("request timed out")
 		}
 		return provider.Response{}, err
 	}
@@ -312,9 +314,9 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 		if errClose := resp.Body.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
 		}
-		return provider.Response{}, NewStatusError(resp.StatusCode, string(b), nil)
+		return provider.Response{}, executor.NewStatusError(resp.StatusCode, string(b), nil)
 	}
-	decodedBody, err := decodeResponseBody(resp.Body, resp.Header.Get("Content-Encoding"))
+	decodedBody, err := executor.DecodeResponseBody(resp.Body, resp.Header.Get("Content-Encoding"))
 	if err != nil {
 		if errClose := resp.Body.Close(); errClose != nil {
 			log.Errorf("response body close error: %v", errClose)
@@ -432,8 +434,8 @@ func (e *ClaudeExecutor) resolveClaudeConfig(auth *provider.Auth) *config.Provid
 	if auth == nil || e.cfg == nil {
 		return nil
 	}
-	attrKey := AttrStringValue(auth.Attributes, "api_key")
-	attrBase := AttrStringValue(auth.Attributes, "base_url")
+	attrKey := executor.AttrStringValue(auth.Attributes, "api_key")
+	attrBase := executor.AttrStringValue(auth.Attributes, "base_url")
 	for i := range e.cfg.Providers {
 		p := &e.cfg.Providers[i]
 		if p.Type != config.ProviderTypeAnthropic {
@@ -478,7 +480,7 @@ func (e *ClaudeExecutor) resolveClaudeConfig(auth *provider.Auth) *config.Provid
 
 func applyClaudeHeaders(r *http.Request, auth *provider.Auth, apiKey string, stream bool, extraBetas []string) {
 	r.Header.Set("Authorization", "Bearer "+apiKey)
-	SetCommonHeaders(r, "application/json")
+	executor.SetCommonHeaders(r, "application/json")
 
 	var ginHeaders http.Header
 	if ginCtx, ok := r.Context().Value("gin").(*gin.Context); ok && ginCtx != nil && ginCtx.Request != nil {
@@ -520,7 +522,7 @@ func applyClaudeHeaders(r *http.Request, auth *provider.Auth, apiKey string, str
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Arch", "arm64")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Os", "MacOS")
 	misc.EnsureHeader(r.Header, ginHeaders, "X-Stainless-Timeout", "60")
-	misc.EnsureHeader(r.Header, ginHeaders, "User-Agent", DefaultClaudeUserAgent)
+	misc.EnsureHeader(r.Header, ginHeaders, "User-Agent", executor.DefaultClaudeUserAgent)
 	if stream {
 		r.Header.Set("Accept", "text/event-stream")
 	} else {
@@ -534,7 +536,7 @@ func applyClaudeHeaders(r *http.Request, auth *provider.Auth, apiKey string, str
 }
 
 func claudeCreds(a *provider.Auth) (apiKey, baseURL string) {
-	return ExtractCreds(a, ClaudeCredsConfig)
+	return executor.ExtractCreds(a, executor.ClaudeCredsConfig)
 }
 
 func checkSystemInstructions(payload []byte) []byte {

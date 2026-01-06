@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bufio"
@@ -15,6 +15,8 @@ import (
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/streamutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/preprocess"
@@ -32,11 +34,11 @@ type GeminiExecutor struct {
 func NewGeminiExecutor(cfg *config.Config) *GeminiExecutor { return &GeminiExecutor{cfg: cfg} }
 
 type geminiStreamProcessor struct {
-	translator *StreamTranslator
+	translator *stream.StreamTranslator
 }
 
 func (p *geminiStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
-	events, err := to_ir.ParseGeminiChunkWithState(line, p.translator.ctx.GeminiState)
+	events, err := to_ir.ParseGeminiChunkWithState(line, p.translator.Ctx.GeminiState)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -62,11 +64,11 @@ func (e *GeminiExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error
 func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
 	apiKey, bearer := geminiCreds(auth)
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, fmt.Errorf("translate request: %w", err)
 	}
@@ -74,7 +76,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 		body = util.ApplyGeminiThinkingConfig(body, budgetOverride, includeOverride)
 	}
 	body = util.StripThinkingConfigIfUnsupported(req.Model, body)
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	action := "generateContent"
 	if req.Metadata != nil {
@@ -83,12 +85,12 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 		}
 	}
 	baseURL := resolveGeminiBaseURL(auth)
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(128)
 	ub.WriteString(baseURL)
 	ub.WriteString("/")
-	ub.WriteString(GeminiGLAPIVersion)
+	ub.WriteString(executor.GeminiGLAPIVersion)
 	ub.WriteString("/models/")
 	ub.WriteString(req.Model)
 	ub.WriteString(":")
@@ -105,7 +107,7 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	if err != nil {
 		return resp, err
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	if apiKey != "" {
 		httpReq.Header.Set("x-goog-api-key", apiKey)
 	} else if bearer != "" {
@@ -113,11 +115,11 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	}
 	applyGeminiHeaders(httpReq, auth)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
@@ -127,17 +129,17 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 		}
 	}()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "gemini executor")
+		result := executor.HandleHTTPError(httpResp, "gemini executor")
 		return resp, result.Error
 	}
 	data, err := io.ReadAll(httpResp.Body)
 	if err != nil {
 		return resp, err
 	}
-	reporter.publish(ctx, extractUsageFromGeminiResponse(data))
+	reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(data))
 
 	fromFormat := provider.FromString("gemini")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -149,15 +151,15 @@ func (e *GeminiExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	return resp, nil
 }
 
-func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	apiKey, bearer := geminiCreds(auth)
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	translation, err := TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	translation, err := stream.TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("translate request: %w", err)
 	}
@@ -170,15 +172,15 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		body = util.ApplyGeminiThinkingConfig(body, budgetOverride, includeOverride)
 	}
 	body = util.StripThinkingConfigIfUnsupported(req.Model, body)
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	baseURL := resolveGeminiBaseURL(auth)
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(128)
 	ub.WriteString(baseURL)
 	ub.WriteString("/")
-	ub.WriteString(GeminiGLAPIVersion)
+	ub.WriteString(executor.GeminiGLAPIVersion)
 	ub.WriteString("/models/")
 	ub.WriteString(req.Model)
 	ub.WriteString(":streamGenerateContent")
@@ -196,7 +198,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	if err != nil {
 		return nil, err
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	if apiKey != "" {
 		httpReq.Header.Set("x-goog-api-key", apiKey)
 	} else {
@@ -204,16 +206,16 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 	applyGeminiHeaders(httpReq, auth)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "gemini executor")
+		result := executor.HandleHTTPError(httpResp, "gemini executor")
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
@@ -237,14 +239,14 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 				log.Errorf("gemini executor: close response body error: %v", errClose)
 			}
 		}()
-		buf := scannerBufferPool.Get().([]byte)
-		defer scannerBufferPool.Put(buf)
+		buf := stream.ScannerBufferPool.Get().([]byte)
+		defer stream.ScannerBufferPool.Put(buf)
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(buf, DefaultStreamBufferSize)
-		streamCtx := NewStreamContext()
+		scanner.Buffer(buf, executor.DefaultStreamBufferSize)
+		streamCtx := stream.NewStreamContext()
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
-		translator := NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
+		translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
 		processor := &geminiStreamProcessor{
 			translator: translator,
 		}
@@ -257,8 +259,8 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 			}
 
 			line := scanner.Bytes()
-			filtered := FilterSSEUsageMetadata(line)
-			payload := jsonPayload(filtered)
+			filtered := executor.FilterSSEUsageMetadata(line)
+			payload := executor.JSONPayload(filtered)
 			if len(payload) == 0 {
 				continue
 			}
@@ -276,7 +278,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 				return nil
 			}
 			if usage != nil {
-				reporter.publish(ctx, usage)
+				reporter.Publish(ctx, usage)
 			}
 			for _, chunk := range chunks {
 				if !pipeline.SendData(chunk) {
@@ -285,7 +287,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 			}
 		}
 		if errScan := scanner.Err(); errScan != nil {
-			reporter.publishFailure(ctx)
+			reporter.PublishFailure(ctx)
 			pipeline.SendError(errScan)
 			return nil
 		}
@@ -303,14 +305,14 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		pipeline.Close()
 	}()
 
-	return convertPipelineToStreamChunk(pipeline.Output()), nil
+	return stream.ConvertPipelineToStreamChunk(pipeline.Output()), nil
 }
 
 func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
 	apiKey, bearer := geminiCreds(auth)
 
 	from := opts.SourceFormat
-	translatedReq, err := TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	translatedReq, err := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return provider.Response{}, fmt.Errorf("translate request: %w", err)
 	}
@@ -323,12 +325,12 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	translatedReq, _ = sjson.DeleteBytes(translatedReq, "safetySettings")
 
 	baseURL := resolveGeminiBaseURL(auth)
-	ub := GetURLBuilder()
+	ub := executor.GetURLBuilder()
 	defer ub.Release()
 	ub.Grow(128)
 	ub.WriteString(baseURL)
 	ub.WriteString("/")
-	ub.WriteString(GeminiGLAPIVersion)
+	ub.WriteString(executor.GeminiGLAPIVersion)
 	ub.WriteString("/models/")
 	ub.WriteString(req.Model)
 	ub.WriteString(":countTokens")
@@ -340,7 +342,7 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	if err != nil {
 		return provider.Response{}, err
 	}
-	SetCommonHeaders(httpReq, "application/json")
+	executor.SetCommonHeaders(httpReq, "application/json")
 	if apiKey != "" {
 		httpReq.Header.Set("x-goog-api-key", apiKey)
 	} else {
@@ -348,11 +350,11 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	}
 	applyGeminiHeaders(httpReq, auth)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return provider.Response{}, NewTimeoutError("request timed out")
+			return provider.Response{}, executor.NewTimeoutError("request timed out")
 		}
 		return provider.Response{}, err
 	}
@@ -363,8 +365,8 @@ func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 		return provider.Response{}, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Debugf("gemini executor: error status: %d, body: %s", resp.StatusCode, summarizeErrorBody(resp.Header.Get("Content-Type"), data))
-		return provider.Response{}, NewStatusError(resp.StatusCode, string(data), nil)
+		log.Debugf("gemini executor: error status: %d, body: %s", resp.StatusCode, executor.SummarizeErrorBody(resp.Header.Get("Content-Type"), data))
+		return provider.Response{}, executor.NewStatusError(resp.StatusCode, string(data), nil)
 	}
 
 	return provider.Response{Payload: data}, nil
@@ -428,7 +430,7 @@ func (e *GeminiExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*pro
 	}
 	conf := &oauth2.Config{ClientID: clientID, ClientSecret: clientSecret, Endpoint: endpoint}
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
 	tok := &oauth2.Token{AccessToken: accessToken, RefreshToken: refreshToken}
@@ -464,7 +466,7 @@ func (e *GeminiExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*pro
 }
 
 func geminiCreds(a *provider.Auth) (apiKey, bearer string) {
-	token, _ := ExtractCreds(a, GeminiCredsConfig)
+	token, _ := executor.ExtractCreds(a, executor.GeminiCredsConfig)
 	if a != nil && a.Attributes != nil {
 		apiKey = a.Attributes["api_key"]
 	}
@@ -473,14 +475,14 @@ func geminiCreds(a *provider.Auth) (apiKey, bearer string) {
 }
 
 func resolveGeminiBaseURL(auth *provider.Auth) string {
-	base := GeminiDefaultBaseURL
+	base := executor.GeminiDefaultBaseURL
 	if auth != nil {
-		if custom := AttrStringValue(auth.Attributes, "base_url"); custom != "" {
+		if custom := executor.AttrStringValue(auth.Attributes, "base_url"); custom != "" {
 			base = strings.TrimRight(custom, "/")
 		}
 	}
 	if base == "" {
-		return GeminiDefaultBaseURL
+		return executor.GeminiDefaultBaseURL
 	}
 	return base
 }
@@ -499,7 +501,7 @@ func FetchGeminiModels(ctx context.Context, auth *provider.Auth, cfg *config.Con
 		return nil
 	}
 
-	httpClient := newProxyAwareHTTPClient(ctx, cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, cfg, auth, 0)
 
 	fetchCfg := GLAPIFetchConfig{
 		BaseURL:      resolveGeminiBaseURL(auth),

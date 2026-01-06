@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -12,9 +12,11 @@ import (
 
 	iflowauth "github.com/nghyane/llm-mux/internal/auth/iflow"
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/provider"
-	"github.com/nghyane/llm-mux/internal/util"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -39,17 +41,17 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		baseURL = iflowauth.DefaultAPIBaseURL
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
-	endpoint := strings.TrimSuffix(baseURL, "/") + IFlowDefaultEndpoint
+	endpoint := strings.TrimSuffix(baseURL, "/") + executor.IFlowDefaultEndpoint
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -57,11 +59,11 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	}
 	applyIFlowHeaders(httpReq, apiKey, false)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
@@ -72,7 +74,7 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	}()
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "iflow executor")
+		result := executor.HandleHTTPError(httpResp, "iflow executor")
 		return resp, result.Error
 	}
 
@@ -80,11 +82,11 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	if err != nil {
 		return resp, err
 	}
-	reporter.publish(ctx, extractUsageFromOpenAIResponse(data))
-	reporter.ensurePublished(ctx)
+	reporter.Publish(ctx, executor.ExtractUsageFromOpenAIResponse(data))
+	reporter.EnsurePublished(ctx)
 
 	fromOpenAI := provider.FromString("openai")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -96,7 +98,7 @@ func (e *IFlowExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	return resp, nil
 }
 
-func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	apiKey, baseURL := iflowCreds(auth)
 	if strings.TrimSpace(apiKey) == "" {
 		err = fmt.Errorf("iflow executor: missing api key")
@@ -106,11 +108,11 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 		baseURL = iflowauth.DefaultAPIBaseURL
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	body, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -119,9 +121,9 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	if toolsResult.Exists() && toolsResult.IsArray() && len(toolsResult.Array()) == 0 {
 		body = ensureToolsArray(body)
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
-	endpoint := strings.TrimSuffix(baseURL, "/") + IFlowDefaultEndpoint
+	endpoint := strings.TrimSuffix(baseURL, "/") + executor.IFlowDefaultEndpoint
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -129,31 +131,31 @@ func (e *IFlowExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	}
 	applyIFlowHeaders(httpReq, apiKey, true)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "iflow executor")
+		result := executor.HandleHTTPError(httpResp, "iflow executor")
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
 
 	messageID := "chatcmpl-" + req.Model
-	processor := NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	processor := stream.NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
 
-	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:    "iflow executor",
 		EnsurePublished: true,
 	}), nil
 }
 
 func (e *IFlowExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
-	return CountTokensForOpenAIProvider(ctx, e.cfg, "iflow executor", opts.SourceFormat, req.Model, req.Payload, req.Metadata)
+	return executor.CountTokensForOpenAIProvider(ctx, e.cfg, "iflow executor", opts.SourceFormat, req.Model, req.Payload, req.Metadata)
 }
 
 func (e *IFlowExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provider.Auth, error) {
@@ -279,14 +281,14 @@ func (e *IFlowExecutor) refreshOAuthBased(ctx context.Context, auth *provider.Au
 }
 
 func applyIFlowHeaders(r *http.Request, apiKey string, stream bool) {
-	ApplyAPIHeaders(r, HeaderConfig{
+	executor.ApplyAPIHeaders(r, executor.HeaderConfig{
 		Token:     apiKey,
-		UserAgent: DefaultIFlowUserAgent,
+		UserAgent: executor.DefaultIFlowUserAgent,
 	}, stream)
 }
 
 func iflowCreds(a *provider.Auth) (apiKey, baseURL string) {
-	return ExtractCreds(a, IFlowCredsConfig)
+	return executor.ExtractCreds(a, executor.IFlowCredsConfig)
 }
 
 func ensureToolsArray(body []byte) []byte {

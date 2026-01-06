@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -18,6 +18,8 @@ import (
 	"github.com/nghyane/llm-mux/internal/oauth"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/runtime/geminicli"
 	"github.com/tidwall/sjson"
 	"golang.org/x/oauth2"
@@ -50,12 +52,12 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 	if err != nil {
 		return resp, err
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	basePayload, err := TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	basePayload, err := stream.TranslateToGeminiCLI(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, fmt.Errorf("failed to translate request: %w", err)
 	}
@@ -70,11 +72,11 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 	projectID := resolveGeminiProjectID(auth)
 	models := []string{req.Model}
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
-	retrier := &rateLimitRetrier{}
+	retrier := &executor.RateLimitRetrier{}
 
 	for idx := 0; idx < len(models); idx++ {
 		attemptModel := models[idx]
@@ -93,7 +95,7 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 		}
 		updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
 
-		ub := GetURLBuilder()
+		ub := executor.GetURLBuilder()
 		defer ub.Release()
 		ub.Grow(100)
 		ub.WriteString(codeAssistEndpoint)
@@ -111,7 +113,7 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 			err = errReq
 			return resp, err
 		}
-		SetCommonHeaders(reqHTTP, "application/json")
+		executor.SetCommonHeaders(reqHTTP, "application/json")
 		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 		applyGeminiCLIHeaders(reqHTTP)
 		reqHTTP.Header.Set("Accept", "application/json")
@@ -119,7 +121,7 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 		httpResp, errDo := httpClient.Do(reqHTTP)
 		if errDo != nil {
 			if errors.Is(errDo, context.DeadlineExceeded) {
-				return resp, NewTimeoutError("request timed out")
+				return resp, executor.NewTimeoutError("request timed out")
 			}
 			err = errDo
 			return resp, err
@@ -134,10 +136,10 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 			return resp, err
 		}
 		if httpResp.StatusCode >= 200 && httpResp.StatusCode < 300 {
-			reporter.publish(ctx, extractUsageFromGeminiResponse(data))
+			reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(data))
 
 			fromFormat := provider.FromString("gemini-cli")
-			translatedResp, err := TranslateResponseNonStream(e.cfg, fromFormat, from, data, attemptModel)
+			translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, from, data, attemptModel)
 			if err != nil {
 				return resp, err
 			}
@@ -151,21 +153,21 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 
 		lastStatus = httpResp.StatusCode
 		lastBody = append([]byte(nil), data...)
-		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+		log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, executor.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 		if httpResp.StatusCode == 429 {
 			hasNextModel := idx+1 < len(models)
 			if hasNextModel {
 				log.Debugf("gemini cli executor: rate limited, retrying with next model: %s", models[idx+1])
 			}
-			action, ctxErr := retrier.handleRateLimit(ctx, hasNextModel, data)
+			action, ctxErr := retrier.HandleRateLimit(ctx, hasNextModel, data)
 			if ctxErr != nil {
 				err = ctxErr
 				return resp, err
 			}
 			switch action {
-			case rateLimitActionContinue:
+			case executor.RateLimitActionContinue:
 				continue
-			case rateLimitActionRetry:
+			case executor.RateLimitActionRetry:
 				idx--
 				continue
 			}
@@ -182,17 +184,17 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 	return resp, err
 }
 
-func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.cfg, auth)
 	if err != nil {
 		return nil, err
 	}
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	translation, err := TranslateToGeminiCLIWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	translation, err := stream.TranslateToGeminiCLIWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, fmt.Errorf("failed to translate request: %w", err)
 	}
@@ -202,11 +204,11 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 	projectID := resolveGeminiProjectID(auth)
 	models := []string{req.Model}
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
-	retrier := &rateLimitRetrier{}
+	retrier := &executor.RateLimitRetrier{}
 
 	for idx := 0; idx < len(models); idx++ {
 		attemptModel := models[idx]
@@ -220,7 +222,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 		}
 		updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
 
-		ub := GetURLBuilder()
+		ub := executor.GetURLBuilder()
 		defer ub.Release()
 		ub.Grow(100)
 		ub.WriteString(codeAssistEndpoint)
@@ -240,7 +242,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 			err = errReq
 			return nil, err
 		}
-		SetCommonHeaders(reqHTTP, "application/json")
+		executor.SetCommonHeaders(reqHTTP, "application/json")
 		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 		applyGeminiCLIHeaders(reqHTTP)
 		reqHTTP.Header.Set("Accept", "text/event-stream")
@@ -248,7 +250,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 		httpResp, errDo := httpClient.Do(reqHTTP)
 		if errDo != nil {
 			if errors.Is(errDo, context.DeadlineExceeded) {
-				return nil, NewTimeoutError("request timed out")
+				return nil, executor.NewTimeoutError("request timed out")
 			}
 			err = errDo
 			return nil, err
@@ -264,21 +266,21 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 			}
 			lastStatus = httpResp.StatusCode
 			lastBody = append([]byte(nil), data...)
-			log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, summarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
+			log.Debugf("request error, error status: %d, error body: %s", httpResp.StatusCode, executor.SummarizeErrorBody(httpResp.Header.Get("Content-Type"), data))
 			if httpResp.StatusCode == 429 {
 				hasNextModel := idx+1 < len(models)
 				if hasNextModel {
 					log.Debugf("gemini cli executor: rate limited, retrying with next model: %s", models[idx+1])
 				}
-				action, ctxErr := retrier.handleRateLimit(ctx, hasNextModel, data)
+				action, ctxErr := retrier.HandleRateLimit(ctx, hasNextModel, data)
 				if ctxErr != nil {
 					err = ctxErr
 					return nil, err
 				}
 				switch action {
-				case rateLimitActionContinue:
+				case executor.RateLimitActionContinue:
 					continue
-				case rateLimitActionRetry:
+				case executor.RateLimitActionRetry:
 					idx--
 					continue
 				}
@@ -287,19 +289,19 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 			return nil, err
 		}
 
-		streamCtx := NewStreamContext()
+		streamCtx := stream.NewStreamContext()
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + attemptModel
 
-		translator := NewStreamTranslator(e.cfg, from, from.String(), attemptModel, messageID, streamCtx)
-		processor := NewGeminiCLIStreamProcessor(translator)
+		translator := stream.NewStreamTranslator(e.cfg, from, from.String(), attemptModel, messageID, streamCtx)
+		processor := stream.NewGeminiCLIStreamProcessor(translator)
 
-		stream = RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+		streamChan = stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 			ExecutorName:    "gemini-cli",
-			Preprocessor:    GeminiPreprocessor(),
+			Preprocessor:    stream.GeminiPreprocessor(),
 			EnsurePublished: true,
 		})
-		return stream, nil
+		return streamChan, nil
 	}
 
 	if lastStatus == 0 {
@@ -318,15 +320,15 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 	from := opts.SourceFormat
 	models := []string{req.Model}
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
-	retrier := &rateLimitRetrier{}
+	retrier := &executor.RateLimitRetrier{}
 
 	for idx := 0; idx < len(models); idx++ {
 		attemptModel := models[idx]
-		payload, errTranslate := TranslateToGeminiCLI(e.cfg, from, attemptModel, req.Payload, false, req.Metadata)
+		payload, errTranslate := stream.TranslateToGeminiCLI(e.cfg, from, attemptModel, req.Payload, false, req.Metadata)
 		if errTranslate != nil {
 			return provider.Response{}, fmt.Errorf("failed to translate request: %w", errTranslate)
 		}
@@ -341,7 +343,7 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 		}
 		updateGeminiCLITokenMetadata(auth, baseTokenData, tok)
 
-		ub := GetURLBuilder()
+		ub := executor.GetURLBuilder()
 		defer ub.Release()
 		ub.Grow(100)
 		ub.WriteString(codeAssistEndpoint)
@@ -358,7 +360,7 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 		if errReq != nil {
 			return provider.Response{}, errReq
 		}
-		SetCommonHeaders(reqHTTP, "application/json")
+		executor.SetCommonHeaders(reqHTTP, "application/json")
 		reqHTTP.Header.Set("Authorization", "Bearer "+tok.AccessToken)
 		applyGeminiCLIHeaders(reqHTTP)
 		reqHTTP.Header.Set("Accept", "application/json")
@@ -366,7 +368,7 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 		resp, errDo := httpClient.Do(reqHTTP)
 		if errDo != nil {
 			if errors.Is(errDo, context.DeadlineExceeded) {
-				return provider.Response{}, NewTimeoutError("request timed out")
+				return provider.Response{}, executor.NewTimeoutError("request timed out")
 			}
 			return provider.Response{}, errDo
 		}
@@ -385,14 +387,14 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 			if hasNextModel {
 				log.Debugf("gemini cli executor: rate limited, retrying with next model")
 			}
-			action, ctxErr := retrier.handleRateLimit(ctx, hasNextModel, data)
+			action, ctxErr := retrier.HandleRateLimit(ctx, hasNextModel, data)
 			if ctxErr != nil {
 				return provider.Response{}, ctxErr
 			}
 			switch action {
-			case rateLimitActionContinue:
+			case executor.RateLimitActionContinue:
 				continue
-			case rateLimitActionRetry:
+			case executor.RateLimitActionRetry:
 				idx--
 				continue
 			}
@@ -419,7 +421,7 @@ func prepareGeminiCLITokenSource(ctx context.Context, cfg *config.Config, auth *
 
 	var base map[string]any
 	if tokenRaw, ok := metadata["token"].(map[string]any); ok && tokenRaw != nil {
-		base = CloneMap(tokenRaw)
+		base = executor.CloneMap(tokenRaw)
 	} else {
 		base = make(map[string]any)
 	}
@@ -456,7 +458,7 @@ func prepareGeminiCLITokenSource(ctx context.Context, cfg *config.Config, auth *
 	}
 
 	ctxToken := ctx
-	if httpClient := newProxyAwareHTTPClient(ctx, cfg, auth, 0); httpClient != nil {
+	if httpClient := executor.NewProxyAwareHTTPClient(ctx, cfg, auth, 0); httpClient != nil {
 		ctxToken = context.WithValue(ctxToken, oauth2.HTTPClient, httpClient)
 	}
 
@@ -492,7 +494,7 @@ func updateGeminiCLITokenMetadata(auth *provider.Auth, base map[string]any, tok 
 }
 
 func buildGeminiTokenMap(base map[string]any, tok *oauth2.Token) map[string]any {
-	merged := CloneMap(base)
+	merged := executor.CloneMap(base)
 	if merged == nil {
 		merged = make(map[string]any)
 	}
@@ -522,7 +524,7 @@ func buildGeminiTokenFields(tok *oauth2.Token, merged map[string]any) map[string
 		fields["expiry"] = tok.Expiry.Format(time.RFC3339)
 	}
 	if len(merged) > 0 {
-		fields["token"] = CloneMap(merged)
+		fields["token"] = executor.CloneMap(merged)
 	}
 	return fields
 }
@@ -608,14 +610,14 @@ func deleteJSONField(body []byte, key string) []byte {
 	return updated
 }
 
-func newGeminiStatusErr(statusCode int, body []byte) StatusError {
-	err := StatusError{code: statusCode, msg: string(body)}
+func newGeminiStatusErr(statusCode int, body []byte) error {
+	var retryAfter *time.Duration
 	if statusCode == http.StatusTooManyRequests {
-		if retryAfter, parseErr := parseRetryDelay(body); parseErr == nil && retryAfter != nil {
-			err.retryAfter = retryAfter
+		if parsed, parseErr := executor.ParseRetryDelay(body); parseErr == nil && parsed != nil {
+			retryAfter = parsed
 		}
 	}
-	return err
+	return executor.NewStatusError(statusCode, string(body), retryAfter)
 }
 
 func wrapTokenError(err error) error {
@@ -623,7 +625,7 @@ func wrapTokenError(err error) error {
 		return nil
 	}
 	msg := err.Error()
-	return NewStatusError(http.StatusUnauthorized, msg, nil)
+	return executor.NewStatusError(http.StatusUnauthorized, msg, nil)
 }
 
 func FetchGeminiCLIModels(ctx context.Context, auth *provider.Auth, cfg *config.Config) []*registry.ModelInfo {
@@ -639,7 +641,7 @@ func FetchGeminiCLIModels(ctx context.Context, auth *provider.Auth, cfg *config.
 		return nil
 	}
 
-	httpClient := newProxyAwareHTTPClient(ctx, cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, cfg, auth, 0)
 
 	fetchCfg := CloudCodeFetchConfig{
 		BaseURLs:     []string{codeAssistEndpoint},

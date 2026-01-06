@@ -1,4 +1,4 @@
-package executor
+package providers
 
 import (
 	"bytes"
@@ -11,8 +11,10 @@ import (
 
 	clineauth "github.com/nghyane/llm-mux/internal/auth/cline"
 	"github.com/nghyane/llm-mux/internal/config"
+	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/provider"
+	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 )
 
 type ClineExecutor struct {
@@ -32,18 +34,18 @@ func (e *ClineExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	}
 
 	if baseURL == "" {
-		baseURL = ClineDefaultBaseURL
+		baseURL = executor.ClineDefaultBaseURL
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, nil)
+	body, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, nil)
 	if err != nil {
 		return resp, err
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/api/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -53,11 +55,11 @@ func (e *ClineExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 
 	e.applyClineHeaders(httpReq, token, false)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return resp, NewTimeoutError("request timed out")
+			return resp, executor.NewTimeoutError("request timed out")
 		}
 		return resp, err
 	}
@@ -68,7 +70,7 @@ func (e *ClineExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	}()
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "cline executor")
+		result := executor.HandleHTTPError(httpResp, "cline executor")
 		return resp, result.Error
 	}
 
@@ -77,10 +79,10 @@ func (e *ClineExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		return resp, err
 	}
 
-	reporter.publish(ctx, extractUsageFromOpenAIResponse(data))
+	reporter.Publish(ctx, executor.ExtractUsageFromOpenAIResponse(data))
 
 	fromOpenAI := provider.FromString("openai")
-	translatedResp, err := TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -92,25 +94,25 @@ func (e *ClineExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	return resp, nil
 }
 
-func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (stream <-chan provider.StreamChunk, err error) {
+func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
 	token, baseURL := clineCredentials(auth)
 	if token == "" {
 		return nil, fmt.Errorf("cline access token not available")
 	}
 
 	if baseURL == "" {
-		baseURL = ClineDefaultBaseURL
+		baseURL = executor.ClineDefaultBaseURL
 	}
 
-	reporter := newUsageReporter(ctx, e.Identifier(), req.Model, auth)
-	defer reporter.trackFailure(ctx, &err)
+	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, nil)
+	body, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, nil)
 	if err != nil {
 		return nil, err
 	}
-	body = applyPayloadConfig(e.cfg, req.Model, body)
+	body = executor.ApplyPayloadConfig(e.cfg, req.Model, body)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/api/v1/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -120,26 +122,26 @@ func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 
 	e.applyClineHeaders(httpReq, token, true)
 
-	httpClient := newProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, NewTimeoutError("request timed out")
+			return nil, executor.NewTimeoutError("request timed out")
 		}
 		return nil, err
 	}
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		result := HandleHTTPError(httpResp, "cline executor")
+		result := executor.HandleHTTPError(httpResp, "cline executor")
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
 
 	messageID := "chatcmpl-" + req.Model
-	processor := NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	processor := stream.NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
 	processor.Preprocess = clinePreprocess
 
-	return RunSSEStream(ctx, httpResp.Body, reporter, processor, StreamConfig{
+	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:       "cline executor",
 		Preprocessor:       ClineDataTagPreprocessor(),
 		SkipDoneInData:     true,
@@ -147,7 +149,7 @@ func (e *ClineExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	}), nil
 }
 
-func ClineDataTagPreprocessor() StreamPreprocessor {
+func ClineDataTagPreprocessor() stream.StreamPreprocessor {
 	return func(line []byte) (payload []byte, skip bool) {
 		payload = line
 		if bytes.HasPrefix(line, []byte("data: ")) {
@@ -174,11 +176,11 @@ func clinePreprocess(line []byte, firstChunk bool) []byte {
 }
 
 func clineCredentials(a *provider.Auth) (token, baseURL string) {
-	return ExtractCreds(a, ClineCredsConfig)
+	return executor.ExtractCreds(a, executor.ClineCredsConfig)
 }
 
 func (e *ClineExecutor) applyClineHeaders(req *http.Request, token string, stream bool) {
-	ApplyAPIHeaders(req, HeaderConfig{
+	executor.ApplyAPIHeaders(req, executor.HeaderConfig{
 		Token: token,
 		StreamHeaders: map[string]string{
 			"Cache-Control": "no-cache",
@@ -223,7 +225,7 @@ func shouldSkipEmptyContentChunk(payload []byte) bool {
 }
 
 func (e *ClineExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
-	return CountTokensForOpenAIProvider(ctx, e.cfg, "cline executor", opts.SourceFormat, req.Model, req.Payload, nil)
+	return executor.CountTokensForOpenAIProvider(ctx, e.cfg, "cline executor", opts.SourceFormat, req.Model, req.Payload, nil)
 }
 
 func (e *ClineExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*provider.Auth, error) {
@@ -231,7 +233,7 @@ func (e *ClineExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*prov
 		return nil, fmt.Errorf("cline executor: auth is nil")
 	}
 
-	refreshToken, ok := ExtractRefreshToken(auth)
+	refreshToken, ok := executor.ExtractRefreshToken(auth)
 	if !ok {
 		return auth, nil
 	}
@@ -242,7 +244,7 @@ func (e *ClineExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*prov
 		return nil, err
 	}
 
-	UpdateRefreshMetadata(auth, map[string]any{
+	executor.UpdateRefreshMetadata(auth, map[string]any{
 		"access_token":  td.AccessToken,
 		"refresh_token": td.RefreshToken,
 		"email":         td.Email,

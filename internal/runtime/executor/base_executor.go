@@ -12,6 +12,9 @@ import (
 // Context keys for executor-specific values (merged from context_keys.go)
 type altContextKey struct{}
 
+// AltContextKey is an exported version of altContextKey for use in sub-packages.
+type AltContextKey = altContextKey
+
 type BaseExecutor struct {
 	Cfg *config.Config
 }
@@ -25,15 +28,15 @@ func (b *BaseExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error {
 }
 
 func (b *BaseExecutor) NewHTTPClient(ctx context.Context, auth *provider.Auth, timeout time.Duration) *http.Client {
-	return newProxyAwareHTTPClient(ctx, b.Cfg, auth, timeout)
+	return NewProxyAwareHTTPClient(ctx, b.Cfg, auth, timeout)
 }
 
 func (b *BaseExecutor) NewUsageReporter(ctx context.Context, prov, model string, auth *provider.Auth) *usageReporter {
-	return newUsageReporter(ctx, prov, model, auth)
+	return NewUsageReporter(ctx, prov, model, auth)
 }
 
 func (b *BaseExecutor) ApplyPayloadConfig(model string, payload []byte) []byte {
-	return applyPayloadConfig(b.Cfg, model, payload)
+	return ApplyPayloadConfig(b.Cfg, model, payload)
 }
 
 func (b *BaseExecutor) RefreshNoOp(_ context.Context, auth *provider.Auth) (*provider.Auth, error) {
