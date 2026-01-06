@@ -196,7 +196,7 @@ func buildAssistantMessage(msg ir.Message, _ bool) map[string]any {
 	toolUses := make([]any, len(msg.ToolCalls))
 	for i, tc := range msg.ToolCalls {
 		toolUses[i] = map[string]any{
-			"input": ir.ParseToolCallArgs(tc.Args), "name": tc.Name, "toolUseId": tc.ID,
+			"input": ir.ArgsAsRaw(tc.Args), "name": tc.Name, "toolUseId": tc.ID,
 		}
 	}
 	assistantMsg := map[string]any{"content": ir.CombineTextParts(msg), "toolUses": toolUses}

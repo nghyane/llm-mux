@@ -561,6 +561,18 @@ func ToOpenAIChunkMeta(ev ir.UnifiedEvent, model, mid string, ci int, meta *ir.O
 	if ev.Type == ir.EventTypeReasoning && ev.Reasoning != "" {
 		return ir.BuildOpenAIReasoningDeltaSSE(rid, model, cr, ev.Reasoning, string(ev.ThoughtSignature)), nil
 	}
+	// HOT PATH: Tool call delta - use pooled struct for zero-allocation
+	if ev.Type == ir.EventTypeToolCall && ev.ToolCall != nil {
+		ts := ev.ThoughtSignature
+		if len(ts) == 0 {
+			ts = ev.ToolCall.ThoughtSignature
+		}
+		return ir.BuildOpenAIToolCallDeltaSSE(rid, model, cr, ci, ev.ToolCall.ID, ev.ToolCall.Name, ev.ToolCall.Args, ts), nil
+	}
+	// HOT PATH: Tool call args delta (streaming args) - use pooled struct
+	if ev.Type == ir.EventTypeToolCallDelta && ev.ToolCall != nil {
+		return ir.BuildOpenAIToolCallArgsDeltaSSE(rid, model, cr, ci, ev.ToolCall.Args), nil
+	}
 	ch := map[string]any{"id": rid, "object": "chat.completion.chunk", "created": cr, "model": model, "choices": []any{}}
 	if ev.SystemFingerprint != "" {
 		ch["system_fingerprint"] = ev.SystemFingerprint

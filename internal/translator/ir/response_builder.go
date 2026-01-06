@@ -194,7 +194,7 @@ func (b *ResponseBuilder) BuildGeminiContentParts() []any {
 		fcPart := map[string]any{
 			"functionCall": map[string]any{
 				"name": tc.Name,
-				"args": ParseToolCallArgs(tc.Args),
+				"args": ArgsAsRaw(tc.Args),
 			},
 		}
 		// Include thoughtSignature at part level (required by Gemini 3 for multi-turn)
@@ -484,7 +484,7 @@ func BuildClaudeContentParts(msg Message, includeToolCalls bool, thinkingEnabled
 		for i := range msg.ToolCalls {
 			tc := &msg.ToolCalls[i]
 			toolUse := map[string]any{"type": ClaudeBlockToolUse, "id": ToClaudeToolID(tc.ID), "name": tc.Name}
-			toolUse["input"] = ParseToolCallArgs(tc.Args)
+			toolUse["input"] = ArgsAsRaw(tc.Args)
 			parts = append(parts, toolUse)
 		}
 	}

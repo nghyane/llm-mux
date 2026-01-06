@@ -437,7 +437,6 @@ func emitToolCallTo(buf *bytes.Buffer, tc *ir.ToolCall, s *ClaudeStreamState) {
 		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "signature_delta", "signature": string(tc.ThoughtSignature)}})
 	}
 	if s != nil && s.TextBlockStarted {
-		// Use pooled struct for content block stop
 		buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 		s.TextBlockStarted, s.TextBlockIndex, s.CurrentBlockType = false, s.TextBlockIndex+1, ""
 	}
@@ -446,13 +445,12 @@ func emitToolCallTo(buf *bytes.Buffer, tc *ir.ToolCall, s *ClaudeStreamState) {
 		s.HasToolCalls, idx = true, s.TextBlockIndex
 		s.TextBlockIndex++
 	}
-	writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockToolUse, "id": ir.ToClaudeToolID(tc.ID), "name": tc.Name, "input": map[string]any{}}})
+	buf.Write(ir.BuildClaudeToolCallBlockStartSSE(idx, ir.ToClaudeToolID(tc.ID), tc.Name))
 	args := tc.Args
 	if args == "" {
 		args = "{}"
 	}
-	writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "input_json_delta", "partial_json": args}})
-	// Use pooled struct for content block stop
+	buf.Write(ir.BuildClaudeToolCallInputDeltaSSE(idx, args))
 	buf.Write(ir.BuildClaudeContentBlockStopSSE(idx))
 }
 

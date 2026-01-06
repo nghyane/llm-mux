@@ -3,7 +3,6 @@ package ir
 import (
 	"crypto/rand"
 	"errors"
-	"fmt"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -185,7 +184,7 @@ func CleanJsonSchema(schema map[string]any) map[string]any {
 }
 
 func GenToolCallID() string {
-	return fmt.Sprintf("call_%s", generateAlphanumeric(24))
+	return "call_" + generateAlphanumeric(24)
 }
 
 func generateAlphanumeric(length int) string {
@@ -208,7 +207,7 @@ func generateAlphanumeric(length int) string {
 }
 
 func GenClaudeToolCallID() string {
-	return fmt.Sprintf("toolu_%s", generateAlphanumeric(20))
+	return "toolu_" + generateAlphanumeric(20)
 }
 
 // Tool ID Conversion Functions
