@@ -28,10 +28,6 @@ type Backend interface {
 	// QueryHourlyStats returns per-hour-of-day statistics since the given time.
 	QueryHourlyStats(ctx context.Context, since time.Time) ([]HourlyStats, error)
 
-	// QueryAPIStats returns per-API/model statistics since the given time.
-	// Deprecated: Use QueryProviderStats, QueryAuthStats, QueryModelStats instead.
-	QueryAPIStats(ctx context.Context, since time.Time) ([]APIStats, error)
-
 	// QueryProviderStats returns per-provider statistics since the given time.
 	QueryProviderStats(ctx context.Context, since time.Time) ([]ProviderStats, error)
 

@@ -444,9 +444,3 @@ func formatResponsesSSEBytes(eventType string, data []byte) []byte {
 	buf = append(buf, "\n\n"...)
 	return buf
 }
-
-// formatResponsesSSEFast builds an SSE event returning string.
-// Deprecated: Use formatResponsesSSEBytes for new code.
-func formatResponsesSSEFast(eventType string, data []byte) string {
-	return string(formatResponsesSSEBytes(eventType, data))
-}

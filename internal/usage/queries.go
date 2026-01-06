@@ -24,15 +24,6 @@ type HourlyStats struct {
 	Tokens   int64 `json:"tokens"`
 }
 
-// APIStats represents aggregated metrics per API key and model.
-// Deprecated: Use ProviderStats, AuthStats, ModelStats instead.
-type APIStats struct {
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
-	Requests int64  `json:"requests"`
-	Tokens   int64  `json:"tokens"`
-}
-
 // ProviderStats represents aggregated metrics per provider.
 type ProviderStats struct {
 	Provider        string   `json:"provider"`

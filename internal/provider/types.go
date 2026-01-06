@@ -99,13 +99,6 @@ func (a *Auth) Clone() *Auth {
 	return &copyAuth
 }
 
-func IncrementMaterialVersion(auth *Auth) {
-	if auth == nil {
-		return
-	}
-	auth.MaterialVersion++
-}
-
 // EnsureIndex returns the global index, assigning one if it was not set yet.
 func (a *Auth) EnsureIndex() uint64 {
 	if a == nil {

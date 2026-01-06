@@ -321,35 +321,6 @@ func (b *SQLiteBackend) QueryHourlyStats(ctx context.Context, since time.Time) (
 	return results, rows.Err()
 }
 
-// QueryAPIStats returns per-API/model statistics since the given time.
-func (b *SQLiteBackend) QueryAPIStats(ctx context.Context, since time.Time) ([]APIStats, error) {
-	rows, err := b.db.QueryContext(ctx, `
-		SELECT 
-			COALESCE(NULLIF(api_key, ''), NULLIF(provider, ''), 'unknown') as api_key,
-			COALESCE(NULLIF(model, ''), 'unknown') as model,
-			COUNT(*) as requests,
-			COALESCE(SUM(total_tokens), 0) as tokens
-		FROM usage_records
-		WHERE requested_at >= ?
-		GROUP BY api_key, model
-		ORDER BY requests DESC
-	`, since)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query API stats: %w", err)
-	}
-	defer rows.Close()
-
-	var results []APIStats
-	for rows.Next() {
-		var am APIStats
-		if err := rows.Scan(&am.APIKey, &am.Model, &am.Requests, &am.Tokens); err != nil {
-			return nil, err
-		}
-		results = append(results, am)
-	}
-	return results, rows.Err()
-}
-
 func (b *SQLiteBackend) QueryProviderStats(ctx context.Context, since time.Time) ([]ProviderStats, error) {
 	rows, err := b.db.QueryContext(ctx, `
 		SELECT 
