@@ -45,12 +45,14 @@ type ClaudeStreamParserState struct {
 	PendingThinkingEvent     *UnifiedEvent
 }
 
+// NewClaudeStreamParserState creates a new parser state with pre-allocated maps.
+// Pre-allocation reduces memory allocations during streaming with large context.
 func NewClaudeStreamParserState() *ClaudeStreamParserState {
 	return &ClaudeStreamParserState{
-		ToolUseNames: make(map[int]string),
-		ToolUseIDs:   make(map[int]string),
-		ToolUseArgs:  make(map[int]*strings.Builder),
-		BlockTypes:   make(map[int]string),
+		ToolUseNames: make(map[int]string, 4),
+		ToolUseIDs:   make(map[int]string, 4),
+		ToolUseArgs:  make(map[int]*strings.Builder, 4),
+		BlockTypes:   make(map[int]string, 8),
 	}
 }
 

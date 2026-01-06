@@ -180,7 +180,7 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 			lastErr = errStream
 			continue
 		}
-		out := make(chan StreamChunk, 1)
+		out := make(chan StreamChunk, 64) // Increased buffer for high throughput streaming
 		go func(streamCtx context.Context, streamAuth *Auth, streamProvider string, streamChunks <-chan StreamChunk, cbDone func(bool)) {
 			defer close(out)
 			var failed bool
@@ -266,7 +266,7 @@ func (m *Manager) executeStreamProvidersOnce(ctx context.Context, providers []st
 // when consumers stop reading.
 // Context cancellation (user disconnect) is not counted as provider failure.
 func (m *Manager) wrapStreamForStats(ctx context.Context, in <-chan StreamChunk, provider, model string, start time.Time) <-chan StreamChunk {
-	out := make(chan StreamChunk, 1)
+	out := make(chan StreamChunk, 64) // Increased buffer for high throughput streaming
 	go func() {
 		defer close(out)
 		hasError := false

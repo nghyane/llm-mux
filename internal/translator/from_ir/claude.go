@@ -372,7 +372,8 @@ func emitTextDeltaTo(buf *bytes.Buffer, t string, s *ClaudeStreamState) {
 	if s != nil {
 		s.HasTextContent = true
 		if s.TextBlockStarted && s.CurrentBlockType != ir.ClaudeBlockText {
-			writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
+			// Use pooled struct for content block stop
+			buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 			s.TextBlockStarted, s.TextBlockIndex = false, s.TextBlockIndex+1
 		}
 		idx = s.TextBlockIndex
@@ -381,7 +382,8 @@ func emitTextDeltaTo(buf *bytes.Buffer, t string, s *ClaudeStreamState) {
 			writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": idx, "content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""}})
 		}
 	}
-	writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "text_delta", "text": t}})
+	// HOT PATH: Use pooled struct for text delta
+	buf.Write(ir.BuildClaudeTextDeltaSSE(idx, t))
 }
 
 func emitThinkingDeltaTo(buf *bytes.Buffer, t string, sig []byte, s *ClaudeStreamState) {
@@ -394,7 +396,8 @@ func emitThinkingDeltaTo(buf *bytes.Buffer, t string, sig []byte, s *ClaudeStrea
 	idx := 0
 	if s != nil {
 		if s.TextBlockStarted && s.CurrentBlockType != ir.ClaudeBlockThinking {
-			writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
+			// Use pooled struct for content block stop
+			buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 			s.TextBlockStarted, s.TextBlockIndex = false, s.TextBlockIndex+1
 		}
 		idx = s.TextBlockIndex
@@ -404,7 +407,8 @@ func emitThinkingDeltaTo(buf *bytes.Buffer, t string, sig []byte, s *ClaudeStrea
 		}
 	}
 	if t != "" {
-		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "thinking_delta", "thinking": t}})
+		// HOT PATH: Use pooled struct for thinking delta
+		buf.Write(ir.BuildClaudeThinkingDeltaSSE(idx, t))
 	}
 	if len(sig) > 0 {
 		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "signature_delta", "signature": string(sig)}})
@@ -415,7 +419,8 @@ func emitRedactedThinkingDeltaTo(buf *bytes.Buffer, d string, s *ClaudeStreamSta
 	idx := 0
 	if s != nil {
 		if s.TextBlockStarted && s.CurrentBlockType != ir.ClaudeBlockRedactedThinking {
-			writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
+			// Use pooled struct for content block stop
+			buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 			s.TextBlockStarted, s.TextBlockIndex = false, s.TextBlockIndex+1
 		}
 		idx = s.TextBlockIndex
@@ -432,7 +437,8 @@ func emitToolCallTo(buf *bytes.Buffer, tc *ir.ToolCall, s *ClaudeStreamState) {
 		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "signature_delta", "signature": string(tc.ThoughtSignature)}})
 	}
 	if s != nil && s.TextBlockStarted {
-		writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
+		// Use pooled struct for content block stop
+		buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 		s.TextBlockStarted, s.TextBlockIndex, s.CurrentBlockType = false, s.TextBlockIndex+1, ""
 	}
 	idx := 0
@@ -446,18 +452,22 @@ func emitToolCallTo(buf *bytes.Buffer, tc *ir.ToolCall, s *ClaudeStreamState) {
 		args = "{}"
 	}
 	writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": idx, "delta": map[string]any{"type": "input_json_delta", "partial_json": args}})
-	writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": idx})
+	// Use pooled struct for content block stop
+	buf.Write(ir.BuildClaudeContentBlockStopSSE(idx))
 }
 
 func emitFinishTo(buf *bytes.Buffer, us *ir.Usage, s *ClaudeStreamState) {
 	if s != nil && s.TextBlockStarted {
-		writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
+		// Use pooled struct for content block stop
+		buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 		s.TextBlockStarted, s.TextBlockIndex, s.CurrentBlockType = false, s.TextBlockIndex+1, ""
 	}
 	if s != nil && !s.HasTextContent && !s.HasToolCalls {
 		writeSSE(buf, ir.ClaudeSSEContentBlockStart, map[string]any{"type": ir.ClaudeSSEContentBlockStart, "index": s.TextBlockIndex, "content_block": map[string]any{"type": ir.ClaudeBlockText, "text": ""}})
-		writeSSE(buf, ir.ClaudeSSEContentBlockDelta, map[string]any{"type": ir.ClaudeSSEContentBlockDelta, "index": s.TextBlockIndex, "delta": map[string]any{"type": "text_delta", "text": " "}})
-		writeSSE(buf, ir.ClaudeSSEContentBlockStop, map[string]any{"type": ir.ClaudeSSEContentBlockStop, "index": s.TextBlockIndex})
+		// Use pooled struct for text delta
+		buf.Write(ir.BuildClaudeTextDeltaSSE(s.TextBlockIndex, " "))
+		// Use pooled struct for content block stop
+		buf.Write(ir.BuildClaudeContentBlockStopSSE(s.TextBlockIndex))
 	}
 	sr := ir.ClaudeStopEndTurn
 	if s != nil && s.HasToolCalls {

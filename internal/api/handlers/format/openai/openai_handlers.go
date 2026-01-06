@@ -21,6 +21,7 @@ var (
 	sseEventPrefix = []byte("event:")
 	sseDataPrefix  = []byte("data: ")
 	sseNewline     = []byte("\n\n")
+	sseDoneMarker  = []byte("data: [DONE]\n\n")
 )
 
 // OpenAIAPIHandler contains the handlers for OpenAI API endpoints.
@@ -490,14 +491,16 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 			return
 		case chunk, isOk := <-dataChan:
 			if !isOk {
-				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				_, _ = c.Writer.Write(sseDoneMarker)
 				flusher.Flush()
 				cliCancel()
 				return
 			}
 			converted := convertChatCompletionsStreamChunkToCompletions(chunk)
 			if converted != nil {
-				_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(converted))
+				_, _ = c.Writer.Write(sseDataPrefix)
+				_, _ = c.Writer.Write(converted)
+				_, _ = c.Writer.Write(sseNewline)
 				flusher.Flush()
 			}
 		case errMsg, isOk := <-errChan:
@@ -525,7 +528,7 @@ func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flush
 			return
 		case chunk, ok := <-data:
 			if !ok {
-				_, _ = fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
+				_, _ = c.Writer.Write(sseDoneMarker)
 				flusher.Flush()
 				cancel(nil)
 				return

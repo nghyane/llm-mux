@@ -277,7 +277,7 @@ func NewDefaultConfig() *Config {
 		DisableAuth:            true,
 		RequestRetry:           3,
 		MaxRetryInterval:       30,
-		StreamTimeout:          300,
+		StreamTimeout:          600, // 10 minutes for large context processing
 		QuotaWindow:            300,
 		UseCanonicalTranslator: true,
 		Usage: UsageConfig{

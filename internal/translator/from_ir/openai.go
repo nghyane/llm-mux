@@ -540,20 +540,6 @@ func ToOpenAIChunk(ev ir.UnifiedEvent, model, mid string, ci int) ([]byte, error
 	return ToOpenAIChunkMeta(ev, model, mid, ci, nil)
 }
 
-type openaiTextChunk struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
-	Choices []struct {
-		Index int `json:"index"`
-		Delta struct {
-			Role    string `json:"role,omitempty"`
-			Content string `json:"content,omitempty"`
-		} `json:"delta"`
-	} `json:"choices"`
-}
-
 func ToOpenAIChunkMeta(ev ir.UnifiedEvent, model, mid string, ci int, meta *ir.OpenAIMeta) ([]byte, error) {
 	if ev.Type == ir.EventTypeStreamMeta {
 		return nil, nil
@@ -567,17 +553,13 @@ func ToOpenAIChunkMeta(ev ir.UnifiedEvent, model, mid string, ci int, meta *ir.O
 			cr = meta.CreateTime
 		}
 	}
+	// HOT PATH: Simple text delta - use pooled struct for zero-allocation
 	if ev.Type == ir.EventTypeToken && ev.Content != "" && ev.Refusal == "" && ev.Logprobs == nil && ev.SystemFingerprint == "" {
-		ch := openaiTextChunk{ID: rid, Object: "chat.completion.chunk", Created: cr, Model: model, Choices: make([]struct {
-			Index int `json:"index"`
-			Delta struct {
-				Role    string `json:"role,omitempty"`
-				Content string `json:"content,omitempty"`
-			} `json:"delta"`
-		}, 1)}
-		ch.Choices[0].Delta.Role, ch.Choices[0].Delta.Content = "assistant", ev.Content
-		jb, _ := json.Marshal(ch)
-		return ir.BuildSSEChunk(jb), nil
+		return ir.BuildOpenAITextDeltaSSE(rid, model, cr, ev.Content), nil
+	}
+	// HOT PATH: Reasoning delta - use pooled struct
+	if ev.Type == ir.EventTypeReasoning && ev.Reasoning != "" {
+		return ir.BuildOpenAIReasoningDeltaSSE(rid, model, cr, ev.Reasoning, string(ev.ThoughtSignature)), nil
 	}
 	ch := map[string]any{"id": rid, "object": "chat.completion.chunk", "created": cr, "model": model, "choices": []any{}}
 	if ev.SystemFingerprint != "" {
@@ -833,23 +815,39 @@ type ResponsesStreamState struct {
 	FuncArgsBuffer  map[int]*strings.Builder
 }
 
+// NewResponsesStreamState creates a new ResponsesStreamState with pre-allocated buffers.
+// Pre-allocation reduces memory allocations during streaming with large context.
 func NewResponsesStreamState() *ResponsesStreamState {
-	return &ResponsesStreamState{FuncCallIDs: make(map[int]string), FuncNames: make(map[int]string), FuncArgsBuffer: make(map[int]*strings.Builder)}
+	s := &ResponsesStreamState{
+		FuncCallIDs:    make(map[int]string, 4),
+		FuncNames:      make(map[int]string, 4),
+		FuncArgsBuffer: make(map[int]*strings.Builder, 4),
+	}
+	// Pre-allocate text buffer for typical response sizes (16KB)
+	s.TextBuffer.Grow(16 * 1024)
+	// Pre-allocate reasoning buffer for models with reasoning (8KB)
+	s.ReasoningBuffer.Grow(8 * 1024)
+	return s
 }
 
-func formatResponsesSSE(et string, jb []byte) string {
-	b := ir.GetStringBuilder()
-	defer ir.PutStringBuilder(b)
-	b.Grow(16 + len(et) + len(jb))
-	b.WriteString("event: ")
-	b.WriteString(et)
-	b.WriteString("\ndata: ")
-	b.Write(jb)
-	b.WriteString("\n\n")
-	return b.String()
+// formatResponsesSSE builds an SSE event returning []byte for zero-copy writes.
+func formatResponsesSSE(et string, jb []byte) []byte {
+	size := 7 + len(et) + 7 + len(jb) + 2
+	buf := ir.GetSSEChunkBuf()
+	if cap(buf) < size {
+		buf = make([]byte, 0, size)
+	}
+	buf = append(buf, "event: "...)
+	buf = append(buf, et...)
+	buf = append(buf, "\ndata: "...)
+	buf = append(buf, jb...)
+	buf = append(buf, "\n\n"...)
+	return buf
 }
 
-func ToResponsesAPIChunk(ev ir.UnifiedEvent, model string, s *ResponsesStreamState) ([]string, error) {
+// ToResponsesAPIChunk converts a unified event to Responses API SSE chunks.
+// Returns [][]byte for consistency and zero-copy writes to response writer.
+func ToResponsesAPIChunk(ev ir.UnifiedEvent, model string, s *ResponsesStreamState) ([][]byte, error) {
 	if ev.Type == ir.EventTypeStreamMeta {
 		return nil, nil
 	}
@@ -857,7 +855,7 @@ func ToResponsesAPIChunk(ev ir.UnifiedEvent, model string, s *ResponsesStreamSta
 		s.ResponseID, s.Created = fmt.Sprintf("resp_%d", time.Now().UnixNano()), time.Now().Unix()
 	}
 	ns := func() int { s.Seq++; return s.Seq }
-	out := make([]string, 0, 4)
+	out := make([][]byte, 0, 4)
 	if !s.Started {
 		for _, t := range []string{"response.created", "response.in_progress"} {
 			b, _ := json.Marshal(map[string]any{"type": t, "sequence_number": ns(), "response": map[string]any{"id": s.ResponseID, "object": "response", "created_at": s.Created, "status": "in_progress"}})
@@ -875,8 +873,8 @@ func ToResponsesAPIChunk(ev ir.UnifiedEvent, model string, s *ResponsesStreamSta
 			out = append(out, formatResponsesSSE("response.content_part.added", b2))
 		}
 		s.TextBuffer.WriteString(ev.Content)
-		b, _ := json.Marshal(map[string]any{"type": "response.output_text.delta", "sequence_number": ns(), "item_id": s.MsgID, "output_index": 0, "content_index": 0, "delta": ev.Content})
-		out = append(out, formatResponsesSSE("response.output_text.delta", b))
+		// HOT PATH: Use pooled struct for text delta
+		out = append(out, ir.BuildResponsesTextDeltaSSE(ns(), s.MsgID, ev.Content))
 	case ir.EventTypeReasoning, ir.EventTypeReasoningSummary:
 		t := ev.Reasoning
 		if ev.Type == ir.EventTypeReasoningSummary {
@@ -888,8 +886,8 @@ func ToResponsesAPIChunk(ev ir.UnifiedEvent, model string, s *ResponsesStreamSta
 			out = append(out, formatResponsesSSE("response.output_item.added", b))
 		}
 		s.ReasoningBuffer.WriteString(t)
-		b, _ := json.Marshal(map[string]any{"type": "response.reasoning_summary_text.delta", "sequence_number": ns(), "item_id": s.ReasoningID, "output_index": 0, "content_index": 0, "delta": t})
-		out = append(out, formatResponsesSSE("response.reasoning_summary_text.delta", b))
+		// HOT PATH: Use pooled struct for reasoning delta
+		out = append(out, ir.BuildResponsesReasoningDeltaSSE(ns(), s.ReasoningID, t))
 	case ir.EventTypeToolCall:
 		idx := ev.ToolCallIndex
 		if _, ok := s.FuncCallIDs[idx]; !ok {

@@ -31,7 +31,7 @@ var TransportConfig = struct {
 	IdleConnTimeout:       90 * time.Second,
 	TLSHandshakeTimeout:   10 * time.Second,
 	ExpectContinueTimeout: 1 * time.Second,
-	ResponseHeaderTimeout: 300 * time.Second,
+	ResponseHeaderTimeout: 600 * time.Second, // Increased to 10 minutes for large context processing
 	DialTimeout:           30 * time.Second,
 	KeepAlive:             30 * time.Second,
 }
