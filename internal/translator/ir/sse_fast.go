@@ -433,10 +433,7 @@ func BuildClaudeTextDeltaSSETemplate(index int, textJSON []byte) []byte {
 // This is the preferred version for hot paths.
 func formatResponsesSSEBytes(eventType string, data []byte) []byte {
 	size := 7 + len(eventType) + 7 + len(data) + 2
-	buf := GetSSEChunkBuf()
-	if cap(buf) < size {
-		buf = make([]byte, 0, size)
-	}
+	buf := make([]byte, 0, size)
 	buf = append(buf, "event: "...)
 	buf = append(buf, eventType...)
 	buf = append(buf, "\ndata: "...)
