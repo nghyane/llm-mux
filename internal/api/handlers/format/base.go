@@ -206,7 +206,7 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 	req, opts := buildRequestOpts(normalizedModel, rawJSON, metadata, handlerType, alt, true)
 	chunks, err := h.AuthManager.ExecuteStream(ctx, providers, req, opts)
 	if err == nil {
-		return h.wrapStreamChannel(chunks)
+		return h.wrapStreamChannel(ctx, chunks)
 	}
 
 	fallbacks := h.getFallbackChain(normalizedModel)
@@ -218,7 +218,7 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 		fbReq, fbOpts := buildRequestOpts(fbNormalizedModel, rawJSON, fbMetadata, handlerType, alt, true)
 		fbChunks, fbErr := h.AuthManager.ExecuteStream(ctx, fbProviders, fbReq, fbOpts)
 		if fbErr == nil {
-			return h.wrapStreamChannel(fbChunks)
+			return h.wrapStreamChannel(ctx, fbChunks)
 		}
 	}
 
@@ -229,24 +229,35 @@ func (h *BaseAPIHandler) ExecuteStreamWithAuthManager(ctx context.Context, handl
 	return nil, errChan
 }
 
-// wrapStreamChannel transforms a StreamChunk channel into separate data and error channels.
-// Errors are detected via StreamChunk.Err which is set by the provider layer.
-// Note: SSE inline errors (data: {"error":...}) are handled by the provider/executor layer,
-// not here - this avoids JSON parsing overhead on every chunk in the hot path.
-func (h *BaseAPIHandler) wrapStreamChannel(chunks <-chan provider.StreamChunk) (<-chan []byte, <-chan *interfaces.ErrorMessage) {
-	dataChan := make(chan []byte, 128) // Match provider layer buffer size
+func (h *BaseAPIHandler) wrapStreamChannel(ctx context.Context, chunks <-chan provider.StreamChunk) (<-chan []byte, <-chan *interfaces.ErrorMessage) {
+	dataChan := make(chan []byte, 128)
 	errChan := make(chan *interfaces.ErrorMessage, 1)
 	go func() {
 		defer close(dataChan)
 		defer close(errChan)
-		for chunk := range chunks {
-			if chunk.Err != nil {
-				status, addon := extractErrorDetails(chunk.Err)
-				errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: chunk.Err, Addon: addon}
+		for {
+			select {
+			case <-ctx.Done():
 				return
-			}
-			if len(chunk.Payload) > 0 {
-				dataChan <- chunk.Payload // No clone needed, executor already owns this
+			case chunk, ok := <-chunks:
+				if !ok {
+					return
+				}
+				if chunk.Err != nil {
+					status, addon := extractErrorDetails(chunk.Err)
+					select {
+					case errChan <- &interfaces.ErrorMessage{StatusCode: status, Error: chunk.Err, Addon: addon}:
+					case <-ctx.Done():
+					}
+					return
+				}
+				if len(chunk.Payload) > 0 {
+					select {
+					case dataChan <- chunk.Payload:
+					case <-ctx.Done():
+						return
+					}
+				}
 			}
 		}
 	}()

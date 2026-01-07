@@ -306,7 +306,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		pipeline.Close()
 	}()
 
-	return stream.ConvertPipelineToStreamChunk(pipeline.Output()), nil
+	return stream.ConvertPipelineToStreamChunk(ctx, pipeline.Output()), nil
 }
 
 func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
@@ -512,15 +512,4 @@ func FetchGeminiModels(ctx context.Context, auth *provider.Auth, cfg *config.Con
 	}
 
 	return FetchGLAPIModels(ctx, httpClient, fetchCfg)
-}
-
-func convertPipelineToStreamChunk(input <-chan streamutil.Chunk) <-chan provider.StreamChunk {
-	out := make(chan provider.StreamChunk, 128)
-	go func() {
-		defer close(out)
-		for chunk := range input {
-			out <- provider.StreamChunk{Payload: chunk.Data, Err: chunk.Err}
-		}
-	}()
-	return out
 }
