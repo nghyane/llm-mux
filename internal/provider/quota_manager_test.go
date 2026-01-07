@@ -282,3 +282,109 @@ func TestQuotaManager_GetStrategy(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthQuotaState_TokenAccessors(t *testing.T) {
+	state := &AuthQuotaState{}
+
+	if state.GetToken() != "" {
+		t.Error("expected empty token initially")
+	}
+
+	if state.IsTokenValid(30 * time.Second) {
+		t.Error("expected token to be invalid initially")
+	}
+
+	if state.NeedsTokenRefresh() {
+		t.Error("expected no refresh needed initially")
+	}
+
+	expiresAt := time.Now().Add(1 * time.Hour)
+	refreshAt := time.Now().Add(30 * time.Minute)
+	state.SetToken("test-token", expiresAt, refreshAt)
+
+	if state.GetToken() != "test-token" {
+		t.Errorf("expected token 'test-token', got '%s'", state.GetToken())
+	}
+
+	if !state.IsTokenValid(30 * time.Second) {
+		t.Error("expected token to be valid with 30s buffer")
+	}
+
+	if state.NeedsTokenRefresh() {
+		t.Error("expected no refresh needed yet (refreshAt is 30min in future)")
+	}
+}
+
+func TestAuthQuotaState_IsTokenValid_Buffer(t *testing.T) {
+	state := &AuthQuotaState{}
+
+	expiresAt := time.Now().Add(20 * time.Second)
+	refreshAt := time.Now().Add(-1 * time.Minute)
+	state.SetToken("short-lived", expiresAt, refreshAt)
+
+	if !state.IsTokenValid(10 * time.Second) {
+		t.Error("expected token to be valid with 10s buffer")
+	}
+
+	if state.IsTokenValid(30 * time.Second) {
+		t.Error("expected token to be invalid with 30s buffer (expires in 20s)")
+	}
+}
+
+func TestAuthQuotaState_NeedsTokenRefresh(t *testing.T) {
+	state := &AuthQuotaState{}
+
+	expiresAt := time.Now().Add(1 * time.Hour)
+	refreshAt := time.Now().Add(-1 * time.Minute)
+	state.SetToken("needs-refresh", expiresAt, refreshAt)
+
+	if !state.NeedsTokenRefresh() {
+		t.Error("expected refresh needed (refreshAt is in the past)")
+	}
+
+	futureRefresh := time.Now().Add(30 * time.Minute)
+	state.SetToken("fresh", expiresAt, futureRefresh)
+
+	if state.NeedsTokenRefresh() {
+		t.Error("expected no refresh needed (refreshAt is in the future)")
+	}
+}
+
+func TestAntigravityStrategyTokenPenalty(t *testing.T) {
+	strategy := &AntigravityStrategy{}
+
+	readyState := &AuthQuotaState{}
+	readyState.SetToken("valid", time.Now().Add(1*time.Hour), time.Now().Add(30*time.Minute))
+
+	expiredState := &AuthQuotaState{}
+	expiredState.SetToken("expired", time.Now().Add(-1*time.Hour), time.Now().Add(-2*time.Hour))
+
+	needsRefreshState := &AuthQuotaState{}
+	needsRefreshState.SetToken("needs-refresh", time.Now().Add(1*time.Hour), time.Now().Add(-1*time.Minute))
+
+	readyScore := strategy.Score(&Auth{}, readyState, nil)
+	expiredScore := strategy.Score(&Auth{}, expiredState, nil)
+	needsRefreshScore := strategy.Score(&Auth{}, needsRefreshState, nil)
+
+	if expiredScore <= readyScore {
+		t.Errorf("expired auth should have higher priority (selected last): expired=%d, ready=%d", expiredScore, readyScore)
+	}
+
+	if needsRefreshScore <= readyScore {
+		t.Errorf("needs-refresh auth should have higher priority than ready: needsRefresh=%d, ready=%d", needsRefreshScore, readyScore)
+	}
+
+	if expiredScore <= needsRefreshScore {
+		t.Errorf("expired auth should have higher priority than needs-refresh: expired=%d, needsRefresh=%d", expiredScore, needsRefreshScore)
+	}
+
+	expectedExpiredPenalty := int64(10000)
+	if expiredScore < expectedExpiredPenalty {
+		t.Errorf("expected expired penalty of at least %d, got %d", expectedExpiredPenalty, expiredScore)
+	}
+
+	expectedRefreshPenalty := int64(500)
+	if needsRefreshScore < expectedRefreshPenalty {
+		t.Errorf("expected needs-refresh penalty of at least %d, got %d", expectedRefreshPenalty, needsRefreshScore)
+	}
+}

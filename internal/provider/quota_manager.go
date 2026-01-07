@@ -21,6 +21,11 @@ type AuthQuotaState struct {
 	LearnedCooldown atomic.Int64
 
 	RealQuota atomic.Pointer[RealQuotaSnapshot]
+
+	AccessToken    atomic.Pointer[string]
+	TokenExpiresAt atomic.Int64
+	TokenRefreshAt atomic.Int64
+	Refreshing     atomic.Bool
 }
 
 func (s *AuthQuotaState) GetRealQuota() *RealQuotaSnapshot {
@@ -29,6 +34,35 @@ func (s *AuthQuotaState) GetRealQuota() *RealQuotaSnapshot {
 
 func (s *AuthQuotaState) SetRealQuota(snapshot *RealQuotaSnapshot) {
 	s.RealQuota.Store(snapshot)
+}
+
+func (s *AuthQuotaState) GetToken() string {
+	if ptr := s.AccessToken.Load(); ptr != nil {
+		return *ptr
+	}
+	return ""
+}
+
+func (s *AuthQuotaState) SetToken(token string, expiresAt, refreshAt time.Time) {
+	s.AccessToken.Store(&token)
+	s.TokenExpiresAt.Store(expiresAt.UnixNano())
+	s.TokenRefreshAt.Store(refreshAt.UnixNano())
+}
+
+func (s *AuthQuotaState) IsTokenValid(buffer time.Duration) bool {
+	expiresAt := s.TokenExpiresAt.Load()
+	if expiresAt == 0 {
+		return false
+	}
+	return time.Now().Add(buffer).UnixNano() < expiresAt
+}
+
+func (s *AuthQuotaState) NeedsTokenRefresh() bool {
+	refreshAt := s.TokenRefreshAt.Load()
+	if refreshAt == 0 {
+		return false
+	}
+	return time.Now().UnixNano() > refreshAt
 }
 
 // GetCooldownUntil returns the cooldown deadline as time.Time.

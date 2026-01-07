@@ -18,16 +18,21 @@ func (s *AntigravityStrategy) Score(auth *Auth, state *AuthQuotaState, config *P
 
 	if real := state.GetRealQuota(); real != nil && time.Since(real.FetchedAt) < 5*time.Minute {
 		priority += int64((1.0 - real.RemainingFraction) * 800)
-		return priority
+	} else {
+		limit := state.LearnedLimit.Load()
+		if limit <= 0 && config != nil {
+			limit = config.EstimatedLimit
+		}
+		if limit > 0 {
+			used := state.TotalTokensUsed.Load()
+			priority += int64(float64(used) / float64(limit) * 500)
+		}
 	}
 
-	limit := state.LearnedLimit.Load()
-	if limit <= 0 && config != nil {
-		limit = config.EstimatedLimit
-	}
-	if limit > 0 {
-		used := state.TotalTokensUsed.Load()
-		priority += int64(float64(used) / float64(limit) * 500)
+	if !state.IsTokenValid(30 * time.Second) {
+		priority += 10000
+	} else if state.NeedsTokenRefresh() {
+		priority += 500
 	}
 
 	return priority

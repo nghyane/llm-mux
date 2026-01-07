@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 
 	log "github.com/nghyane/llm-mux/internal/logging"
 )
+
+var ErrTokenNotReady = errors.New("token not ready, refresh in progress")
 
 type TokenManagerConfig struct {
 	RefreshBuffer   time.Duration
@@ -47,12 +50,25 @@ func (e *TokenEntry) NeedsRefresh() bool {
 
 type RefreshFunc func(ctx context.Context, auth *provider.Auth) (token string, expiresIn time.Duration, err error)
 
+type TokenStateStore interface {
+	GetState(authID string) TokenState
+	GetOrCreateState(authID string) TokenState
+}
+
+type TokenState interface {
+	GetToken() string
+	SetToken(token string, expiresAt, refreshAt time.Time)
+	IsTokenValid(buffer time.Duration) bool
+	NeedsTokenRefresh() bool
+}
+
 type TokenManager struct {
-	mu      sync.RWMutex
-	entries map[string]*TokenEntry
-	config  TokenManagerConfig
-	refresh RefreshFunc
-	sf      singleflight.Group
+	mu         sync.RWMutex
+	entries    map[string]*TokenEntry
+	stateStore TokenStateStore
+	config     TokenManagerConfig
+	refresh    RefreshFunc
+	sf         singleflight.Group
 
 	stopChan chan struct{}
 	stopOnce sync.Once
@@ -89,9 +105,24 @@ func NewTokenManager(cfg TokenManagerConfig, refreshFn RefreshFunc) *TokenManage
 	return tm
 }
 
+func (m *TokenManager) SetStateStore(store TokenStateStore) {
+	m.stateStore = store
+}
+
 func (m *TokenManager) GetToken(ctx context.Context, auth *provider.Auth) (string, error) {
 	if auth == nil {
 		return "", NewStatusError(401, "missing auth", nil)
+	}
+
+	if m.stateStore != nil {
+		if state := m.stateStore.GetState(auth.ID); state != nil {
+			if state.IsTokenValid(m.config.MinValidTime) {
+				if state.NeedsTokenRefresh() {
+					m.scheduleRefresh(auth.ID)
+				}
+				return state.GetToken(), nil
+			}
+		}
 	}
 
 	m.mu.RLock()
@@ -117,7 +148,8 @@ func (m *TokenManager) GetToken(ctx context.Context, auth *provider.Auth) (strin
 		return token, nil
 	}
 
-	return m.refreshSync(ctx, auth)
+	m.scheduleRefresh(auth.ID)
+	return "", ErrTokenNotReady
 }
 
 func (m *TokenManager) refreshSync(ctx context.Context, auth *provider.Auth) (string, error) {
@@ -182,6 +214,12 @@ func (m *TokenManager) store(auth *provider.Auth, token string, expiresIn time.D
 	}
 	m.mu.Unlock()
 
+	if m.stateStore != nil {
+		if state := m.stateStore.GetOrCreateState(auth.ID); state != nil {
+			state.SetToken(token, expiresAt, refreshAt)
+		}
+	}
+
 	log.Debugf("token manager: stored %s expires=%v refresh_at=%v",
 		auth.ID, expiresAt.Format(time.RFC3339), refreshAt.Format(time.RFC3339))
 }
@@ -206,20 +244,25 @@ func (m *TokenManager) scheduleRefresh(authID string) {
 			m.mu.Unlock()
 		}()
 
-		ctx, cancel := context.WithTimeout(context.Background(), m.config.RefreshTimeout)
-		defer cancel()
+		for attempt := 0; attempt < 3; attempt++ {
+			ctx, cancel := context.WithTimeout(context.Background(), m.config.RefreshTimeout)
+			authClone := auth.Clone()
+			token, expiresIn, err := m.refresh(ctx, authClone)
+			cancel()
 
-		authClone := auth.Clone()
-		token, expiresIn, err := m.refresh(ctx, authClone)
-		if err != nil {
-			log.Debugf("token manager: background refresh failed for %s: %v", authID, err)
-			return
-		}
+			if err == nil && token != "" && expiresIn > 0 {
+				m.store(authClone, token, expiresIn)
+				log.Debugf("token manager: background refresh success for %s", authID)
+				return
+			}
 
-		if token != "" && expiresIn > 0 {
-			m.store(authClone, token, expiresIn)
-			log.Debugf("token manager: background refresh success for %s", authID)
+			if attempt < 2 {
+				backoff := time.Duration(attempt+1) * 2 * time.Second
+				log.Debugf("token manager: background refresh attempt %d failed for %s: %v, retrying in %v", attempt+1, authID, err, backoff)
+				time.Sleep(backoff)
+			}
 		}
+		log.Warnf("token manager: background refresh failed for %s after 3 attempts", authID)
 	}()
 }
 

@@ -89,6 +89,14 @@ func (e *AntigravityExecutor) PreWarmToken(auth *provider.Auth) {
 func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
 	token, errToken := e.ensureAccessToken(ctx, auth)
 	if errToken != nil {
+		if errors.Is(errToken, executor.ErrTokenNotReady) {
+			return resp, &provider.Error{
+				Code:       "token_not_ready",
+				Message:    "token refresh in progress",
+				HTTPStatus: 503,
+				Retryable:  true,
+			}
+		}
 		return resp, errToken
 	}
 
@@ -218,6 +226,14 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 
 	token, errToken := e.ensureAccessToken(ctx, auth)
 	if errToken != nil {
+		if errors.Is(errToken, executor.ErrTokenNotReady) {
+			return nil, &provider.Error{
+				Code:       "token_not_ready",
+				Message:    "token refresh in progress",
+				HTTPStatus: 503,
+				Retryable:  true,
+			}
+		}
 		return nil, errToken
 	}
 

@@ -60,6 +60,13 @@ func (m *Manager) executeWithProvider(ctx context.Context, provider string, req 
 			if errors.Is(errBreaker, context.Canceled) || errors.Is(errBreaker, context.DeadlineExceeded) {
 				return Response{}, errBreaker
 			}
+
+			var provErr *Error
+			if errors.As(errBreaker, &provErr) && provErr.Code == "token_not_ready" {
+				tried[auth.ID] = struct{}{}
+				continue
+			}
+
 			markResult := Result{AuthID: auth.ID, Provider: provider, Model: req.Model, Success: false}
 			markResult.Error = &Error{Message: errBreaker.Error()}
 			var se StatusCodeError
@@ -121,6 +128,13 @@ func (m *Manager) executeCountWithProvider(ctx context.Context, provider string,
 			if errors.Is(errBreaker, context.Canceled) || errors.Is(errBreaker, context.DeadlineExceeded) {
 				return Response{}, errBreaker
 			}
+
+			var provErr *Error
+			if errors.As(errBreaker, &provErr) && provErr.Code == "token_not_ready" {
+				tried[auth.ID] = struct{}{}
+				continue
+			}
+
 			markResult := Result{AuthID: auth.ID, Provider: provider, Model: req.Model, Success: false}
 			markResult.Error = &Error{Message: errBreaker.Error()}
 			var se StatusCodeError
@@ -180,6 +194,13 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 				done(false)
 				return nil, errStream
 			}
+
+			var provErr *Error
+			if errors.As(errStream, &provErr) && provErr.Code == "token_not_ready" {
+				tried[auth.ID] = struct{}{}
+				continue
+			}
+
 			rerr := &Error{Message: errStream.Error()}
 			var se StatusCodeError
 			if errors.As(errStream, &se) && se != nil {
