@@ -16,12 +16,11 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
-	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/tidwall/sjson"
 )
 
 type CopilotExecutor struct {
-	cfg          *config.Config
+	executor.BaseExecutor
 	mu           sync.RWMutex
 	cache        map[string]*cachedCopilotToken
 	tokenRefresh *executor.TokenRefreshGroup
@@ -33,7 +32,7 @@ type cachedCopilotToken struct {
 }
 
 func NewCopilotExecutor(cfg *config.Config) *CopilotExecutor {
-	return &CopilotExecutor{cfg: cfg, cache: make(map[string]*cachedCopilotToken), tokenRefresh: executor.NewTokenRefreshGroup()}
+	return &CopilotExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}, cache: make(map[string]*cachedCopilotToken), tokenRefresh: executor.NewTokenRefreshGroup()}
 }
 
 func (e *CopilotExecutor) Identifier() string { return executor.GitHubCopilotAuthType }
@@ -46,15 +45,15 @@ func (e *CopilotExecutor) Execute(ctx context.Context, auth *provider.Auth, req 
 		return resp, errToken
 	}
 
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, errTranslate := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, nil)
+	body, errTranslate := stream.TranslateToOpenAI(e.Cfg, from, req.Model, req.Payload, false, nil)
 	if errTranslate != nil {
 		return resp, errTranslate
 	}
-	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = e.ApplyPayloadConfig(req.Model, body)
 	body, _ = sjson.SetBytes(body, "stream", false)
 
 	url := executor.GitHubCopilotDefaultBaseURL + executor.GitHubCopilotChatPath
@@ -64,7 +63,7 @@ func (e *CopilotExecutor) Execute(ctx context.Context, auth *provider.Auth, req 
 	}
 	applyCopilotHeaders(httpReq, apiToken, false)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -90,7 +89,7 @@ func (e *CopilotExecutor) Execute(ctx context.Context, auth *provider.Auth, req 
 	}
 
 	fromOpenAI := provider.FromString("openai")
-	translatedResp, errTranslate := stream.TranslateResponseNonStream(e.cfg, fromOpenAI, from, data, req.Model)
+	translatedResp, errTranslate := stream.TranslateResponseNonStream(e.Cfg, fromOpenAI, from, data, req.Model)
 	if errTranslate != nil {
 		return resp, errTranslate
 	}
@@ -109,15 +108,15 @@ func (e *CopilotExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth
 		return nil, errToken
 	}
 
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, errTranslate := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, nil)
+	body, errTranslate := stream.TranslateToOpenAI(e.Cfg, from, req.Model, req.Payload, true, nil)
 	if errTranslate != nil {
 		return nil, errTranslate
 	}
-	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = e.ApplyPayloadConfig(req.Model, body)
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.SetBytes(body, "stream_options.include_usage", true)
 
@@ -128,7 +127,7 @@ func (e *CopilotExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth
 	}
 	applyCopilotHeaders(httpReq, apiToken, true)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -144,7 +143,7 @@ func (e *CopilotExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth
 	}
 
 	messageID := uuid.NewString()
-	processor := stream.NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	processor := stream.NewOpenAIStreamProcessor(e.Cfg, from, req.Model, messageID)
 
 	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:    "github-copilot executor",
@@ -167,7 +166,7 @@ func (e *CopilotExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*pr
 		return auth, nil
 	}
 
-	copilotAuth := copilotauth.NewCopilotAuth(e.cfg)
+	copilotAuth := copilotauth.NewCopilotAuth(e.Cfg)
 	_, err := copilotAuth.GetCopilotAPIToken(ctx, accessToken)
 	if err != nil {
 		return nil, executor.NewStatusError(http.StatusUnauthorized, fmt.Sprintf("github-copilot token validation failed: %v", err), nil)
@@ -201,7 +200,7 @@ func (e *CopilotExecutor) ensureAPIToken(ctx context.Context, auth *provider.Aut
 		}
 		e.mu.RUnlock()
 
-		copilotAuth := copilotauth.NewCopilotAuth(e.cfg)
+		copilotAuth := copilotauth.NewCopilotAuth(e.Cfg)
 		apiToken, err := copilotAuth.GetCopilotAPIToken(tokenCtx, accessToken)
 		if err != nil {
 			return "", executor.NewStatusError(http.StatusUnauthorized, fmt.Sprintf("failed to get copilot api token: %v", err), nil)

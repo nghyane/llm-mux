@@ -105,11 +105,11 @@ func (s *apiKeyStrategy) ApplyAuth(req *http.Request, token string) {
 }
 
 type VertexExecutor struct {
-	cfg *config.Config
+	executor.BaseExecutor
 }
 
 func NewVertexExecutor(cfg *config.Config) *VertexExecutor {
-	return &VertexExecutor{cfg: cfg}
+	return &VertexExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}}
 }
 
 func (e *VertexExecutor) Identifier() string { return "vertex" }
@@ -138,11 +138,11 @@ func (e *VertexExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 }
 
 func (e *VertexExecutor) executeWithStrategy(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options, strategy VertexAuthStrategy) (resp provider.Response, err error) {
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToGemini(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
@@ -169,7 +169,7 @@ func (e *VertexExecutor) executeWithStrategy(ctx context.Context, auth *provider
 	}
 	executor.SetCommonHeaders(httpReq, "application/json")
 
-	token, errTok := strategy.GetToken(ctx, e.cfg, auth)
+	token, errTok := strategy.GetToken(ctx, e.Cfg, auth)
 	if errTok != nil {
 		log.Errorf("vertex executor: access token error: %v", errTok)
 		return resp, executor.NewStatusError(500, "internal server error", nil)
@@ -177,7 +177,7 @@ func (e *VertexExecutor) executeWithStrategy(ctx context.Context, auth *provider
 	strategy.ApplyAuth(httpReq, token)
 	applyGeminiHeaders(httpReq, auth)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, errDo := httpClient.Do(httpReq)
 	if errDo != nil {
 		if errors.Is(errDo, context.DeadlineExceeded) {
@@ -201,7 +201,7 @@ func (e *VertexExecutor) executeWithStrategy(ctx context.Context, auth *provider
 	reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(data))
 
 	fromFormat := provider.FromString("gemini")
-	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, fromFormat, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -222,11 +222,11 @@ func (e *VertexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 }
 
 func (e *VertexExecutor) executeStreamWithStrategy(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options, strategy VertexAuthStrategy) (streamChan <-chan provider.StreamChunk, err error) {
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	translation, err := stream.TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	translation, err := stream.TranslateToGeminiWithTokens(e.Cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +247,7 @@ func (e *VertexExecutor) executeStreamWithStrategy(ctx context.Context, auth *pr
 	}
 	executor.SetCommonHeaders(httpReq, "application/json")
 
-	token, errTok := strategy.GetToken(ctx, e.cfg, auth)
+	token, errTok := strategy.GetToken(ctx, e.Cfg, auth)
 	if errTok != nil {
 		log.Errorf("vertex executor: access token error: %v", errTok)
 		return nil, executor.NewStatusError(500, "internal server error", nil)
@@ -255,7 +255,7 @@ func (e *VertexExecutor) executeStreamWithStrategy(ctx context.Context, auth *pr
 	strategy.ApplyAuth(httpReq, token)
 	applyGeminiHeaders(httpReq, auth)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, errDo := httpClient.Do(httpReq)
 	if errDo != nil {
 		if errors.Is(errDo, context.DeadlineExceeded) {
@@ -271,7 +271,7 @@ func (e *VertexExecutor) executeStreamWithStrategy(ctx context.Context, auth *pr
 
 	streamCtx := stream.NewStreamContext()
 	streamCtx.EstimatedInputTokens = translation.EstimatedInputTokens
-	translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, "chatcmpl-"+req.Model, streamCtx)
+	translator := stream.NewStreamTranslator(e.Cfg, from, from.String(), req.Model, "chatcmpl-"+req.Model, streamCtx)
 	processor := &vertexStreamProcessor{
 		translator: translator,
 	}
@@ -292,7 +292,7 @@ func (e *VertexExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 
 func (e *VertexExecutor) countTokensWithStrategy(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options, strategy VertexAuthStrategy) (provider.Response, error) {
 	from := opts.SourceFormat
-	translatedReq, err := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	translatedReq, err := stream.TranslateToGemini(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -310,7 +310,7 @@ func (e *VertexExecutor) countTokensWithStrategy(ctx context.Context, auth *prov
 	}
 	executor.SetCommonHeaders(httpReq, "application/json")
 
-	token, errTok := strategy.GetToken(ctx, e.cfg, auth)
+	token, errTok := strategy.GetToken(ctx, e.Cfg, auth)
 	if errTok != nil {
 		log.Errorf("vertex executor: access token error: %v", errTok)
 		return provider.Response{}, executor.NewStatusError(500, "internal server error", nil)
@@ -318,7 +318,7 @@ func (e *VertexExecutor) countTokensWithStrategy(ctx context.Context, auth *prov
 	strategy.ApplyAuth(httpReq, token)
 	applyGeminiHeaders(httpReq, auth)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, errDo := httpClient.Do(httpReq)
 	if errDo != nil {
 		if errors.Is(errDo, context.DeadlineExceeded) {
@@ -461,7 +461,7 @@ func vertexAccessToken(ctx context.Context, cfg *config.Config, auth *provider.A
 }
 
 func FetchVertexModels(ctx context.Context, auth *provider.Auth, cfg *config.Config) []*registry.ModelInfo {
-	exec := &VertexExecutor{cfg: cfg}
+	exec := &VertexExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}}
 	strategy, err := exec.resolveStrategy(auth)
 	if err != nil {
 		log.Errorf("vertex: failed to resolve auth strategy: %v", err)

@@ -20,12 +20,12 @@ import (
 )
 
 type OpenAICompatExecutor struct {
-	cfg      *config.Config
+	executor.BaseExecutor
 	provider string
 }
 
 func NewOpenAICompatExecutor(providerName string, cfg *config.Config) *OpenAICompatExecutor {
-	return &OpenAICompatExecutor{cfg: cfg, provider: providerName}
+	return &OpenAICompatExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}, provider: providerName}
 }
 
 func (e *OpenAICompatExecutor) Identifier() string { return e.provider }
@@ -33,7 +33,7 @@ func (e *OpenAICompatExecutor) Identifier() string { return e.provider }
 func (e *OpenAICompatExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error { return nil }
 
 func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	baseURL, apiKey := e.resolveCredentials(auth)
@@ -43,14 +43,14 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 	}
 
 	from := opts.SourceFormat
-	translated, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, opts.Stream, nil)
+	translated, err := stream.TranslateToOpenAI(e.Cfg, from, req.Model, req.Payload, opts.Stream, nil)
 	if err != nil {
 		return resp, err
 	}
 	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = sseutil.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
+	translated = sseutil.ApplyPayloadConfigWithRoot(e.Cfg, req.Model, "openai", "", translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
@@ -68,7 +68,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 	}
 	util.ApplyCustomHeadersFromAttrs(httpReq, attrs)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -93,7 +93,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 	reporter.EnsurePublished(ctx)
 
 	fromOpenAI := provider.FromString("openai")
-	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromOpenAI, from, body, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, fromOpenAI, from, body, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -106,7 +106,7 @@ func (e *OpenAICompatExecutor) Execute(ctx context.Context, auth *provider.Auth,
 }
 
 func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	baseURL, apiKey := e.resolveCredentials(auth)
@@ -115,14 +115,14 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 		return nil, err
 	}
 	from := opts.SourceFormat
-	translated, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, true, nil)
+	translated, err := stream.TranslateToOpenAI(e.Cfg, from, req.Model, req.Payload, true, nil)
 	if err != nil {
 		return nil, err
 	}
 	if modelOverride := e.resolveUpstreamModel(req.Model, auth); modelOverride != "" {
 		translated = e.overrideModel(translated, modelOverride)
 	}
-	translated = sseutil.ApplyPayloadConfigWithRoot(e.cfg, req.Model, "openai", "", translated)
+	translated = sseutil.ApplyPayloadConfigWithRoot(e.Cfg, req.Model, "openai", "", translated)
 
 	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(translated))
@@ -142,7 +142,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 	httpReq.Header.Set("Accept", "text/event-stream")
 	httpReq.Header.Set("Cache-Control", "no-cache")
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -157,7 +157,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 	}
 
 	messageID := "chatcmpl-" + req.Model
-	processor := stream.NewOpenAIStreamProcessor(e.cfg, from, req.Model, messageID)
+	processor := stream.NewOpenAIStreamProcessor(e.Cfg, from, req.Model, messageID)
 	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:     "openai-compat",
 		Preprocessor:     stream.DataTagPreprocessor(),
@@ -168,7 +168,7 @@ func (e *OpenAICompatExecutor) ExecuteStream(ctx context.Context, auth *provider
 
 func (e *OpenAICompatExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
 	from := opts.SourceFormat
-	translated, err := stream.TranslateToOpenAI(e.cfg, from, req.Model, req.Payload, false, nil)
+	translated, err := stream.TranslateToOpenAI(e.Cfg, from, req.Model, req.Payload, false, nil)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -208,7 +208,7 @@ func (e *OpenAICompatExecutor) resolveCredentials(auth *provider.Auth) (baseURL,
 }
 
 func (e *OpenAICompatExecutor) resolveUpstreamModel(alias string, auth *provider.Auth) string {
-	if alias == "" || auth == nil || e.cfg == nil {
+	if alias == "" || auth == nil || e.Cfg == nil {
 		return ""
 	}
 	compat := e.resolveCompatConfig(auth)
@@ -234,7 +234,7 @@ func (e *OpenAICompatExecutor) resolveUpstreamModel(alias string, auth *provider
 }
 
 func (e *OpenAICompatExecutor) resolveCompatConfig(auth *provider.Auth) *config.Provider {
-	if auth == nil || e.cfg == nil {
+	if auth == nil || e.Cfg == nil {
 		return nil
 	}
 	candidates := make([]string, 0, 3)
@@ -247,8 +247,8 @@ func (e *OpenAICompatExecutor) resolveCompatConfig(auth *provider.Auth) *config.
 	if v := strings.TrimSpace(auth.Provider); v != "" {
 		candidates = append(candidates, v)
 	}
-	for i := range e.cfg.Providers {
-		prov := &e.cfg.Providers[i]
+	for i := range e.Cfg.Providers {
+		prov := &e.Cfg.Providers[i]
 		if prov.Type != config.ProviderTypeOpenAI {
 			continue
 		}

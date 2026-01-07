@@ -17,7 +17,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
-	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -30,10 +29,12 @@ import (
 )
 
 type CodexExecutor struct {
-	cfg *config.Config
+	executor.BaseExecutor
 }
 
-func NewCodexExecutor(cfg *config.Config) *CodexExecutor { return &CodexExecutor{cfg: cfg} }
+func NewCodexExecutor(cfg *config.Config) *CodexExecutor {
+	return &CodexExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}}
+}
 
 func (e *CodexExecutor) Identifier() string { return "codex" }
 
@@ -45,17 +46,17 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 	if baseURL == "" {
 		baseURL = executor.CodexDefaultBaseURL
 	}
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := stream.TranslateToCodex(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToCodex(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
 
 	body = e.setReasoningEffortByAlias(req.Model, body)
-	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = e.ApplyPayloadConfig(req.Model, body)
 
 	body, _ = sjson.SetBytes(body, "stream", true)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
@@ -66,7 +67,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		return resp, err
 	}
 	applyCodexHeaders(httpReq, auth, apiKey)
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -104,7 +105,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *provider.Auth, req pr
 		}
 
 		fromFormat := provider.FromString("codex")
-		translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, from, line, req.Model)
+		translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, fromFormat, from, line, req.Model)
 		if err != nil {
 			return resp, err
 		}
@@ -125,17 +126,17 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	if baseURL == "" {
 		baseURL = executor.CodexDefaultBaseURL
 	}
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
-	body, err := stream.TranslateToCodex(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	body, err := stream.TranslateToCodex(e.Cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
 
 	body = e.setReasoningEffortByAlias(req.Model, body)
-	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = e.ApplyPayloadConfig(req.Model, body)
 	body, _ = sjson.DeleteBytes(body, "previous_response_id")
 
 	url := strings.TrimSuffix(baseURL, "/") + "/responses"
@@ -145,7 +146,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 	}
 	applyCodexHeaders(httpReq, auth, apiKey)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -167,7 +168,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, 
 
 	messageID := "resp-" + req.Model
 	streamCtx := stream.NewStreamContext()
-	translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, messageID, streamCtx)
+	translator := stream.NewStreamTranslator(e.Cfg, from, from.String(), req.Model, messageID, streamCtx)
 	processor := &codexStreamProcessor{
 		translator: translator,
 	}
@@ -204,7 +205,7 @@ func (p *codexStreamProcessor) ProcessDone() ([][]byte, error) {
 
 func (e *CodexExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
 	from := opts.SourceFormat
-	body, err := stream.TranslateToCodex(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	body, err := stream.TranslateToCodex(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -456,7 +457,7 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*prov
 	if refreshToken == "" {
 		return auth, nil
 	}
-	svc := codexauth.NewCodexAuth(e.cfg)
+	svc := codexauth.NewCodexAuth(e.Cfg)
 	td, err := svc.RefreshTokensWithRetry(ctx, refreshToken, 3)
 	if err != nil {
 		return nil, err

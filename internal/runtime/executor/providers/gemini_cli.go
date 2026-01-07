@@ -42,21 +42,23 @@ var geminiOauthScopes = []string{
 }
 
 type GeminiCLIExecutor struct {
-	cfg *config.Config
+	executor.BaseExecutor
 }
 
-func NewGeminiCLIExecutor(cfg *config.Config) *GeminiCLIExecutor { return &GeminiCLIExecutor{cfg: cfg} }
+func NewGeminiCLIExecutor(cfg *config.Config) *GeminiCLIExecutor {
+	return &GeminiCLIExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}}
+}
 
 func (e *GeminiCLIExecutor) Identifier() string { return "gemini-cli" }
 
 func (e *GeminiCLIExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error { return nil }
 
 func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
-	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.cfg, auth)
+	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.Cfg, auth)
 	if err != nil {
 		return resp, err
 	}
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -72,7 +74,7 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 			return resp, fmt.Errorf("failed to translate request: %w", err)
 		}
 	} else {
-		geminiPayload, errGemini := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+		geminiPayload, errGemini := stream.TranslateToGemini(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 		if errGemini != nil {
 			return resp, fmt.Errorf("failed to translate request: %w", errGemini)
 		}
@@ -89,7 +91,7 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 	projectID := resolveGeminiProjectID(auth)
 	models := []string{req.Model}
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
@@ -159,7 +161,7 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 			// This allows us to use the standard Gemini format translator.
 			cleanData := cloudcode.ResponseUnwrap(data)
 
-			translatedResp, err := stream.TranslateResponseNonStream(e.cfg, provider.FormatGemini, from, cleanData, attemptModel)
+			translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, provider.FormatGemini, from, cleanData, attemptModel)
 			if err != nil {
 				return resp, err
 			}
@@ -205,11 +207,11 @@ func (e *GeminiCLIExecutor) Execute(ctx context.Context, auth *provider.Auth, re
 }
 
 func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
-	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.cfg, auth)
+	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.Cfg, auth)
 	if err != nil {
 		return nil, err
 	}
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
@@ -233,7 +235,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 		estimatedInputTokens = translation.EstimatedInputTokens
 	} else {
 		var errGemini error
-		translation, errGemini = stream.TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+		translation, errGemini = stream.TranslateToGeminiWithTokens(e.Cfg, from, req.Model, req.Payload, true, req.Metadata)
 		if errGemini != nil {
 			return nil, fmt.Errorf("failed to translate request: %w", errGemini)
 		}
@@ -245,7 +247,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 	projectID := resolveGeminiProjectID(auth)
 	models := []string{req.Model}
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
@@ -334,7 +336,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + attemptModel
 
-		processor := stream.NewGeminiStreamProcessor(e.cfg, from, attemptModel, messageID, streamCtx)
+		processor := stream.NewGeminiStreamProcessor(e.Cfg, from, attemptModel, messageID, streamCtx)
 
 		// Use GeminiPreprocessor with UnwrapEnvelope for envelope-wrapped responses
 		geminiPreprocessFn := stream.GeminiPreprocessor()
@@ -362,7 +364,7 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 }
 
 func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {
-	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.cfg, auth)
+	tokenSource, baseTokenData, err := prepareGeminiCLITokenSource(ctx, e.Cfg, auth)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -370,7 +372,7 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 	from := opts.SourceFormat
 	models := []string{req.Model}
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
@@ -390,7 +392,7 @@ func (e *GeminiCLIExecutor) CountTokens(ctx context.Context, auth *provider.Auth
 				return provider.Response{}, fmt.Errorf("failed to translate request: %w", errClaude)
 			}
 		} else {
-			geminiPayload, errGemini := stream.TranslateToGemini(e.cfg, from, attemptModel, req.Payload, false, req.Metadata)
+			geminiPayload, errGemini := stream.TranslateToGemini(e.Cfg, from, attemptModel, req.Payload, false, req.Metadata)
 			if errGemini != nil {
 				return provider.Response{}, fmt.Errorf("failed to translate request: %w", errGemini)
 			}

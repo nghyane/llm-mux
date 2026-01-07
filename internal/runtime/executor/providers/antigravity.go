@@ -46,12 +46,15 @@ func alias2ModelName(modelID string) string {
 }
 
 type AntigravityExecutor struct {
-	cfg          *config.Config
+	executor.BaseExecutor
 	tokenRefresh *executor.TokenRefreshGroup
 }
 
 func NewAntigravityExecutor(cfg *config.Config) *AntigravityExecutor {
-	return &AntigravityExecutor{cfg: cfg, tokenRefresh: executor.NewTokenRefreshGroup()}
+	return &AntigravityExecutor{
+		BaseExecutor: executor.BaseExecutor{Cfg: cfg},
+		tokenRefresh: executor.NewTokenRefreshGroup(),
+	}
 }
 
 func (e *AntigravityExecutor) Identifier() string { return antigravityAuthType }
@@ -67,19 +70,19 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, 
 		auth = updatedAuth
 	}
 
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	geminiPayload, errGemini := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	geminiPayload, errGemini := stream.TranslateToGemini(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if errGemini != nil {
 		return resp, fmt.Errorf("failed to translate request: %w", errGemini)
 	}
 	translated := cloudcode.RequestEnvelope(geminiPayload)
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	handler := executor.NewRetryHandler(executor.AntigravityRetryConfig())
 
 	var lastStatus int
@@ -147,7 +150,7 @@ func (e *AntigravityExecutor) Execute(ctx context.Context, auth *provider.Auth, 
 			// Unwrap envelope if present (Gemini CLI format)
 			cleanData := cloudcode.ResponseUnwrap(bodyBytes)
 
-			translatedResp, errTranslateResp := stream.TranslateResponseNonStream(e.cfg, provider.FormatGemini, from, cleanData, req.Model)
+			translatedResp, errTranslateResp := stream.TranslateResponseNonStream(e.Cfg, provider.FormatGemini, from, cleanData, req.Model)
 			if errTranslateResp != nil {
 				return resp, fmt.Errorf("failed to translate response: %w", errTranslateResp)
 			}
@@ -199,12 +202,12 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 		auth = updatedAuth
 	}
 
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	from := opts.SourceFormat
 
-	translation, errTranslate := stream.TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	translation, errTranslate := stream.TranslateToGeminiWithTokens(e.Cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if errTranslate != nil {
 		return nil, fmt.Errorf("failed to translate request: %w", errTranslate)
 	}
@@ -212,7 +215,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 	estimatedInputTokens := translation.EstimatedInputTokens
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	handler := executor.NewRetryHandler(executor.AntigravityRetryConfig())
 
 	var lastStatus int
@@ -297,7 +300,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 
-		processor := stream.NewGeminiStreamProcessor(e.cfg, from, req.Model, messageID, streamCtx)
+		processor := stream.NewGeminiStreamProcessor(e.Cfg, from, req.Model, messageID, streamCtx)
 
 		// Use GeminiPreprocessor with UnwrapEnvelope for envelope-wrapped responses
 		geminiPreprocessFn := stream.GeminiPreprocessor()
@@ -350,7 +353,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Au
 	}
 
 	from := opts.SourceFormat
-	geminiPayload, errGemini := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, false, req.Metadata)
+	geminiPayload, errGemini := stream.TranslateToGemini(e.Cfg, from, req.Model, req.Payload, false, req.Metadata)
 	if errGemini != nil {
 		return provider.Response{}, fmt.Errorf("failed to translate request: %w", errGemini)
 	}
@@ -361,7 +364,7 @@ func (e *AntigravityExecutor) CountTokens(ctx context.Context, auth *provider.Au
 	translated = deleteJSONField(translated, "request.safetySettings")
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 
 	var lastStatus int
 	var lastBody []byte
@@ -517,7 +520,7 @@ func (e *AntigravityExecutor) refreshToken(ctx context.Context, auth *provider.A
 	httpReq.Header.Set("User-Agent", executor.DefaultAntigravityUserAgent)
 	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, errDo := httpClient.Do(httpReq)
 	if errDo != nil {
 		if errors.Is(errDo, context.DeadlineExceeded) {

@@ -17,7 +17,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
-	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -28,7 +27,7 @@ import (
 )
 
 type ClaudeExecutor struct {
-	cfg *config.Config
+	executor.BaseExecutor
 }
 
 type claudeStreamProcessor struct {
@@ -74,7 +73,9 @@ func (p *claudePassthroughProcessor) ProcessDone() ([][]byte, error) {
 	return nil, nil
 }
 
-func NewClaudeExecutor(cfg *config.Config) *ClaudeExecutor { return &ClaudeExecutor{cfg: cfg} }
+func NewClaudeExecutor(cfg *config.Config) *ClaudeExecutor {
+	return &ClaudeExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}}
+}
 
 func (e *ClaudeExecutor) Identifier() string { return "claude" }
 
@@ -86,11 +87,11 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	if baseURL == "" {
 		baseURL = executor.ClaudeDefaultBaseURL
 	}
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 	from := opts.SourceFormat
 	isStreaming := from.String() != "claude"
-	body, err := stream.TranslateToClaude(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
+	body, err := stream.TranslateToClaude(e.Cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return resp, err
 	}
@@ -104,7 +105,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	if !strings.HasPrefix(modelForUpstream, "claude-3-5-haiku") {
 		body = checkSystemInstructions(body)
 	}
-	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = e.ApplyPayloadConfig(req.Model, body)
 
 	body = ensureMaxTokensForThinking(req.Model, body)
 
@@ -123,7 +124,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	}
 	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -170,7 +171,7 @@ func (e *ClaudeExecutor) Execute(ctx context.Context, auth *provider.Auth, req p
 	}
 
 	claudeFrom := provider.FromString("claude")
-	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, claudeFrom, from, data, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, claudeFrom, from, data, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -188,10 +189,10 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	if baseURL == "" {
 		baseURL = executor.ClaudeDefaultBaseURL
 	}
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 	from := opts.SourceFormat
-	body, err := stream.TranslateToClaude(e.cfg, from, req.Model, req.Payload, true, req.Metadata)
+	body, err := stream.TranslateToClaude(e.Cfg, from, req.Model, req.Payload, true, req.Metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +201,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 	body = e.injectThinkingConfig(req.Model, body)
 	body = checkSystemInstructions(body)
-	body = sseutil.ApplyPayloadConfig(e.cfg, req.Model, body)
+	body = e.ApplyPayloadConfig(req.Model, body)
 
 	body = ensureMaxTokensForThinking(req.Model, body)
 
@@ -221,7 +222,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 	applyClaudeHeaders(httpReq, auth, apiKey, true, extraBetas)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	httpResp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -255,7 +256,7 @@ func (e *ClaudeExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 	}
 
 	streamCtx := stream.NewStreamContext()
-	translator := stream.NewStreamTranslator(e.cfg, from, from.String(), req.Model, "msg-"+req.Model, streamCtx)
+	translator := stream.NewStreamTranslator(e.Cfg, from, from.String(), req.Model, "msg-"+req.Model, streamCtx)
 	processor := &claudeStreamProcessor{
 		translator: translator,
 	}
@@ -273,7 +274,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 
 	from := opts.SourceFormat
 	isStreaming := from.String() != "claude"
-	body, err := stream.TranslateToClaude(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
+	body, err := stream.TranslateToClaude(e.Cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return provider.Response{}, err
 	}
@@ -302,7 +303,7 @@ func (e *ClaudeExecutor) CountTokens(ctx context.Context, auth *provider.Auth, r
 	}
 	applyClaudeHeaders(httpReq, auth, apiKey, false, extraBetas)
 
-	httpClient := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, 0)
+	httpClient := e.NewHTTPClient(ctx, auth, 0)
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -349,7 +350,7 @@ func (e *ClaudeExecutor) Refresh(ctx context.Context, auth *provider.Auth) (*pro
 	if refreshToken == "" {
 		return auth, nil
 	}
-	svc := claude.NewClaudeAuth(e.cfg)
+	svc := claude.NewClaudeAuth(e.Cfg)
 	td, err := svc.RefreshTokens(ctx, refreshToken)
 	if err != nil {
 		return nil, err
@@ -432,13 +433,13 @@ func (e *ClaudeExecutor) resolveUpstreamModel(alias string, auth *provider.Auth)
 }
 
 func (e *ClaudeExecutor) resolveClaudeConfig(auth *provider.Auth) *config.Provider {
-	if auth == nil || e.cfg == nil {
+	if auth == nil || e.Cfg == nil {
 		return nil
 	}
 	attrKey := executor.AttrStringValue(auth.Attributes, "api_key")
 	attrBase := executor.AttrStringValue(auth.Attributes, "base_url")
-	for i := range e.cfg.Providers {
-		p := &e.cfg.Providers[i]
+	for i := range e.Cfg.Providers {
+		p := &e.Cfg.Providers[i]
 		if p.Type != config.ProviderTypeAnthropic {
 			continue
 		}
@@ -463,8 +464,8 @@ func (e *ClaudeExecutor) resolveClaudeConfig(auth *provider.Auth) *config.Provid
 		}
 	}
 	if attrKey != "" {
-		for i := range e.cfg.Providers {
-			p := &e.cfg.Providers[i]
+		for i := range e.Cfg.Providers {
+			p := &e.Cfg.Providers[i]
 			if p.Type != config.ProviderTypeAnthropic {
 				continue
 			}

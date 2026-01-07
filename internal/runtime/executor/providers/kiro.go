@@ -44,10 +44,12 @@ var kiroModelMapping = map[string]string{
 }
 
 type KiroExecutor struct {
-	cfg *config.Config
+	executor.BaseExecutor
 }
 
-func NewKiroExecutor(cfg *config.Config) *KiroExecutor { return &KiroExecutor{cfg: cfg} }
+func NewKiroExecutor(cfg *config.Config) *KiroExecutor {
+	return &KiroExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}}
+}
 
 func (e *KiroExecutor) Identifier() string { return constant.Kiro }
 
@@ -159,7 +161,7 @@ func (e *KiroExecutor) Execute(ctx context.Context, auth *provider.Auth, req pro
 		return provider.Response{}, err
 	}
 
-	client := executor.NewProxyAwareHTTPClient(ctx, e.cfg, auth, executor.KiroRequestTimeout)
+	client := e.NewHTTPClient(ctx, auth, executor.KiroRequestTimeout)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
@@ -238,7 +240,7 @@ func (e *KiroExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, r
 		return nil, err
 	}
 
-	client := executor.NewProxyAwareHTTPClient(ctx, e.cfg, rc.auth, 0)
+	client := e.NewHTTPClient(ctx, rc.auth, 0)
 
 	resp, err := client.Do(httpReq)
 	if err != nil {

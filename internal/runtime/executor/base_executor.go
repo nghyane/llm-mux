@@ -1,7 +1,10 @@
 package executor
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"io"
 	"net/http"
 	"time"
 
@@ -54,4 +57,75 @@ func SetCommonHeaders(req *http.Request, contentType string) {
 	}
 	req.Header.Set("Connection", "keep-alive")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br, zstd")
+}
+
+// HTTPRequestConfig holds configuration for making HTTP requests.
+type HTTPRequestConfig struct {
+	Method      string
+	URL         string
+	Body        []byte
+	Headers     map[string]string
+	Auth        *provider.Auth
+	Timeout     time.Duration
+	ContentType string
+}
+
+// HTTPResult holds the result of an HTTP request.
+type HTTPResult struct {
+	StatusCode int
+	Body       []byte
+	Headers    http.Header
+	Error      error
+}
+
+// DoRequest executes an HTTP request with standard error handling.
+// It handles request creation, common headers, timeout errors, status code checks,
+// response body decoding (gzip, brotli, zstd, deflate), and body reading.
+func (b *BaseExecutor) DoRequest(ctx context.Context, cfg HTTPRequestConfig) (*HTTPResult, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, cfg.Method, cfg.URL, bytes.NewReader(cfg.Body))
+	if err != nil {
+		return nil, err
+	}
+
+	SetCommonHeaders(httpReq, cfg.ContentType)
+	for k, v := range cfg.Headers {
+		httpReq.Header.Set(k, v)
+	}
+
+	httpClient := b.NewHTTPClient(ctx, cfg.Auth, cfg.Timeout)
+	httpResp, err := httpClient.Do(httpReq)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, NewTimeoutError("request timed out")
+		}
+		return nil, err
+	}
+	defer func() {
+		_ = httpResp.Body.Close()
+	}()
+
+	decodedBody, err := DecodeResponseBody(httpResp.Body, httpResp.Header.Get("Content-Encoding"))
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = decodedBody.Close()
+	}()
+
+	data, err := io.ReadAll(decodedBody)
+	if err != nil {
+		return nil, err
+	}
+
+	result := &HTTPResult{
+		StatusCode: httpResp.StatusCode,
+		Body:       data,
+		Headers:    httpResp.Header,
+	}
+
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		result.Error = NewStatusError(httpResp.StatusCode, string(data), nil)
+	}
+
+	return result, nil
 }

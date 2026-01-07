@@ -681,3 +681,499 @@ func BuildClaudeToolCallInputDeltaSSE(index int, partialJSON string) []byte {
 	jb, _ := json.Marshal(d)
 	return BuildSSEEvent(ClaudeSSEContentBlockDelta, jb)
 }
+
+// -----------------------------------------------------------------------------
+// OpenAI Responses API - Additional Event Types for ToResponsesAPIChunk
+// -----------------------------------------------------------------------------
+
+// ResponsesResponseEvent is used for response.created, response.in_progress events.
+type ResponsesResponseEvent struct {
+	Type           string                      `json:"type"`
+	SequenceNumber int                         `json:"sequence_number"`
+	Response       ResponsesResponseEventInner `json:"response"`
+}
+
+type ResponsesResponseEventInner struct {
+	ID        string `json:"id"`
+	Object    string `json:"object"`
+	CreatedAt int64  `json:"created_at"`
+	Status    string `json:"status"`
+}
+
+var responsesResponseEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesResponseEvent{
+			Response: ResponsesResponseEventInner{
+				Object: "response",
+			},
+		}
+	},
+}
+
+func GetResponsesResponseEvent() *ResponsesResponseEvent {
+	return responsesResponseEventPool.Get().(*ResponsesResponseEvent)
+}
+
+func PutResponsesResponseEvent(d *ResponsesResponseEvent) {
+	d.Type = ""
+	d.SequenceNumber = 0
+	d.Response.ID = ""
+	d.Response.CreatedAt = 0
+	d.Response.Status = ""
+	responsesResponseEventPool.Put(d)
+}
+
+// BuildResponsesResponseEventSSE builds SSE events for response.created, response.in_progress.
+func BuildResponsesResponseEventSSE(eventType string, seqNum int, respID string, createdAt int64, status string) []byte {
+	d := GetResponsesResponseEvent()
+	defer PutResponsesResponseEvent(d)
+
+	d.Type = eventType
+	d.SequenceNumber = seqNum
+	d.Response.ID = respID
+	d.Response.CreatedAt = createdAt
+	d.Response.Status = status
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes(eventType, jb)
+}
+
+// ResponsesOutputItemAddedEvent is used for response.output_item.added event.
+type ResponsesOutputItemAddedEvent struct {
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	OutputIndex    int    `json:"output_index"`
+	Item           any    `json:"item"` // flexible: message, reasoning, or function_call
+}
+
+// ResponsesMessageItem represents a message item in output_item.added.
+type ResponsesMessageItem struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Role    string `json:"role,omitempty"`
+	Content []any  `json:"content"`
+}
+
+// ResponsesReasoningItem represents a reasoning item in output_item.added.
+type ResponsesReasoningItem struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Summary []any  `json:"summary"`
+}
+
+// ResponsesFunctionCallItem represents a function_call item in output_item.added/done.
+type ResponsesFunctionCallItem struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	CallID    string `json:"call_id"`
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+var responsesOutputItemAddedEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesOutputItemAddedEvent{
+			Type: "response.output_item.added",
+		}
+	},
+}
+
+func GetResponsesOutputItemAddedEvent() *ResponsesOutputItemAddedEvent {
+	return responsesOutputItemAddedEventPool.Get().(*ResponsesOutputItemAddedEvent)
+}
+
+func PutResponsesOutputItemAddedEvent(d *ResponsesOutputItemAddedEvent) {
+	d.SequenceNumber = 0
+	d.OutputIndex = 0
+	d.Item = nil
+	responsesOutputItemAddedEventPool.Put(d)
+}
+
+// BuildResponsesOutputItemAddedSSE builds SSE for response.output_item.added (message).
+func BuildResponsesOutputItemAddedMessageSSE(seqNum, outputIndex int, itemID, status string) []byte {
+	d := GetResponsesOutputItemAddedEvent()
+	defer PutResponsesOutputItemAddedEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.OutputIndex = outputIndex
+	d.Item = ResponsesMessageItem{
+		ID:      itemID,
+		Type:    "message",
+		Status:  status,
+		Role:    "assistant",
+		Content: []any{},
+	}
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.output_item.added", jb)
+}
+
+// BuildResponsesOutputItemAddedReasoningSSE builds SSE for response.output_item.added (reasoning).
+func BuildResponsesOutputItemAddedReasoningSSE(seqNum, outputIndex int, itemID, status string) []byte {
+	d := GetResponsesOutputItemAddedEvent()
+	defer PutResponsesOutputItemAddedEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.OutputIndex = outputIndex
+	d.Item = ResponsesReasoningItem{
+		ID:      itemID,
+		Type:    "reasoning",
+		Status:  status,
+		Summary: []any{},
+	}
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.output_item.added", jb)
+}
+
+// BuildResponsesOutputItemAddedFunctionCallSSE builds SSE for response.output_item.added (function_call).
+func BuildResponsesOutputItemAddedFunctionCallSSE(seqNum, outputIndex int, itemID, callID, name, status string) []byte {
+	d := GetResponsesOutputItemAddedEvent()
+	defer PutResponsesOutputItemAddedEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.OutputIndex = outputIndex
+	d.Item = ResponsesFunctionCallItem{
+		ID:        itemID,
+		Type:      "function_call",
+		Status:    status,
+		CallID:    callID,
+		Name:      name,
+		Arguments: "",
+	}
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.output_item.added", jb)
+}
+
+// ResponsesContentPartAddedEvent is used for response.content_part.added event.
+type ResponsesContentPartAddedEvent struct {
+	Type           string                 `json:"type"`
+	SequenceNumber int                    `json:"sequence_number"`
+	ItemID         string                 `json:"item_id"`
+	OutputIndex    int                    `json:"output_index"`
+	ContentIndex   int                    `json:"content_index"`
+	Part           ResponsesOutputTextRef `json:"part"`
+}
+
+type ResponsesOutputTextRef struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+var responsesContentPartAddedEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesContentPartAddedEvent{
+			Type: "response.content_part.added",
+			Part: ResponsesOutputTextRef{
+				Type: "output_text",
+			},
+		}
+	},
+}
+
+func GetResponsesContentPartAddedEvent() *ResponsesContentPartAddedEvent {
+	return responsesContentPartAddedEventPool.Get().(*ResponsesContentPartAddedEvent)
+}
+
+func PutResponsesContentPartAddedEvent(d *ResponsesContentPartAddedEvent) {
+	d.SequenceNumber = 0
+	d.ItemID = ""
+	d.OutputIndex = 0
+	d.ContentIndex = 0
+	d.Part.Text = ""
+	responsesContentPartAddedEventPool.Put(d)
+}
+
+// BuildResponsesContentPartAddedSSE builds SSE for response.content_part.added.
+func BuildResponsesContentPartAddedSSE(seqNum int, itemID string, outputIndex, contentIndex int) []byte {
+	d := GetResponsesContentPartAddedEvent()
+	defer PutResponsesContentPartAddedEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.ItemID = itemID
+	d.OutputIndex = outputIndex
+	d.ContentIndex = contentIndex
+	d.Part.Text = ""
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.content_part.added", jb)
+}
+
+// ResponsesFunctionCallArgsDeltaEvent is used for response.function_call_arguments.delta.
+type ResponsesFunctionCallArgsDeltaEvent struct {
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id"`
+	OutputIndex    int    `json:"output_index"`
+	Delta          string `json:"delta"`
+}
+
+var responsesFunctionCallArgsDeltaEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesFunctionCallArgsDeltaEvent{
+			Type: "response.function_call_arguments.delta",
+		}
+	},
+}
+
+func GetResponsesFunctionCallArgsDeltaEvent() *ResponsesFunctionCallArgsDeltaEvent {
+	return responsesFunctionCallArgsDeltaEventPool.Get().(*ResponsesFunctionCallArgsDeltaEvent)
+}
+
+func PutResponsesFunctionCallArgsDeltaEvent(d *ResponsesFunctionCallArgsDeltaEvent) {
+	d.SequenceNumber = 0
+	d.ItemID = ""
+	d.OutputIndex = 0
+	d.Delta = ""
+	responsesFunctionCallArgsDeltaEventPool.Put(d)
+}
+
+// BuildResponsesFunctionCallArgsDeltaSSE builds SSE for response.function_call_arguments.delta.
+func BuildResponsesFunctionCallArgsDeltaSSE(seqNum int, itemID string, outputIndex int, delta string) []byte {
+	d := GetResponsesFunctionCallArgsDeltaEvent()
+	defer PutResponsesFunctionCallArgsDeltaEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.ItemID = itemID
+	d.OutputIndex = outputIndex
+	d.Delta = delta
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.function_call_arguments.delta", jb)
+}
+
+// ResponsesOutputItemDoneEvent is used for response.output_item.done.
+type ResponsesOutputItemDoneEvent struct {
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	ItemID         string `json:"item_id,omitempty"`
+	OutputIndex    int    `json:"output_index"`
+	Item           any    `json:"item"`
+}
+
+var responsesOutputItemDoneEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesOutputItemDoneEvent{
+			Type: "response.output_item.done",
+		}
+	},
+}
+
+func GetResponsesOutputItemDoneEvent() *ResponsesOutputItemDoneEvent {
+	return responsesOutputItemDoneEventPool.Get().(*ResponsesOutputItemDoneEvent)
+}
+
+func PutResponsesOutputItemDoneEvent(d *ResponsesOutputItemDoneEvent) {
+	d.SequenceNumber = 0
+	d.ItemID = ""
+	d.OutputIndex = 0
+	d.Item = nil
+	responsesOutputItemDoneEventPool.Put(d)
+}
+
+// ResponsesMessageItemDone represents a completed message item.
+type ResponsesMessageItemDone struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Role    string `json:"role"`
+	Content []any  `json:"content"`
+}
+
+// ResponsesReasoningItemDone represents a completed reasoning item.
+type ResponsesReasoningItemDone struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Status  string `json:"status"`
+	Summary []any  `json:"summary"`
+}
+
+// ResponsesSummaryText for summary array items.
+type ResponsesSummaryText struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+// BuildResponsesOutputItemDoneFunctionCallSSE builds SSE for function_call completion.
+func BuildResponsesOutputItemDoneFunctionCallSSE(seqNum int, itemID string, outputIndex int, callID, name, args string) []byte {
+	d := GetResponsesOutputItemDoneEvent()
+	defer PutResponsesOutputItemDoneEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.ItemID = itemID
+	d.OutputIndex = outputIndex
+	d.Item = ResponsesFunctionCallItem{
+		ID:        itemID,
+		Type:      "function_call",
+		Status:    "completed",
+		CallID:    callID,
+		Name:      name,
+		Arguments: args,
+	}
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.output_item.done", jb)
+}
+
+// BuildResponsesOutputItemDoneMessageSSE builds SSE for message completion.
+func BuildResponsesOutputItemDoneMessageSSE(seqNum, outputIndex int, itemID, text string) []byte {
+	d := GetResponsesOutputItemDoneEvent()
+	defer PutResponsesOutputItemDoneEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.OutputIndex = outputIndex
+	d.Item = ResponsesMessageItemDone{
+		ID:     itemID,
+		Type:   "message",
+		Status: "completed",
+		Role:   "assistant",
+		Content: []any{
+			ResponsesOutputTextRef{Type: "output_text", Text: text},
+		},
+	}
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.output_item.done", jb)
+}
+
+// BuildResponsesOutputItemDoneReasoningSSE builds SSE for reasoning completion.
+func BuildResponsesOutputItemDoneReasoningSSE(seqNum, outputIndex int, itemID, text string) []byte {
+	d := GetResponsesOutputItemDoneEvent()
+	defer PutResponsesOutputItemDoneEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.OutputIndex = outputIndex
+	d.Item = ResponsesReasoningItemDone{
+		ID:     itemID,
+		Type:   "reasoning",
+		Status: "completed",
+		Summary: []any{
+			ResponsesSummaryText{Type: "summary_text", Text: text},
+		},
+	}
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.output_item.done", jb)
+}
+
+// ResponsesContentPartDoneEvent is used for response.content_part.done.
+type ResponsesContentPartDoneEvent struct {
+	Type           string                 `json:"type"`
+	SequenceNumber int                    `json:"sequence_number"`
+	ItemID         string                 `json:"item_id"`
+	OutputIndex    int                    `json:"output_index"`
+	ContentIndex   int                    `json:"content_index"`
+	Part           ResponsesOutputTextRef `json:"part"`
+}
+
+var responsesContentPartDoneEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesContentPartDoneEvent{
+			Type: "response.content_part.done",
+			Part: ResponsesOutputTextRef{
+				Type: "output_text",
+			},
+		}
+	},
+}
+
+func GetResponsesContentPartDoneEvent() *ResponsesContentPartDoneEvent {
+	return responsesContentPartDoneEventPool.Get().(*ResponsesContentPartDoneEvent)
+}
+
+func PutResponsesContentPartDoneEvent(d *ResponsesContentPartDoneEvent) {
+	d.SequenceNumber = 0
+	d.ItemID = ""
+	d.OutputIndex = 0
+	d.ContentIndex = 0
+	d.Part.Text = ""
+	responsesContentPartDoneEventPool.Put(d)
+}
+
+// BuildResponsesContentPartDoneSSE builds SSE for response.content_part.done.
+func BuildResponsesContentPartDoneSSE(seqNum int, itemID string, outputIndex, contentIndex int, text string) []byte {
+	d := GetResponsesContentPartDoneEvent()
+	defer PutResponsesContentPartDoneEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.ItemID = itemID
+	d.OutputIndex = outputIndex
+	d.ContentIndex = contentIndex
+	d.Part.Text = text
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.content_part.done", jb)
+}
+
+// ResponsesDoneEvent is used for response.done.
+type ResponsesDoneEvent struct {
+	Type           string                  `json:"type"`
+	SequenceNumber int                     `json:"sequence_number"`
+	Response       ResponsesDoneEventInner `json:"response"`
+}
+
+type ResponsesDoneEventInner struct {
+	ID        string              `json:"id"`
+	Object    string              `json:"object"`
+	CreatedAt int64               `json:"created_at"`
+	Status    string              `json:"status"`
+	Usage     *ResponsesDoneUsage `json:"usage,omitempty"`
+}
+
+type ResponsesDoneUsage struct {
+	InputTokens         int64                         `json:"input_tokens"`
+	OutputTokens        int64                         `json:"output_tokens"`
+	TotalTokens         int64                         `json:"total_tokens"`
+	InputTokensDetails  *ResponsesTokensDetails       `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails *ResponsesOutputTokensDetails `json:"output_tokens_details,omitempty"`
+}
+
+type ResponsesTokensDetails struct {
+	CachedTokens int64 `json:"cached_tokens"`
+}
+
+type ResponsesOutputTokensDetails struct {
+	ReasoningTokens int64 `json:"reasoning_tokens"`
+}
+
+var responsesDoneEventPool = sync.Pool{
+	New: func() any {
+		return &ResponsesDoneEvent{
+			Type: "response.done",
+			Response: ResponsesDoneEventInner{
+				Object: "response",
+				Status: "completed",
+			},
+		}
+	},
+}
+
+func GetResponsesDoneEvent() *ResponsesDoneEvent {
+	return responsesDoneEventPool.Get().(*ResponsesDoneEvent)
+}
+
+func PutResponsesDoneEvent(d *ResponsesDoneEvent) {
+	d.SequenceNumber = 0
+	d.Response.ID = ""
+	d.Response.CreatedAt = 0
+	d.Response.Usage = nil
+	responsesDoneEventPool.Put(d)
+}
+
+// BuildResponsesDoneSSE builds SSE for response.done.
+func BuildResponsesDoneSSE(seqNum int, respID string, createdAt int64, usage *ResponsesDoneUsage) []byte {
+	d := GetResponsesDoneEvent()
+	defer PutResponsesDoneEvent(d)
+
+	d.SequenceNumber = seqNum
+	d.Response.ID = respID
+	d.Response.CreatedAt = createdAt
+	d.Response.Usage = usage
+
+	jb, _ := json.Marshal(d)
+	return formatResponsesSSEBytes("response.done", jb)
+}

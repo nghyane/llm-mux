@@ -26,13 +26,13 @@ import (
 )
 
 type AIStudioExecutor struct {
-	cfg      *config.Config
+	executor.BaseExecutor
 	provider string
 	relay    *wsrelay.Manager
 }
 
 func NewAIStudioExecutor(cfg *config.Config, provider string, relay *wsrelay.Manager) *AIStudioExecutor {
-	return &AIStudioExecutor{cfg: cfg, provider: strings.ToLower(provider), relay: relay}
+	return &AIStudioExecutor{BaseExecutor: executor.BaseExecutor{Cfg: cfg}, provider: strings.ToLower(provider), relay: relay}
 }
 
 func (e *AIStudioExecutor) Identifier() string { return "aistudio" }
@@ -40,7 +40,7 @@ func (e *AIStudioExecutor) Identifier() string { return "aistudio" }
 func (e *AIStudioExecutor) PrepareRequest(_ *http.Request, _ *provider.Auth) error { return nil }
 
 func (e *AIStudioExecutor) Execute(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (resp provider.Response, err error) {
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	_, body, err := e.translateRequest(req, opts, false)
@@ -70,7 +70,7 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *provider.Auth, req
 	reporter.Publish(ctx, executor.ExtractUsageFromGeminiResponse(wsResp.Body))
 
 	fromFormat := provider.FromString("gemini")
-	translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, wsResp.Body, req.Model)
+	translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, fromFormat, opts.SourceFormat, wsResp.Body, req.Model)
 	if err != nil {
 		return resp, err
 	}
@@ -83,7 +83,7 @@ func (e *AIStudioExecutor) Execute(ctx context.Context, auth *provider.Auth, req
 }
 
 func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (streamChan <-chan provider.StreamChunk, err error) {
-	reporter := executor.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
+	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
 	body, estimatedInputTokens, err := e.translateRequestWithTokens(req, opts, true)
@@ -152,7 +152,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		streamCtx := stream.NewStreamContext()
 		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
-		translator := stream.NewStreamTranslator(e.cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
+		translator := stream.NewStreamTranslator(e.Cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
 		processor := &aistudioStreamProcessor{
 			translator: translator,
 		}
@@ -198,7 +198,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 				return false
 			case wsrelay.MessageTypeHTTPResp:
 				fromFormat := provider.FromString("gemini")
-				translatedResp, err := stream.TranslateResponseNonStream(e.cfg, fromFormat, opts.SourceFormat, event.Payload, req.Model)
+				translatedResp, err := stream.TranslateResponseNonStream(e.Cfg, fromFormat, opts.SourceFormat, event.Payload, req.Model)
 				if err != nil {
 					pipeline.SendError(err)
 					return false
@@ -319,7 +319,7 @@ func (p *aistudioStreamProcessor) ProcessDone() ([][]byte, error) {
 func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.Options, isStreaming bool) ([]byte, translatedPayload, error) {
 	from := opts.SourceFormat
 	formatGemini := provider.FromString("gemini")
-	payload, err := stream.TranslateToGemini(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
+	payload, err := stream.TranslateToGemini(e.Cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return nil, translatedPayload{}, fmt.Errorf("translate request: %w", err)
 	}
@@ -327,7 +327,7 @@ func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.
 		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
 	}
 	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = sseutil.ApplyPayloadConfig(e.cfg, req.Model, payload)
+	payload = e.ApplyPayloadConfig(req.Model, payload)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
@@ -349,7 +349,7 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts
 	from := opts.SourceFormat
 	formatGemini := provider.FromString("gemini")
 
-	translation, err := stream.TranslateToGeminiWithTokens(e.cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
+	translation, err := stream.TranslateToGeminiWithTokens(e.Cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
 	if err != nil {
 		return translatedPayload{}, 0, fmt.Errorf("translate request: %w", err)
 	}
@@ -359,7 +359,7 @@ func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts
 		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
 	}
 	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = sseutil.ApplyPayloadConfig(e.cfg, req.Model, payload)
+	payload = e.ApplyPayloadConfig(req.Model, payload)
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
 	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
