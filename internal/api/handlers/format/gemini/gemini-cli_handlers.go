@@ -176,13 +176,25 @@ func (h *GeminiCLIAPIHandler) forwardCLIStream(c *gin.Context, flusher http.Flus
 				}
 
 				if !bytes.HasPrefix(chunk, []byte("data:")) {
-					_, _ = c.Writer.Write([]byte("data: "))
+					if _, err := c.Writer.Write([]byte("data: ")); err != nil {
+						cancel(err)
+						return
+					}
 				}
 
-				_, _ = c.Writer.Write(chunk)
-				_, _ = c.Writer.Write([]byte("\n\n"))
+				if _, err := c.Writer.Write(chunk); err != nil {
+					cancel(err)
+					return
+				}
+				if _, err := c.Writer.Write([]byte("\n\n")); err != nil {
+					cancel(err)
+					return
+				}
 			} else {
-				_, _ = c.Writer.Write(chunk)
+				if _, err := c.Writer.Write(chunk); err != nil {
+					cancel(err)
+					return
+				}
 			}
 			flusher.Flush()
 		case errMsg, ok := <-errs:

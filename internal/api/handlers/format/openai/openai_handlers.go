@@ -483,6 +483,7 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 	cliCtx, cliCancel := h.GetContextWithCancel(c.Request.Context(), h, c)
 	dataChan, errChan := h.ExecuteStreamWithAuthManager(cliCtx, h.HandlerType(), modelName, chatCompletionsJSON, "")
 
+	sw := format.NewSSEWriter(c.Writer)
 	for {
 		select {
 		case <-c.Request.Context().Done():
@@ -490,16 +491,20 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 			return
 		case chunk, isOk := <-dataChan:
 			if !isOk {
-				_, _ = c.Writer.Write(sseDoneMarker)
+				sw.Write(sseDoneMarker)
 				flusher.Flush()
 				cliCancel()
 				return
 			}
 			converted := convertChatCompletionsStreamChunkToCompletions(chunk)
 			if converted != nil {
-				_, _ = c.Writer.Write(sseDataPrefix)
-				_, _ = c.Writer.Write(converted)
-				_, _ = c.Writer.Write(sseNewline)
+				sw.Write(sseDataPrefix)
+				sw.Write(converted)
+				sw.Write(sseNewline)
+				if !sw.Ok() {
+					cliCancel(sw.Err())
+					return
+				}
 				flusher.Flush()
 			}
 		case errMsg, isOk := <-errChan:
@@ -520,6 +525,7 @@ func (h *OpenAIAPIHandler) handleCompletionsStreamingResponse(c *gin.Context, ra
 	}
 }
 func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+	sw := format.NewSSEWriter(c.Writer)
 	for {
 		select {
 		case <-c.Request.Context().Done():
@@ -527,18 +533,21 @@ func (h *OpenAIAPIHandler) handleStreamResult(c *gin.Context, flusher http.Flush
 			return
 		case chunk, ok := <-data:
 			if !ok {
-				_, _ = c.Writer.Write(sseDoneMarker)
+				sw.Write(sseDoneMarker)
 				flusher.Flush()
 				cancel(nil)
 				return
 			}
-			// Chunk is already in SSE format (bytes comparison, no string alloc)
 			if len(chunk) > 6 && (bytes.HasPrefix(chunk, sseEventPrefix) || bytes.HasPrefix(chunk, sseDataPrefix)) {
-				_, _ = c.Writer.Write(chunk)
+				sw.Write(chunk)
 			} else {
-				_, _ = c.Writer.Write(sseDataPrefix)
-				_, _ = c.Writer.Write(chunk)
-				_, _ = c.Writer.Write(sseNewline)
+				sw.Write(sseDataPrefix)
+				sw.Write(chunk)
+				sw.Write(sseNewline)
+			}
+			if !sw.Ok() {
+				cancel(sw.Err())
+				return
 			}
 			flusher.Flush()
 		case errMsg, ok := <-errs:

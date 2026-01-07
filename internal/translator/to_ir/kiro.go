@@ -81,7 +81,7 @@ func (s *KiroStreamState) ProcessChunk(rawJSON []byte) ([]ir.UnifiedEvent, error
 	}
 	parsed, err := ir.ParseAndValidateJSON(rawJSON)
 	if err != nil {
-		return nil, nil // Ignore invalid chunks in streaming
+		return nil, fmt.Errorf("kiro: invalid JSON chunk: %w", err)
 	}
 
 	// Check for error in response

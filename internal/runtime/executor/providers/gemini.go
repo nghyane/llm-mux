@@ -304,11 +304,7 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		return nil
 	})
 
-	go func() {
-		pipeline.Close()
-	}()
-
-	return stream.ConvertPipelineToStreamChunk(ctx, pipeline.Output()), nil
+	return stream.ConvertPipelineToStreamChunk(ctx, pipeline.Output(), pipeline.Close), nil
 }
 
 func (e *GeminiExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {

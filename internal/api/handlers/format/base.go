@@ -364,3 +364,43 @@ func (h *BaseAPIHandler) LoggingAPIResponseError(ctx context.Context, err *inter
 }
 
 type APIHandlerCancelFunc func(params ...any)
+
+// SSEWriter wraps gin ResponseWriter with error-checked writes for SSE streaming.
+// Following Ollama's pattern: write errors terminate stream immediately to free upstream resources.
+type SSEWriter struct {
+	w   gin.ResponseWriter
+	err error
+}
+
+// NewSSEWriter creates a new SSE writer wrapper.
+func NewSSEWriter(w gin.ResponseWriter) *SSEWriter {
+	return &SSEWriter{w: w}
+}
+
+// Write writes data and tracks first error. Subsequent writes are no-ops after error.
+func (s *SSEWriter) Write(data []byte) bool {
+	if s.err != nil {
+		return false
+	}
+	_, s.err = s.w.Write(data)
+	return s.err == nil
+}
+
+// WriteString writes a string and tracks first error.
+func (s *SSEWriter) WriteString(data string) bool {
+	if s.err != nil {
+		return false
+	}
+	_, s.err = s.w.WriteString(data)
+	return s.err == nil
+}
+
+// Err returns the first write error encountered.
+func (s *SSEWriter) Err() error {
+	return s.err
+}
+
+// Ok returns true if no write errors have occurred.
+func (s *SSEWriter) Ok() bool {
+	return s.err == nil
+}
