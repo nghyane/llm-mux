@@ -165,3 +165,13 @@ func (p *Pipeline) Close() error {
 func (p *Pipeline) Cancel() {
 	p.cancel()
 }
+
+// Start launches a background goroutine that waits for all Go() goroutines
+// to complete, then closes the output channel. This enables consumers to
+// detect completion via channel close without explicit Close() calls.
+// Use this when you want automatic cleanup after producers finish.
+func (p *Pipeline) Start() {
+	go func() {
+		_ = p.Close()
+	}()
+}
