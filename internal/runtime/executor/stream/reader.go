@@ -31,7 +31,6 @@ type StreamReader struct {
 	closeErr     error
 	touch        func()
 	done         func()
-	stopCh       chan struct{}
 	executorName string
 }
 
@@ -44,6 +43,8 @@ type StreamReader struct {
 //   - executorName: For logging purposes
 //
 // Uses shared IdleWatcher to minimize goroutine overhead (1 watcher goroutine for all streams).
+const noIdleTimeoutSentinel = 24 * time.Hour
+
 func NewStreamReader(ctx context.Context, body io.ReadCloser, idleTimeout time.Duration, executorName string) *StreamReader {
 	sr := &StreamReader{
 		body:         body,
@@ -51,33 +52,16 @@ func NewStreamReader(ctx context.Context, body io.ReadCloser, idleTimeout time.D
 		executorName: executorName,
 	}
 
-	// Register with shared idle watcher
-	if idleTimeout > 0 {
-		sr.touch, sr.done = streamutil.DefaultIdleWatcher().Register(ctx, idleTimeout, func() {
-			// On idle timeout, close body to unblock Read
-			log.Warnf("%s: stream stalled (idle timeout), closing connection", executorName)
-			sr.closeWithReason("idle timeout - upstream stalled")
-		})
-	} else {
-		stopCh := make(chan struct{})
-		sr.stopCh = stopCh
-		sr.touch = func() {}
-		sr.done = func() {
-			select {
-			case <-stopCh:
-			default:
-				close(stopCh)
-			}
-		}
-
-		go func() {
-			select {
-			case <-ctx.Done():
-				sr.closeWithReason("context cancelled")
-			case <-stopCh:
-			}
-		}()
+	if idleTimeout <= 0 {
+		idleTimeout = noIdleTimeoutSentinel
 	}
+
+	sr.touch, sr.done = streamutil.DefaultIdleWatcher().Register(ctx, idleTimeout, func() {
+		if idleTimeout != noIdleTimeoutSentinel {
+			log.Warnf("%s: stream stalled (idle timeout), closing connection", executorName)
+		}
+		sr.closeWithReason("idle timeout")
+	})
 
 	return sr
 }

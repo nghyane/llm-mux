@@ -20,11 +20,12 @@ type IdleWatcher struct {
 }
 
 type watchedStream struct {
-	lastActivity atomic.Int64 // UnixNano
+	lastActivity atomic.Int64
 	timeout      time.Duration
 	onIdle       func()
 	ctx          context.Context
 	cancel       context.CancelFunc
+	stopAfter    func() bool
 }
 
 // NewIdleWatcher creates a shared idle watcher.
@@ -51,7 +52,6 @@ func NewIdleWatcher(checkInterval time.Duration) *IdleWatcher {
 func (w *IdleWatcher) Register(ctx context.Context, timeout time.Duration, onIdle func()) (touch func(), done func()) {
 	id := w.nextID.Add(1)
 
-	// Create cancellable context for this stream
 	streamCtx, cancel := context.WithCancel(ctx)
 
 	stream := &watchedStream{
@@ -70,21 +70,27 @@ func (w *IdleWatcher) Register(ctx context.Context, timeout time.Duration, onIdl
 		stream.lastActivity.Store(time.Now().UnixNano())
 	}
 
-	done = func() {
-		w.mu.Lock()
-		delete(w.streams, id)
-		w.mu.Unlock()
-		cancel()
+	var doneOnce sync.Once
+	cleanup := func() {
+		doneOnce.Do(func() {
+			w.mu.Lock()
+			delete(w.streams, id)
+			w.mu.Unlock()
+			cancel()
+			if stream.stopAfter != nil {
+				stream.stopAfter()
+			}
+		})
 	}
 
-	// Also watch parent context cancellation
-	go func() {
-		select {
-		case <-ctx.Done():
-			done()
-		case <-streamCtx.Done():
+	done = cleanup
+
+	stream.stopAfter = context.AfterFunc(ctx, func() {
+		if onIdle != nil {
+			onIdle()
 		}
-	}()
+		cleanup()
+	})
 
 	return touch, done
 }
