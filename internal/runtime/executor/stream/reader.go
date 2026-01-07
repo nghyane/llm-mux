@@ -29,8 +29,9 @@ type StreamReader struct {
 	closed       atomic.Bool
 	closeOnce    sync.Once
 	closeErr     error
-	touch        func() // Updates activity timestamp in shared watcher
-	done         func() // Unregisters from shared watcher
+	touch        func()
+	done         func()
+	stopCh       chan struct{}
 	executorName string
 }
 
@@ -58,14 +59,23 @@ func NewStreamReader(ctx context.Context, body io.ReadCloser, idleTimeout time.D
 			sr.closeWithReason("idle timeout - upstream stalled")
 		})
 	} else {
-		// No idle timeout - just track context cancellation
-		sr.touch = func() {} // no-op
-		sr.done = func() {}  // no-op
+		stopCh := make(chan struct{})
+		sr.stopCh = stopCh
+		sr.touch = func() {}
+		sr.done = func() {
+			select {
+			case <-stopCh:
+			default:
+				close(stopCh)
+			}
+		}
 
-		// Still need to watch context for cancellation
 		go func() {
-			<-ctx.Done()
-			sr.closeWithReason("context cancelled")
+			select {
+			case <-ctx.Done():
+				sr.closeWithReason("context cancelled")
+			case <-stopCh:
+			}
 		}()
 	}
 
