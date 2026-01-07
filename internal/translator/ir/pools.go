@@ -9,7 +9,9 @@ import (
 
 var BytesBufferPool = sync.Pool{
 	New: func() any {
-		return bytes.NewBuffer(make([]byte, 0, 1024))
+		// Increased from 1KB to 4KB to reduce reallocations for streaming events
+		// Most SSE events with JSON payloads are 1-3KB
+		return bytes.NewBuffer(make([]byte, 0, 4096))
 	},
 }
 
@@ -18,7 +20,14 @@ func GetBuffer() *bytes.Buffer {
 }
 
 // PutBuffer returns a buffer to the pool after resetting it.
+// Buffers that have grown excessively large are not returned to the pool
+// to prevent memory bloat in the pool.
 func PutBuffer(buf *bytes.Buffer) {
+	// Don't return buffers larger than 64KB to the pool
+	// This prevents the pool from being polluted with oversized buffers
+	if buf.Cap() > 64*1024 {
+		return
+	}
 	buf.Reset()
 	BytesBufferPool.Put(buf)
 }
@@ -27,7 +36,8 @@ func PutBuffer(buf *bytes.Buffer) {
 var StringBuilderPool = sync.Pool{
 	New: func() any {
 		b := &strings.Builder{}
-		b.Grow(512)
+		// Increased from 512 bytes to 2KB for better performance with larger text chunks
+		b.Grow(2048)
 		return b
 	},
 }
@@ -37,7 +47,12 @@ func GetStringBuilder() *strings.Builder {
 }
 
 // PutStringBuilder returns a string builder to the pool after resetting it.
+// Large builders are not returned to prevent pool bloat.
 func PutStringBuilder(sb *strings.Builder) {
+	// Don't return builders larger than 32KB to the pool
+	if sb.Cap() > 32*1024 {
+		return
+	}
 	sb.Reset()
 	StringBuilderPool.Put(sb)
 }
@@ -103,8 +118,9 @@ var (
 // sseChunkPool provides reusable byte slices for SSE chunk building.
 var sseChunkPool = sync.Pool{
 	New: func() any {
-		// Typical SSE chunk: "data: {...}\n\n" - allocate 512 bytes
-		b := make([]byte, 0, 512)
+		// Increased from 512 bytes to 2KB to better accommodate typical SSE chunks
+		// with JSON payloads, reducing reallocations
+		b := make([]byte, 0, 2048)
 		return &b
 	},
 }
@@ -115,8 +131,10 @@ func GetSSEChunkBuf() []byte {
 }
 
 // PutSSEChunkBuf returns an SSE chunk buffer to the pool.
+// Only returns buffers within a reasonable size range to maintain pool efficiency.
 func PutSSEChunkBuf(b []byte) {
-	if cap(b) >= 512 && cap(b) <= 4096 {
+	// Accept buffers between 2KB and 16KB to keep the pool healthy
+	if cap(b) >= 2048 && cap(b) <= 16*1024 {
 		bp := b[:0]
 		sseChunkPool.Put(&bp)
 	}

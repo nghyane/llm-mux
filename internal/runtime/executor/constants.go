@@ -4,7 +4,9 @@ import "time"
 
 const DefaultStreamBufferSize = 2 * 1024 * 1024 // 2MB - reduced from 20MB for better memory efficiency
 
-const DefaultScannerBufferSize = 64 * 1024
+// DefaultScannerBufferSize increased from 64KB to 256KB to reduce buffer
+// reallocations when streaming large responses with big context windows
+const DefaultScannerBufferSize = 256 * 1024
 
 // DefaultStreamIdleTimeout is the maximum time to wait without receiving any data.
 // This is a safety net for detecting stalled upstream connections.

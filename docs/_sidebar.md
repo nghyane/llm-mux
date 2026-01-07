@@ -16,6 +16,9 @@
   - [Docker](docker.md)
   - [Service Management](service-management.md)
 
+- Advanced
+  - [Performance](performance.md)
+
 - Help
   - [Troubleshooting](troubleshooting.md)
   - [GitHub Issues](https://github.com/nghyane/llm-mux/issues)
