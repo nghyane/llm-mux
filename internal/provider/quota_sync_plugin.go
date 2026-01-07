@@ -16,7 +16,6 @@ func NewQuotaSyncPlugin(manager *QuotaManager) *QuotaSyncPlugin {
 	return &QuotaSyncPlugin{manager: manager}
 }
 
-// HandleUsage implements usage.Plugin
 func (p *QuotaSyncPlugin) HandleUsage(ctx context.Context, record usage.Record) {
 	if p.manager == nil {
 		return
@@ -27,5 +26,5 @@ func (p *QuotaSyncPlugin) HandleUsage(ctx context.Context, record usage.Record) 
 		tokens = record.Usage.TotalTokens
 	}
 
-	p.manager.RecordRequestEnd(record.AuthID, tokens, record.Failed)
+	p.manager.RecordRequestEnd(record.AuthID, record.Provider, tokens, record.Failed)
 }

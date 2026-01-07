@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// newTestState creates an AuthQuotaState with the given values for testing.
 func newTestState(tokensUsed, activeRequests int64) *AuthQuotaState {
 	state := &AuthQuotaState{}
 	state.TotalTokensUsed.Store(tokensUsed)
@@ -14,8 +13,8 @@ func newTestState(tokensUsed, activeRequests int64) *AuthQuotaState {
 	return state
 }
 
-func TestQuotaManager_CalculatePriority(t *testing.T) {
-	m := NewQuotaManager()
+func TestDefaultStrategy_Score(t *testing.T) {
+	strategy := &DefaultStrategy{}
 
 	config := &ProviderQuotaConfig{
 		Provider:       "test",
@@ -45,11 +44,11 @@ func TestQuotaManager_CalculatePriority(t *testing.T) {
 	}
 
 	baseState := newTestState(200_000, 0)
-	basePriority := m.calculatePriority(baseState, config)
+	basePriority := strategy.Score(nil, baseState, config)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			priority := m.calculatePriority(tt.state, config)
+			priority := strategy.Score(nil, tt.state, config)
 
 			if tt.expectedBetter && priority >= basePriority {
 				t.Errorf("expected priority %d to be lower than base %d", priority, basePriority)
@@ -61,8 +60,8 @@ func TestQuotaManager_CalculatePriority(t *testing.T) {
 	}
 }
 
-func TestQuotaManager_CalculatePriority_ActiveRequestsPenalty(t *testing.T) {
-	m := NewQuotaManager()
+func TestDefaultStrategy_Score_ActiveRequestsPenalty(t *testing.T) {
+	strategy := &DefaultStrategy{}
 
 	config := &ProviderQuotaConfig{
 		Provider:       "test",
@@ -72,8 +71,8 @@ func TestQuotaManager_CalculatePriority_ActiveRequestsPenalty(t *testing.T) {
 	idleState := newTestState(100_000, 0)
 	busyState := newTestState(100_000, 3)
 
-	idlePriority := m.calculatePriority(idleState, config)
-	busyPriority := m.calculatePriority(busyState, config)
+	idlePriority := strategy.Score(nil, idleState, config)
+	busyPriority := strategy.Score(nil, busyState, config)
 
 	if busyPriority <= idlePriority {
 		t.Errorf("busy priority %d should be higher than idle %d", busyPriority, idlePriority)
@@ -92,11 +91,9 @@ func TestQuotaManager_Pick_SelectsLeastUsed(t *testing.T) {
 	auth2 := &Auth{ID: "auth2", Provider: "antigravity"}
 	auth3 := &Auth{ID: "auth3", Provider: "antigravity"}
 
-	// Use significantly different usage to ensure auth3 has lowest priority
-	// Priority difference must be >= 100 to avoid random selection
-	m.RecordRequestEnd("auth1", 1_000_000, false) // Very high usage
-	m.RecordRequestEnd("auth2", 500_000, false)   // Medium usage
-	m.RecordRequestEnd("auth3", 10_000, false)    // Low usage
+	m.RecordRequestEnd("auth1", "antigravity", 1_000_000, false)
+	m.RecordRequestEnd("auth2", "antigravity", 500_000, false)
+	m.RecordRequestEnd("auth3", "antigravity", 10_000, false)
 
 	selected, err := m.Pick(context.Background(), "antigravity", "claude-sonnet-4", Options{ForceRotate: true}, []*Auth{auth1, auth2, auth3})
 	if err != nil {
@@ -135,7 +132,7 @@ func TestQuotaManager_Pick_NoStickyForAntigravity(t *testing.T) {
 	auth1 := &Auth{ID: "auth1", Provider: "antigravity"}
 	auth2 := &Auth{ID: "auth2", Provider: "antigravity"}
 
-	m.RecordRequestEnd("auth1", 400_000, false)
+	m.RecordRequestEnd("auth1", "antigravity", 400_000, false)
 
 	selected, err := m.Pick(context.Background(), "antigravity", "gemini-2.5-pro", Options{ForceRotate: true}, []*Auth{auth1, auth2})
 	if err != nil {
@@ -147,10 +144,10 @@ func TestQuotaManager_Pick_NoStickyForAntigravity(t *testing.T) {
 	}
 }
 
-func TestQuotaManager_RecordQuotaHit_LearnsLimit(t *testing.T) {
+func TestQuotaManager_RecordQuotaHit_SetsCooldown(t *testing.T) {
 	m := NewQuotaManager()
 
-	m.RecordRequestEnd("auth1", 600_000, false)
+	m.RecordRequestEnd("auth1", "antigravity", 600_000, false)
 
 	resetAfter := 30 * time.Minute
 	m.RecordQuotaHit("auth1", "antigravity", "claude-sonnet-4", &resetAfter)
@@ -158,10 +155,6 @@ func TestQuotaManager_RecordQuotaHit_LearnsLimit(t *testing.T) {
 	state := m.GetState("auth1")
 	if state == nil {
 		t.Fatal("expected state to exist")
-	}
-
-	if state.LearnedLimit < 600_000 {
-		t.Errorf("expected learned limit >= 600000, got %d", state.LearnedLimit)
 	}
 
 	if state.CooldownUntil.IsZero() {
@@ -179,7 +172,7 @@ func TestQuotaManager_RecordRequestStartEnd(t *testing.T) {
 		t.Error("expected ActiveRequests to be 1 after RecordRequestStart")
 	}
 
-	m.RecordRequestEnd("auth1", 1000, false)
+	m.RecordRequestEnd("auth1", "antigravity", 1000, false)
 
 	state = m.GetState("auth1")
 	if state == nil || state.ActiveRequests != 0 {
@@ -248,6 +241,43 @@ func TestQuotaConfig_GetProviderQuotaConfig(t *testing.T) {
 			cfg := GetProviderQuotaConfig(tt.provider)
 			if cfg.StickyEnabled != tt.expectSticky {
 				t.Errorf("expected sticky %v, got %v", tt.expectSticky, cfg.StickyEnabled)
+			}
+		})
+	}
+}
+
+func TestQuotaManager_GetStrategy(t *testing.T) {
+	m := NewQuotaManager()
+
+	tests := []struct {
+		provider     string
+		expectedType string
+	}{
+		{"antigravity", "*provider.AntigravityStrategy"},
+		{"claude", "*provider.ClaudeStrategy"},
+		{"copilot", "*provider.CopilotStrategy"},
+		{"gemini", "*provider.GeminiStrategy"},
+		{"unknown", "*provider.DefaultStrategy"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			strategy := m.getStrategy(tt.provider)
+			strategyType := ""
+			switch strategy.(type) {
+			case *AntigravityStrategy:
+				strategyType = "*provider.AntigravityStrategy"
+			case *ClaudeStrategy:
+				strategyType = "*provider.ClaudeStrategy"
+			case *CopilotStrategy:
+				strategyType = "*provider.CopilotStrategy"
+			case *GeminiStrategy:
+				strategyType = "*provider.GeminiStrategy"
+			case *DefaultStrategy:
+				strategyType = "*provider.DefaultStrategy"
+			}
+			if strategyType != tt.expectedType {
+				t.Errorf("expected %s, got %s", tt.expectedType, strategyType)
 			}
 		})
 	}
