@@ -50,22 +50,16 @@ type Registry struct {
 	formatToIR map[provider.Format]ToIRParser
 }
 
-// globalRegistry is the singleton registry instance.
-var (
-	globalRegistry     *Registry
-	globalRegistryOnce sync.Once
-)
+var getGlobalRegistry = sync.OnceValue(func() *Registry {
+	return &Registry{
+		toIR:       make(map[string]ToIRParser),
+		fromIR:     make(map[string]FromIRConverter),
+		formatToIR: make(map[provider.Format]ToIRParser),
+	}
+})
 
-// GetRegistry returns the global translator registry.
 func GetRegistry() *Registry {
-	globalRegistryOnce.Do(func() {
-		globalRegistry = &Registry{
-			toIR:       make(map[string]ToIRParser),
-			fromIR:     make(map[string]FromIRConverter),
-			formatToIR: make(map[provider.Format]ToIRParser),
-		}
-	})
-	return globalRegistry
+	return getGlobalRegistry()
 }
 
 // RegisterToIR registers a ToIR parser for a format.

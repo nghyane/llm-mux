@@ -91,24 +91,20 @@ type ModelRegistry struct {
 	showProviderPrefixes bool
 }
 
-// Global model registry instance
-var globalRegistry *ModelRegistry
-var registryOnce sync.Once
+var getGlobalRegistry = sync.OnceValue(func() *ModelRegistry {
+	return &ModelRegistry{
+		models:               make(map[string]*ModelRegistration),
+		clientModels:         make(map[string][]string),
+		clientProviders:      make(map[string]string),
+		canonicalIndex:       make(map[string][]ProviderModelMapping),
+		modelIDIndex:         make(map[string][]string),
+		mutex:                &sync.RWMutex{},
+		showProviderPrefixes: false,
+	}
+})
 
-// GetGlobalRegistry returns the global model registry instance
 func GetGlobalRegistry() *ModelRegistry {
-	registryOnce.Do(func() {
-		globalRegistry = &ModelRegistry{
-			models:               make(map[string]*ModelRegistration),
-			clientModels:         make(map[string][]string),
-			clientProviders:      make(map[string]string),
-			canonicalIndex:       make(map[string][]ProviderModelMapping),
-			modelIDIndex:         make(map[string][]string),
-			mutex:                &sync.RWMutex{},
-			showProviderPrefixes: false,
-		}
-	})
-	return globalRegistry
+	return getGlobalRegistry()
 }
 
 // SetShowProviderPrefixes configures whether to display provider prefixes in model IDs.

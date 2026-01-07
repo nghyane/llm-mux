@@ -156,23 +156,16 @@ func (w *IdleWatcher) Stop() {
 	w.mu.Unlock()
 }
 
-// ActiveCount returns the number of currently watched streams.
 func (w *IdleWatcher) ActiveCount() int {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	return len(w.streams)
 }
 
-// Global default idle watcher (lazy initialized)
-var (
-	defaultWatcher     *IdleWatcher
-	defaultWatcherOnce sync.Once
-)
+var defaultWatcher = sync.OnceValue(func() *IdleWatcher {
+	return NewIdleWatcher(10 * time.Second)
+})
 
-// DefaultIdleWatcher returns the global shared idle watcher.
 func DefaultIdleWatcher() *IdleWatcher {
-	defaultWatcherOnce.Do(func() {
-		defaultWatcher = NewIdleWatcher(10 * time.Second)
-	})
-	return defaultWatcher
+	return defaultWatcher()
 }

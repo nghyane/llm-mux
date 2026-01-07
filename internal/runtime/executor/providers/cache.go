@@ -11,21 +11,22 @@ type CodexCache struct {
 }
 
 var (
-	codexCacheMap  = map[string]CodexCache{}
-	codexCacheMu   sync.RWMutex
-	codexCacheOnce sync.Once
+	codexCacheMap = map[string]CodexCache{}
+	codexCacheMu  sync.RWMutex
 )
 
+var initCodexCacheCleanup = sync.OnceFunc(func() {
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			CleanupExpiredCodexCache()
+		}
+	}()
+})
+
 func InitCodexCacheCleanup() {
-	codexCacheOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(10 * time.Minute)
-			defer ticker.Stop()
-			for range ticker.C {
-				CleanupExpiredCodexCache()
-			}
-		}()
-	})
+	initCodexCacheCleanup()
 }
 
 func CleanupExpiredCodexCache() {

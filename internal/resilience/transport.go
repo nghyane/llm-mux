@@ -16,17 +16,14 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-var (
-	sharedTransport     *http.Transport
-	sharedTransportOnce sync.Once
-)
+var sharedTransport = sync.OnceValue(func() *http.Transport {
+	t := newBaseTransport()
+	t.DialContext = newDialer().DialContext
+	return t
+})
 
 func SharedTransport() *http.Transport {
-	sharedTransportOnce.Do(func() {
-		sharedTransport = newBaseTransport()
-		sharedTransport.DialContext = newDialer().DialContext
-	})
-	return sharedTransport
+	return sharedTransport()
 }
 
 func newDialer() *net.Dialer {
@@ -169,14 +166,6 @@ func NewHTTPClient(proxyURL string, timeout time.Duration) (*http.Client, error)
 	}, nil
 }
 
-var (
-	globalCache     *TransportCache
-	globalCacheOnce sync.Once
-)
-
-func globalTransportCache() *TransportCache {
-	globalCacheOnce.Do(func() {
-		globalCache = NewTransportCache()
-	})
-	return globalCache
-}
+var globalTransportCache = sync.OnceValue(func() *TransportCache {
+	return NewTransportCache()
+})
