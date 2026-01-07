@@ -121,35 +121,58 @@ func (m *Manager) Stream(ctx context.Context, provider string, req *HTTPRequest)
 	if err != nil {
 		return nil, err
 	}
-	out := make(chan StreamEvent)
+	out := make(chan StreamEvent, 8)
 	go func() {
 		defer close(out)
 		for {
 			select {
 			case <-ctx.Done():
-				out <- StreamEvent{Err: ctx.Err()}
+				select {
+				case out <- StreamEvent{Err: ctx.Err()}:
+				default:
+				}
 				return
 			case msg, ok := <-respCh:
 				if !ok {
-					out <- StreamEvent{Err: errors.New("wsrelay: stream closed")}
+					select {
+					case out <- StreamEvent{Err: errors.New("wsrelay: stream closed")}:
+					default:
+					}
 					return
 				}
 				switch msg.Type {
 				case MessageTypeStreamStart:
 					resp := decodeResponse(msg.Payload)
-					out <- StreamEvent{Type: MessageTypeStreamStart, Status: resp.Status, Headers: resp.Headers}
+					select {
+					case out <- StreamEvent{Type: MessageTypeStreamStart, Status: resp.Status, Headers: resp.Headers}:
+					case <-ctx.Done():
+						return
+					}
 				case MessageTypeStreamChunk:
 					chunk := decodeChunk(msg.Payload)
-					out <- StreamEvent{Type: MessageTypeStreamChunk, Payload: chunk}
+					select {
+					case out <- StreamEvent{Type: MessageTypeStreamChunk, Payload: chunk}:
+					case <-ctx.Done():
+						return
+					}
 				case MessageTypeStreamEnd:
-					out <- StreamEvent{Type: MessageTypeStreamEnd}
+					select {
+					case out <- StreamEvent{Type: MessageTypeStreamEnd}:
+					default:
+					}
 					return
 				case MessageTypeError:
-					out <- StreamEvent{Type: MessageTypeError, Err: decodeError(msg.Payload)}
+					select {
+					case out <- StreamEvent{Type: MessageTypeError, Err: decodeError(msg.Payload)}:
+					default:
+					}
 					return
 				case MessageTypeHTTPResp:
 					resp := decodeResponse(msg.Payload)
-					out <- StreamEvent{Type: MessageTypeHTTPResp, Status: resp.Status, Headers: resp.Headers, Payload: resp.Body}
+					select {
+					case out <- StreamEvent{Type: MessageTypeHTTPResp, Status: resp.Status, Headers: resp.Headers, Payload: resp.Body}:
+					default:
+					}
 					return
 				default:
 				}
