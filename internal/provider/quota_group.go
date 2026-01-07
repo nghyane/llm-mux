@@ -129,7 +129,7 @@ func (rd *AuthRuntimeData) GetProviderData() any {
 }
 
 // getOrCreateQuotaGroupIndex returns the quota group index from auth.Runtime,
-// creating it if necessary. 
+// creating it if necessary.
 //
 // CRITICAL: This function MUST only be called while holding the Manager's lock (m.mu).
 // It is NOT safe to call this concurrently on the same auth object without external
@@ -191,28 +191,6 @@ func getQuotaGroupIndex(auth *Auth) *quotaGroupIndex {
 	}
 
 	return nil
-}
-
-// GetProviderRuntimeData extracts the original provider-specific runtime data
-// from auth.Runtime, unwrapping AuthRuntimeData if necessary.
-// This allows providers like gemini-cli to access their credentials.
-func GetProviderRuntimeData(auth *Auth) any {
-	if auth == nil || auth.Runtime == nil {
-		return nil
-	}
-
-	// If wrapped in AuthRuntimeData, return the original provider data
-	if rd, ok := auth.Runtime.(*AuthRuntimeData); ok {
-		return rd.ProviderData
-	}
-
-	// If it's a quotaGroupIndex, there's no provider data
-	if _, ok := auth.Runtime.(*quotaGroupIndex); ok {
-		return nil
-	}
-
-	// Otherwise, return as-is (raw provider data, not yet wrapped)
-	return auth.Runtime
 }
 
 // setGroupBlocked marks a quota group as blocked.

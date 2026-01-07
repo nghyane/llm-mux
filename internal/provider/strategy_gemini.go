@@ -2,19 +2,13 @@ package provider
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type GeminiStrategy struct {
-	buckets sync.Map
-}
-
-type TokenBucket struct {
-	tokens   atomic.Int64
-	lastFill atomic.Int64
-	capacity int64
-	fillRate float64
+	limiters sync.Map
 }
 
 func (s *GeminiStrategy) Score(auth *Auth, state *AuthQuotaState, config *ProviderQuotaConfig) int64 {
@@ -27,54 +21,30 @@ func (s *GeminiStrategy) Score(auth *Auth, state *AuthQuotaState, config *Provid
 		return priority
 	}
 
-	bucket := s.getOrCreateBucket(auth.ID, config)
-	available := bucket.availableTokens()
+	limiter := s.getOrCreateLimiter(auth.ID, config)
+	capacity := float64(limiter.Burst())
+	available := limiter.Tokens()
 
-	if bucket.capacity > 0 {
-		priority += int64((1.0 - float64(available)/float64(bucket.capacity)) * 600)
+	if capacity > 0 {
+		priority += int64((1.0 - available/capacity) * 600)
 	}
 
 	return priority
 }
 
-func (b *TokenBucket) availableTokens() int64 {
-	now := time.Now().UnixNano()
-	last := b.lastFill.Load()
-	elapsed := float64(now - last)
-
-	current := b.tokens.Load()
-	refilled := current + int64(elapsed*b.fillRate)
-	if refilled > b.capacity {
-		refilled = b.capacity
+func (s *GeminiStrategy) getOrCreateLimiter(authID string, config *ProviderQuotaConfig) *rate.Limiter {
+	if v, ok := s.limiters.Load(authID); ok {
+		return v.(*rate.Limiter)
 	}
 
-	if b.lastFill.CompareAndSwap(last, now) {
-		b.tokens.Store(refilled)
-	}
-
-	return refilled
-}
-
-func (s *GeminiStrategy) getOrCreateBucket(authID string, config *ProviderQuotaConfig) *TokenBucket {
-	if v, ok := s.buckets.Load(authID); ok {
-		return v.(*TokenBucket)
-	}
-
-	capacity := int64(60)
+	capacity := 60
 	if config != nil && config.EstimatedLimit > 0 {
-		capacity = config.EstimatedLimit
+		capacity = int(config.EstimatedLimit)
 	}
-	fillRate := float64(capacity) / float64(time.Minute)
 
-	bucket := &TokenBucket{
-		capacity: capacity,
-		fillRate: fillRate,
-	}
-	bucket.tokens.Store(capacity)
-	bucket.lastFill.Store(time.Now().UnixNano())
-
-	actual, _ := s.buckets.LoadOrStore(authID, bucket)
-	return actual.(*TokenBucket)
+	limiter := rate.NewLimiter(rate.Every(time.Minute/time.Duration(capacity)), capacity)
+	actual, _ := s.limiters.LoadOrStore(authID, limiter)
+	return actual.(*rate.Limiter)
 }
 
 func (s *GeminiStrategy) OnQuotaHit(state *AuthQuotaState, cooldown *time.Duration) {
@@ -95,17 +65,8 @@ func (s *GeminiStrategy) RecordUsage(state *AuthQuotaState, _ int64) {
 }
 
 func (s *GeminiStrategy) ConsumeToken(authID string) bool {
-	if v, ok := s.buckets.Load(authID); ok {
-		bucket := v.(*TokenBucket)
-		for {
-			available := bucket.availableTokens()
-			if available <= 0 {
-				return false
-			}
-			if bucket.tokens.CompareAndSwap(available, available-1) {
-				return true
-			}
-		}
+	if v, ok := s.limiters.Load(authID); ok {
+		return v.(*rate.Limiter).Allow()
 	}
 	return true
 }

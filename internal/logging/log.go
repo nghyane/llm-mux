@@ -17,7 +17,6 @@ var (
 	logLevel                = new(slog.LevelVar)
 	logOutput     io.Writer = os.Stdout
 	outputMu      sync.RWMutex
-	initOnce      sync.Once
 	nowFunc       = time.Now
 )
 
@@ -30,16 +29,14 @@ const (
 	ErrorLevel = slog.LevelError
 )
 
+var initLogger = sync.OnceFunc(func() {
+	logLevel.Set(slog.LevelInfo)
+	handler := NewCustomHandler(os.Stdout, logLevel, true)
+	defaultLogger = slog.New(handler)
+})
+
 func init() {
 	initLogger()
-}
-
-func initLogger() {
-	initOnce.Do(func() {
-		logLevel.Set(slog.LevelInfo)
-		handler := NewCustomHandler(os.Stdout, logLevel, true)
-		defaultLogger = slog.New(handler)
-	})
 }
 
 func reconfigureLogger(w io.Writer, addSource bool) {

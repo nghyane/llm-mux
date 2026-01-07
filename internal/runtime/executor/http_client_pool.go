@@ -31,10 +31,11 @@ var httpClientPool = sync.Pool{
 }
 
 var (
-	transportCache     = make(map[string]*cachedTransport)
-	transportCacheMu   sync.RWMutex
-	cleanupInitialized sync.Once
+	transportCache   = make(map[string]*cachedTransport)
+	transportCacheMu sync.RWMutex
 )
+
+var initCleanup = sync.OnceFunc(initTransportCleanup)
 
 // AcquireHTTPClient gets an http.Client from the pool.
 // The returned client has no timeout set - callers should use context
@@ -63,7 +64,7 @@ func getCachedTransport(proxyURL string) *http.Transport {
 		return nil
 	}
 
-	cleanupInitialized.Do(initTransportCleanup)
+	initCleanup()
 
 	// Fast path: read lock
 	transportCacheMu.RLock()

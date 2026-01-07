@@ -2,17 +2,13 @@ package provider
 
 import (
 	"sync"
-	"sync/atomic"
 	"time"
+
+	"golang.org/x/time/rate"
 )
 
 type CopilotStrategy struct {
-	counters sync.Map
-}
-
-type RequestCounter struct {
-	count     atomic.Int64
-	windowEnd atomic.Int64
+	limiters sync.Map
 }
 
 func (s *CopilotStrategy) Score(auth *Auth, state *AuthQuotaState, config *ProviderQuotaConfig) int64 {
@@ -25,43 +21,38 @@ func (s *CopilotStrategy) Score(auth *Auth, state *AuthQuotaState, config *Provi
 		return priority
 	}
 
-	counter := s.getOrCreateCounter(auth.ID, config)
+	limiter := s.getOrCreateLimiter(auth.ID, config)
+	capacity := float64(limiter.Burst())
+	available := limiter.Tokens()
 
-	now := time.Now().UnixNano()
-	windowEnd := counter.windowEnd.Load()
-	if now > windowEnd {
-		windowDuration := 24 * time.Hour
-		if config != nil && config.WindowDuration > 0 {
-			windowDuration = config.WindowDuration
-		}
-		newWindowEnd := time.Now().Add(windowDuration).UnixNano()
-		if counter.windowEnd.CompareAndSwap(windowEnd, newWindowEnd) {
-			counter.count.Store(0)
-		}
+	if capacity > 0 {
+		priority += int64((1.0 - available/capacity) * 600)
 	}
-
-	count := counter.count.Load()
-	estimatedLimit := int64(10_000)
-	if config != nil && config.EstimatedLimit > 0 {
-		estimatedLimit = config.EstimatedLimit
-	}
-	priority += int64(float64(count) / float64(estimatedLimit) * 600)
 
 	return priority
 }
 
-func (s *CopilotStrategy) getOrCreateCounter(authID string, config *ProviderQuotaConfig) *RequestCounter {
-	if v, ok := s.counters.Load(authID); ok {
-		return v.(*RequestCounter)
+func (s *CopilotStrategy) getOrCreateLimiter(authID string, config *ProviderQuotaConfig) *rate.Limiter {
+	if v, ok := s.limiters.Load(authID); ok {
+		return v.(*rate.Limiter)
 	}
+
+	estimatedLimit := int64(10_000)
 	windowDuration := 24 * time.Hour
-	if config != nil && config.WindowDuration > 0 {
-		windowDuration = config.WindowDuration
+	if config != nil {
+		if config.EstimatedLimit > 0 {
+			estimatedLimit = config.EstimatedLimit
+		}
+		if config.WindowDuration > 0 {
+			windowDuration = config.WindowDuration
+		}
 	}
-	counter := &RequestCounter{}
-	counter.windowEnd.Store(time.Now().Add(windowDuration).UnixNano())
-	actual, _ := s.counters.LoadOrStore(authID, counter)
-	return actual.(*RequestCounter)
+
+	tokenInterval := windowDuration / time.Duration(estimatedLimit)
+	burstSize := 100
+	limiter := rate.NewLimiter(rate.Every(tokenInterval), burstSize)
+	actual, _ := s.limiters.LoadOrStore(authID, limiter)
+	return actual.(*rate.Limiter)
 }
 
 func (s *CopilotStrategy) OnQuotaHit(state *AuthQuotaState, cooldown *time.Duration) {
@@ -82,8 +73,8 @@ func (s *CopilotStrategy) RecordUsage(state *AuthQuotaState, _ int64) {
 }
 
 func (s *CopilotStrategy) IncrementRequestCount(authID string) {
-	if v, ok := s.counters.Load(authID); ok {
-		v.(*RequestCounter).count.Add(1)
+	if v, ok := s.limiters.Load(authID); ok {
+		v.(*rate.Limiter).Allow()
 	}
 }
 

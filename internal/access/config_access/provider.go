@@ -10,13 +10,13 @@ import (
 	"github.com/nghyane/llm-mux/internal/config"
 )
 
-var registerOnce sync.Once
+var doRegister = sync.OnceFunc(func() {
+	internalaccess.RegisterProvider(config.AccessProviderTypeConfigAPIKey, newProvider)
+})
 
 // Register ensures the config-access provider is available to the access manager.
 func Register() {
-	registerOnce.Do(func() {
-		internalaccess.RegisterProvider(config.AccessProviderTypeConfigAPIKey, newProvider)
-	})
+	doRegister()
 }
 
 type provider struct {

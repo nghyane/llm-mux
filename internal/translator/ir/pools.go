@@ -7,14 +7,46 @@ import (
 	"sync"
 )
 
-var BytesBufferPool = sync.Pool{
-	New: func() any {
-		return bytes.NewBuffer(make([]byte, 0, 1024))
-	},
+// -----------------------------------------------------------------------------
+// Generic Pool Wrapper
+// -----------------------------------------------------------------------------
+
+// Pool is a type-safe wrapper around sync.Pool using Go 1.18+ generics.
+type Pool[T any] struct {
+	pool sync.Pool
 }
 
+// NewPool creates a new type-safe pool with the given constructor function.
+func NewPool[T any](newFunc func() T) *Pool[T] {
+	return &Pool[T]{
+		pool: sync.Pool{
+			New: func() any { return newFunc() },
+		},
+	}
+}
+
+// Get retrieves an item from the pool without type assertion at call site.
+func (p *Pool[T]) Get() T {
+	return p.pool.Get().(T)
+}
+
+// Put returns an item to the pool.
+func (p *Pool[T]) Put(v T) {
+	p.pool.Put(v)
+}
+
+// -----------------------------------------------------------------------------
+// Bytes Buffer Pool
+// -----------------------------------------------------------------------------
+
+// BytesBufferPool provides reusable bytes.Buffer instances.
+var BytesBufferPool = NewPool(func() *bytes.Buffer {
+	return bytes.NewBuffer(make([]byte, 0, 1024))
+})
+
+// GetBuffer retrieves a buffer from the pool.
 func GetBuffer() *bytes.Buffer {
-	return BytesBufferPool.Get().(*bytes.Buffer)
+	return BytesBufferPool.Get()
 }
 
 // PutBuffer returns a buffer to the pool after resetting it.
@@ -23,17 +55,20 @@ func PutBuffer(buf *bytes.Buffer) {
 	BytesBufferPool.Put(buf)
 }
 
-// StringBuilderPool provides reusable strings.Builder instances.
-var StringBuilderPool = sync.Pool{
-	New: func() any {
-		b := &strings.Builder{}
-		b.Grow(512)
-		return b
-	},
-}
+// -----------------------------------------------------------------------------
+// String Builder Pool
+// -----------------------------------------------------------------------------
 
+// StringBuilderPool provides reusable strings.Builder instances.
+var StringBuilderPool = NewPool(func() *strings.Builder {
+	b := &strings.Builder{}
+	b.Grow(512)
+	return b
+})
+
+// GetStringBuilder retrieves a string builder from the pool.
 func GetStringBuilder() *strings.Builder {
-	return StringBuilderPool.Get().(*strings.Builder)
+	return StringBuilderPool.Get()
 }
 
 // PutStringBuilder returns a string builder to the pool after resetting it.
@@ -47,15 +82,14 @@ func PutStringBuilder(sb *strings.Builder) {
 // -----------------------------------------------------------------------------
 
 // uuidBytePool provides reusable byte slices for UUID generation.
-var uuidBytePool = sync.Pool{
-	New: func() any {
-		b := make([]byte, 16)
-		return &b
-	},
-}
+var uuidBytePool = NewPool(func() *[]byte {
+	b := make([]byte, 16)
+	return &b
+})
 
+// GetUUIDBuf retrieves a UUID buffer from the pool.
 func GetUUIDBuf() *[]byte {
-	return uuidBytePool.Get().(*[]byte)
+	return uuidBytePool.Get()
 }
 
 // PutUUIDBuf returns a UUID buffer to the pool.
@@ -63,37 +97,11 @@ func PutUUIDBuf(b *[]byte) {
 	uuidBytePool.Put(b)
 }
 
-// -----------------------------------------------------------------------------
-// Pre-allocated common values
-// -----------------------------------------------------------------------------
-
-// Common empty values to avoid allocations
-var (
-	EmptyMap       = map[string]any{}
-	EmptySlice     = []any{}
-	EmptyStringMap = map[string]string{}
-)
-
 // JSON Schema version constants
 // Claude API requires JSON Schema draft 2020-12
 // See: https://docs.anthropic.com/en/docs/build-with-claude/tool-use
 const (
 	JSONSchemaDraft202012 = "https://json-schema.org/draft/2020-12/schema"
-)
-
-// Common JSON schema fragments (immutable, safe to share)
-var (
-	EmptyObjectSchema = map[string]any{
-		"type":       "object",
-		"properties": map[string]any{},
-	}
-
-	ClaudeEmptyInputSchema = map[string]any{
-		"type":                 "object",
-		"properties":           map[string]any{},
-		"additionalProperties": false,
-		"$schema":              JSONSchemaDraft202012,
-	}
 )
 
 func BuildSSEChunk(jsonData []byte) []byte {

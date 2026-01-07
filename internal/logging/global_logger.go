@@ -13,31 +13,32 @@ import (
 )
 
 var (
-	setupOnce      sync.Once
 	writerMu       sync.Mutex
 	logWriter      *lumberjack.Logger
 	ginInfoWriter  io.Writer
 	ginErrorWriter io.Writer
 )
 
+var setupBaseLogger = sync.OnceFunc(func() {
+	SetOutput(os.Stdout)
+	SetLevel(slog.LevelInfo)
+	SetReportCaller(true)
+
+	gin.SetMode(gin.ReleaseMode)
+
+	ginInfoWriter = Writer()
+	gin.DefaultWriter = ginInfoWriter
+	ginErrorWriter = WriterLevel(slog.LevelError)
+	gin.DefaultErrorWriter = ginErrorWriter
+	gin.DebugPrintFunc = func(format string, values ...any) {
+		Debugf(format, values...)
+	}
+
+	RegisterExitHandler(closeLogOutputs)
+})
+
 func SetupBaseLogger() {
-	setupOnce.Do(func() {
-		SetOutput(os.Stdout)
-		SetLevel(slog.LevelInfo)
-		SetReportCaller(true)
-
-		gin.SetMode(gin.ReleaseMode)
-
-		ginInfoWriter = Writer()
-		gin.DefaultWriter = ginInfoWriter
-		ginErrorWriter = WriterLevel(slog.LevelError)
-		gin.DefaultErrorWriter = ginErrorWriter
-		gin.DebugPrintFunc = func(format string, values ...any) {
-			Debugf(format, values...)
-		}
-
-		RegisterExitHandler(closeLogOutputs)
-	})
+	setupBaseLogger()
 }
 
 func ConfigureLogOutput(loggingToFile bool) error {
