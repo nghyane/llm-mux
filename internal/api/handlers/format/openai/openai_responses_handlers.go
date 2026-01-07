@@ -137,6 +137,7 @@ func (h *OpenAIResponsesAPIHandler) handleStreamingResponse(c *gin.Context, rawJ
 }
 
 func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flusher http.Flusher, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+	sw := format.NewSSEWriter(c.Writer)
 	for {
 		select {
 		case <-c.Request.Context().Done():
@@ -144,18 +145,22 @@ func (h *OpenAIResponsesAPIHandler) forwardResponsesStream(c *gin.Context, flush
 			return
 		case chunk, ok := <-data:
 			if !ok {
-				_, _ = c.Writer.Write([]byte("\n"))
+				sw.Write([]byte("\n"))
 				flusher.Flush()
 				cancel(nil)
 				return
 			}
 
 			if bytes.HasPrefix(chunk, []byte("event:")) {
-				_, _ = c.Writer.Write([]byte("\n"))
+				sw.Write([]byte("\n"))
 			}
-			_, _ = c.Writer.Write(chunk)
-			_, _ = c.Writer.Write([]byte("\n"))
+			sw.Write(chunk)
+			sw.Write([]byte("\n"))
 
+			if !sw.Ok() {
+				cancel(sw.Err())
+				return
+			}
 			flusher.Flush()
 		case errMsg, ok := <-errs:
 			if !ok {

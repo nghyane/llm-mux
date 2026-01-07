@@ -165,7 +165,10 @@ func (h *ClaudeCodeAPIHandler) forwardClaudeStream(c *gin.Context, flusher http.
 				return
 			}
 			if len(chunk) > 0 {
-				_, _ = c.Writer.Write(chunk)
+				if _, err := c.Writer.Write(chunk); err != nil {
+					cancel(err)
+					return
+				}
 				flusher.Flush()
 			}
 

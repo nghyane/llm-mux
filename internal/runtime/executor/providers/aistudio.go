@@ -232,11 +232,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		return nil
 	})
 
-	go func() {
-		pipeline.Close()
-	}()
-
-	return stream.ConvertPipelineToStreamChunk(ctx, pipeline.Output()), nil
+	return stream.ConvertPipelineToStreamChunk(ctx, pipeline.Output(), pipeline.Close), nil
 }
 
 func (e *AIStudioExecutor) CountTokens(ctx context.Context, auth *provider.Auth, req provider.Request, opts provider.Options) (provider.Response, error) {

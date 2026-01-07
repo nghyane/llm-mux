@@ -18,8 +18,8 @@ import (
 	"github.com/nghyane/llm-mux/internal/auth/codex"
 	"github.com/nghyane/llm-mux/internal/browser"
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/util"
 	log "github.com/nghyane/llm-mux/internal/logging"
+	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/proxy"
 
@@ -209,8 +209,9 @@ func (g *GeminiAuth) createTokenStorage(ctx context.Context, config *oauth2.Conf
 //   - error: An error if the token acquisition fails, nil otherwise
 func (g *GeminiAuth) getTokenFromWeb(ctx context.Context, config *oauth2.Config, noBrowser ...bool) (*oauth2.Token, error) {
 	// Use a channel to pass the authorization code from the HTTP handler to the main function.
-	codeChan := make(chan string)
-	errChan := make(chan error)
+	// Buffered channels (size 1) prevent blocking if handler sends before receiver is ready in select.
+	codeChan := make(chan string, 1)
+	errChan := make(chan error, 1)
 
 	// Create a new HTTP server with its own multiplexer.
 	mux := http.NewServeMux()

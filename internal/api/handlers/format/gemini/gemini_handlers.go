@@ -232,6 +232,7 @@ func (h *GeminiAPIHandler) handleGenerateContent(c *gin.Context, modelName strin
 }
 
 func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flusher, alt string, cancel func(error), data <-chan []byte, errs <-chan *interfaces.ErrorMessage) {
+	sw := format.NewSSEWriter(c.Writer)
 	for {
 		select {
 		case <-c.Request.Context().Done():
@@ -243,18 +244,20 @@ func (h *GeminiAPIHandler) forwardGeminiStream(c *gin.Context, flusher http.Flus
 				return
 			}
 			if alt == "" {
-				// Skip [DONE] markers for native Gemini format
 				if bytes.Equal(chunk, []byte("data: [DONE]")) || bytes.Equal(chunk, []byte("[DONE]")) {
 					continue
 				}
-				// Only add "data: " prefix if chunk doesn't already have it
 				if !bytes.HasPrefix(chunk, []byte("data:")) {
-					_, _ = c.Writer.Write([]byte("data: "))
+					sw.Write([]byte("data: "))
 				}
-				_, _ = c.Writer.Write(chunk)
-				_, _ = c.Writer.Write([]byte("\n\n"))
+				sw.Write(chunk)
+				sw.Write([]byte("\n\n"))
 			} else {
-				_, _ = c.Writer.Write(chunk)
+				sw.Write(chunk)
+			}
+			if !sw.Ok() {
+				cancel(sw.Err())
+				return
 			}
 			flusher.Flush()
 		case errMsg, ok := <-errs:

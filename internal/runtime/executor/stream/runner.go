@@ -278,11 +278,7 @@ func RunSSEStream(
 		return nil
 	})
 
-	go func() {
-		pipeline.Close()
-	}()
-
-	return ConvertPipelineToStreamChunk(ctx, pipeline.Output())
+	return ConvertPipelineToStreamChunk(ctx, pipeline.Output(), pipeline.Close)
 }
 
 type SimpleStreamProcessor struct {
@@ -396,10 +392,15 @@ func (p *GeminiStreamProcessor) ProcessDone() ([][]byte, error) {
 	return p.translator.Flush()
 }
 
-func ConvertPipelineToStreamChunk(ctx context.Context, input <-chan streamutil.Chunk) <-chan provider.StreamChunk {
+func ConvertPipelineToStreamChunk(ctx context.Context, input <-chan streamutil.Chunk, cleanup func() error) <-chan provider.StreamChunk {
 	out := make(chan provider.StreamChunk, 128)
 	go func() {
 		defer close(out)
+		defer func() {
+			if cleanup != nil {
+				cleanup()
+			}
+		}()
 		for {
 			select {
 			case <-ctx.Done():
