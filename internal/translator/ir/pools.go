@@ -96,38 +96,9 @@ var (
 	}
 )
 
-// -----------------------------------------------------------------------------
-// SSE Chunk Pools - Optimized for streaming responses
-// -----------------------------------------------------------------------------
-
-// sseChunkPool provides reusable byte slices for SSE chunk building.
-var sseChunkPool = sync.Pool{
-	New: func() any {
-		// Typical SSE chunk: "data: {...}\n\n" - allocate 512 bytes
-		b := make([]byte, 0, 512)
-		return &b
-	},
-}
-
-func GetSSEChunkBuf() []byte {
-	bp := sseChunkPool.Get().(*[]byte)
-	return (*bp)[:0]
-}
-
-// PutSSEChunkBuf returns an SSE chunk buffer to the pool.
-func PutSSEChunkBuf(b []byte) {
-	if cap(b) >= 512 && cap(b) <= 4096 {
-		bp := b[:0]
-		sseChunkPool.Put(&bp)
-	}
-}
-
 func BuildSSEChunk(jsonData []byte) []byte {
 	size := 6 + len(jsonData) + 2 // "data: " + json + "\n\n"
-	buf := GetSSEChunkBuf()
-	if cap(buf) < size {
-		buf = make([]byte, 0, size)
-	}
+	buf := make([]byte, 0, size)
 	buf = append(buf, "data: "...)
 	buf = append(buf, jsonData...)
 	buf = append(buf, "\n\n"...)
@@ -136,10 +107,7 @@ func BuildSSEChunk(jsonData []byte) []byte {
 
 func BuildSSEEvent(eventType string, jsonData []byte) []byte {
 	size := 7 + len(eventType) + 7 + len(jsonData) + 2
-	buf := GetSSEChunkBuf()
-	if cap(buf) < size {
-		buf = make([]byte, 0, size)
-	}
+	buf := make([]byte, 0, size)
 	buf = append(buf, "event: "...)
 	buf = append(buf, eventType...)
 	buf = append(buf, "\ndata: "...)
