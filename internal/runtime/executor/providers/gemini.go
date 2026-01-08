@@ -222,7 +222,6 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		_ = httpResp.Body.Close()
 		return nil, result.Error
 	}
-	estimatedInputTokens := translation.EstimatedInputTokens
 
 	pipeline := streamutil.NewPipeline(ctx, streamutil.PipelineConfig{
 		BufferSize: 128,
@@ -247,7 +246,6 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 		scanner := bufio.NewScanner(httpResp.Body)
 		scanner.Buffer(buf, executor.DefaultStreamBufferSize)
 		streamCtx := stream.NewStreamContext()
-		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 		translator := stream.NewStreamTranslator(e.Cfg, from, from.String(), req.Model, messageID, streamCtx)
 		processor := &geminiStreamProcessor{
@@ -262,6 +260,14 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 			}
 
 			line := scanner.Bytes()
+
+			if streamCtx.GeminiState.ActualInputTokens == 0 {
+				if tokens := sseutil.ExtractPromptTokenCount(line); tokens > 0 {
+					streamCtx.GeminiState.ActualInputTokens = tokens
+					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
+				}
+			}
+
 			filtered := sseutil.FilterSSEUsageMetadata(line)
 			payload := sseutil.JSONPayload(filtered)
 			if len(payload) == 0 {

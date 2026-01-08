@@ -86,7 +86,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 	reporter := e.NewUsageReporter(ctx, e.Identifier(), req.Model, auth)
 	defer reporter.TrackFailure(ctx, &err)
 
-	body, estimatedInputTokens, err := e.translateRequestWithTokens(req, opts, true)
+	_, body, err := e.translateRequest(req, opts, true)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +150,6 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 		}()
 
 		streamCtx := stream.NewStreamContext()
-		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 		translator := stream.NewStreamTranslator(e.Cfg, opts.SourceFormat, opts.SourceFormat.String(), req.Model, messageID, streamCtx)
 		processor := &aistudioStreamProcessor{
@@ -167,6 +166,13 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *provider.Aut
 			case wsrelay.MessageTypeStreamStart:
 			case wsrelay.MessageTypeStreamChunk:
 				if len(event.Payload) > 0 {
+					// Extract actual input tokens from usageMetadata BEFORE filtering
+					if streamCtx.GeminiState.ActualInputTokens == 0 {
+						if tokens := sseutil.ExtractPromptTokenCount(event.Payload); tokens > 0 {
+							streamCtx.GeminiState.ActualInputTokens = tokens
+							streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(event.Payload)
+						}
+					}
 					filtered := sseutil.FilterSSEUsageMetadata(event.Payload)
 
 					chunks, usage, err := processor.ProcessLine(bytes.Clone(filtered))

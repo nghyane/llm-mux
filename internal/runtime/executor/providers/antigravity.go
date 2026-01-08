@@ -23,6 +23,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/providers/cloudcode"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 
 	log "github.com/nghyane/llm-mux/internal/logging"
@@ -225,7 +226,6 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 		return nil, fmt.Errorf("failed to translate request: %w", errTranslate)
 	}
 	translated := cloudcode.RequestEnvelope(translation.Payload)
-	estimatedInputTokens := translation.EstimatedInputTokens
 
 	baseURLs := antigravityBaseURLFallbackOrder(auth)
 	httpClient := e.NewHTTPClient(ctx, auth, 0)
@@ -314,14 +314,18 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 		}
 
 		streamCtx := stream.NewStreamContextWithTools(opts.OriginalRequest)
-		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + req.Model
 
 		processor := stream.NewGeminiStreamProcessor(e.Cfg, from, req.Model, messageID, streamCtx)
 
-		// Use GeminiPreprocessor with UnwrapEnvelope for envelope-wrapped responses
 		geminiPreprocessFn := stream.GeminiPreprocessor()
 		preprocessor := func(line []byte) ([]byte, bool) {
+			if streamCtx.GeminiState.ActualInputTokens == 0 {
+				if tokens := sseutil.ExtractPromptTokenCount(line); tokens > 0 {
+					streamCtx.GeminiState.ActualInputTokens = tokens
+					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
+				}
+			}
 			payload, skip := geminiPreprocessFn(line)
 			if skip || payload == nil {
 				return nil, true

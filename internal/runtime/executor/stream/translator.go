@@ -118,12 +118,20 @@ func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslati
 
 	if !t.streamMetaSent && len(events) > 0 {
 		t.streamMetaSent = true
+
+		var inputTokens, cacheTokens int64
+		if t.Ctx.GeminiState != nil && t.Ctx.GeminiState.ActualInputTokens > 0 {
+			inputTokens = t.Ctx.GeminiState.ActualInputTokens
+			cacheTokens = t.Ctx.GeminiState.ActualCacheTokens
+		}
+
 		metaEvent := ir.UnifiedEvent{
 			Type: ir.EventTypeStreamMeta,
 			StreamMeta: &ir.StreamMeta{
 				MessageID:            t.messageID,
 				Model:                t.model,
-				EstimatedInputTokens: t.Ctx.EstimatedInputTokens,
+				EstimatedInputTokens: inputTokens,
+				CacheReadInputTokens: cacheTokens,
 			},
 		}
 		if chunk, err := t.convertEvent(&metaEvent); err != nil {

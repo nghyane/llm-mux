@@ -18,6 +18,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/registry"
 	"github.com/nghyane/llm-mux/internal/runtime/executor"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/to_ir"
 	"github.com/nghyane/llm-mux/internal/util"
@@ -270,15 +271,25 @@ func (e *VertexExecutor) executeStreamWithStrategy(ctx context.Context, auth *pr
 	}
 
 	streamCtx := stream.NewStreamContext()
-	streamCtx.EstimatedInputTokens = translation.EstimatedInputTokens
 	translator := stream.NewStreamTranslator(e.Cfg, from, from.String(), req.Model, "chatcmpl-"+req.Model, streamCtx)
 	processor := &vertexStreamProcessor{
 		translator: translator,
 	}
 
+	preprocessor := func(line []byte) ([]byte, bool) {
+		if streamCtx.GeminiState.ActualInputTokens == 0 {
+			if tokens := sseutil.ExtractPromptTokenCount(line); tokens > 0 {
+				streamCtx.GeminiState.ActualInputTokens = tokens
+				streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
+			}
+		}
+		return line, false
+	}
+
 	return stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
 		ExecutorName:     "vertex executor",
 		HandleDoneSignal: true,
+		Preprocessor:     preprocessor,
 	}), nil
 }
 

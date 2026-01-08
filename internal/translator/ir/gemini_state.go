@@ -19,6 +19,15 @@ type GeminiStreamParserState struct {
 	// PendingThinkingEvent buffers the last thinking event.
 	// We hold it until we know if the next chunk has a signature for it.
 	PendingThinkingEvent *UnifiedEvent
+
+	// ActualInputTokens stores the promptTokenCount from Gemini's usageMetadata.
+	// This is the actual token count from the provider (not estimated).
+	// Set on first chunk with usageMetadata, used for accurate message_start.
+	ActualInputTokens int64
+
+	// ActualCacheTokens stores the cachedContentTokenCount from Gemini's usageMetadata.
+	// Used to calculate: input_tokens = promptTokenCount - cachedContentTokenCount
+	ActualCacheTokens int64
 }
 
 // NewGeminiStreamParserState creates a new state for parsing Gemini streams.

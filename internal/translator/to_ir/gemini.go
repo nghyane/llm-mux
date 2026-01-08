@@ -491,6 +491,10 @@ func ParseGeminiChunkWithStateContext(rawJSON []byte, state *ir.GeminiStreamPars
 
 	usage := parseGeminiUsage(parsed)
 
+	if state != nil && state.ActualInputTokens == 0 && usage != nil && usage.PromptTokens > 0 {
+		state.ActualInputTokens = usage.PromptTokens
+	}
+
 	if candidates := parsed.Get("candidates").Array(); len(candidates) > 0 {
 		candidate := candidates[0]
 

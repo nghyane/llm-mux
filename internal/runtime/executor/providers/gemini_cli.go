@@ -22,9 +22,9 @@ import (
 	"github.com/nghyane/llm-mux/internal/runtime/executor/providers/cloudcode"
 	"github.com/nghyane/llm-mux/internal/runtime/executor/stream"
 	"github.com/nghyane/llm-mux/internal/runtime/geminicli"
+	"github.com/nghyane/llm-mux/internal/sseutil"
 	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
-	"github.com/nghyane/llm-mux/internal/util"
 	"github.com/tidwall/sjson"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -217,7 +217,6 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 	from := opts.SourceFormat
 
 	var translation *stream.TranslationResult
-	var estimatedInputTokens int64
 	if ir.IsClaudeModel(req.Model) {
 		irReq, errIR := stream.ConvertRequestToIR(from, req.Model, req.Payload, req.Metadata)
 		if errIR != nil {
@@ -228,11 +227,9 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 			return nil, fmt.Errorf("failed to translate request: %w", errClaude)
 		}
 		translation = &stream.TranslationResult{
-			Payload:              claudePayload,
-			IR:                   irReq,
-			EstimatedInputTokens: util.CountGeminiTokensFromIR(irReq),
+			Payload: claudePayload,
+			IR:      irReq,
 		}
-		estimatedInputTokens = translation.EstimatedInputTokens
 	} else {
 		var errGemini error
 		translation, errGemini = stream.TranslateToGeminiWithTokens(e.Cfg, from, req.Model, req.Payload, true, req.Metadata)
@@ -240,7 +237,6 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 			return nil, fmt.Errorf("failed to translate request: %w", errGemini)
 		}
 		translation.Payload = cloudcode.RequestEnvelope(translation.Payload)
-		estimatedInputTokens = translation.EstimatedInputTokens
 	}
 	basePayload := translation.Payload
 
@@ -333,14 +329,18 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 		}
 
 		streamCtx := stream.NewStreamContext()
-		streamCtx.EstimatedInputTokens = estimatedInputTokens
 		messageID := "chatcmpl-" + attemptModel
 
 		processor := stream.NewGeminiStreamProcessor(e.Cfg, from, attemptModel, messageID, streamCtx)
 
-		// Use GeminiPreprocessor with UnwrapEnvelope for envelope-wrapped responses
 		geminiPreprocessFn := stream.GeminiPreprocessor()
 		preprocessor := func(line []byte) ([]byte, bool) {
+			if streamCtx.GeminiState.ActualInputTokens == 0 {
+				if tokens := sseutil.ExtractPromptTokenCount(line); tokens > 0 {
+					streamCtx.GeminiState.ActualInputTokens = tokens
+					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
+				}
+			}
 			payload, skip := geminiPreprocessFn(line)
 			if skip || payload == nil {
 				return nil, true

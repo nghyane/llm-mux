@@ -284,6 +284,19 @@ func ToClaudeSSE(ev ir.UnifiedEvent, state *ClaudeStreamState) ([]byte, error) {
 			state.MessageStartSent = true
 			state.Model = ev.StreamMeta.Model
 			state.MessageID = ev.StreamMeta.MessageID
+			inputTokens := ev.StreamMeta.EstimatedInputTokens
+			cacheTokens := ev.StreamMeta.CacheReadInputTokens
+			if cacheTokens > 0 {
+				inputTokens -= cacheTokens
+			}
+			usage := map[string]any{
+				"input_tokens":                inputTokens,
+				"output_tokens":               int64(1),
+				"cache_creation_input_tokens": int64(0),
+			}
+			if cacheTokens > 0 {
+				usage["cache_read_input_tokens"] = cacheTokens
+			}
 			writeSSE(buf, ir.ClaudeSSEMessageStart, map[string]any{
 				"type": ir.ClaudeSSEMessageStart,
 				"message": map[string]any{
@@ -292,12 +305,7 @@ func ToClaudeSSE(ev ir.UnifiedEvent, state *ClaudeStreamState) ([]byte, error) {
 					"role":    ir.ClaudeRoleAssistant,
 					"content": []any{},
 					"model":   ev.StreamMeta.Model,
-					"usage": map[string]any{
-						"input_tokens":                ev.StreamMeta.EstimatedInputTokens,
-						"output_tokens":               int64(1),
-						"cache_creation_input_tokens": int64(0),
-						"cache_read_input_tokens":     int64(0),
-					},
+					"usage":   usage,
 				},
 			})
 		}

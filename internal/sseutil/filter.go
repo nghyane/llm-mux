@@ -256,3 +256,29 @@ func isStopChunkWithoutUsage(jsonBytes []byte) bool {
 	}
 	return !content.Get("usageMetadata").Exists()
 }
+
+func ExtractPromptTokenCount(line []byte) int64 {
+	payload := JSONPayload(line)
+	if len(payload) == 0 {
+		return 0
+	}
+	parsed := gjson.ParseBytes(payload)
+	content, _ := unwrapEnvelopeResult(parsed)
+	if v := content.Get("usageMetadata.promptTokenCount"); v.Exists() {
+		return v.Int()
+	}
+	return 0
+}
+
+func ExtractCacheTokenCount(line []byte) int64 {
+	payload := JSONPayload(line)
+	if len(payload) == 0 {
+		return 0
+	}
+	parsed := gjson.ParseBytes(payload)
+	content, _ := unwrapEnvelopeResult(parsed)
+	if v := content.Get("usageMetadata.cachedContentTokenCount"); v.Exists() {
+		return v.Int()
+	}
+	return 0
+}

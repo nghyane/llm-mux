@@ -9,7 +9,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/from_ir"
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 	"github.com/nghyane/llm-mux/internal/translator/preprocess"
-	"github.com/nghyane/llm-mux/internal/util"
 )
 
 func ExtractUsageFromEvents(events []ir.UnifiedEvent) *ir.Usage {
@@ -47,10 +46,6 @@ func TranslateToGeminiWithTokens(cfg *config.Config, from provider.Format, model
 	result := &TranslationResult{
 		Payload: sseutil.ApplyPayloadConfig(cfg, model, geminiJSON),
 		IR:      irReq,
-	}
-
-	if from.String() == "claude" {
-		result.EstimatedInputTokens = util.CountTokensFromIR(model, irReq)
 	}
 
 	return result, nil

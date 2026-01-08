@@ -135,6 +135,7 @@ type StreamMeta struct {
 	MessageID            string
 	Model                string
 	EstimatedInputTokens int64
+	CacheReadInputTokens int64
 }
 
 type UnifiedEvent struct {
