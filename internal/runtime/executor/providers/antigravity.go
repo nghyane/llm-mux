@@ -326,11 +326,7 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
 				}
 			}
-			payload, skip := geminiPreprocessFn(line)
-			if skip || payload == nil {
-				return nil, true
-			}
-			return cloudcode.ResponseUnwrap(payload), false
+			return geminiPreprocessFn(line)
 		}
 
 		streamChan = stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{

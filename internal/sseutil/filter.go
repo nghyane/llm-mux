@@ -25,14 +25,21 @@ type stopChunkTracker struct {
 	mu          sync.RWMutex
 	entries     map[string]time.Time
 	cleanupOnce sync.Once
+	stopCh      chan struct{}
 }
 
 func (t *stopChunkTracker) startCleanup() {
+	t.stopCh = make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(1 * time.Minute)
 		defer ticker.Stop()
-		for range ticker.C {
-			t.cleanup()
+		for {
+			select {
+			case <-ticker.C:
+				t.cleanup()
+			case <-t.stopCh:
+				return
+			}
 		}
 	}()
 }
@@ -126,24 +133,16 @@ func FilterSSEUsageMetadata(payload []byte) []byte {
 			continue
 		}
 
-		traceID := gjson.GetBytes(rawJSON, "traceId").String()
-		if isStopChunkWithoutUsage(rawJSON) && traceID != "" {
-			stopChunkCache.remember(traceID)
+		cleaned, changed, skip := processSSELine(rawJSON)
+		if skip {
 			modified = true
 			continue
 		}
-		if traceID != "" && stopChunkCache.checkAndRemove(traceID, hasUsageMetadata(rawJSON)) {
-			modified = true
-			continue
-		}
-
-		cleaned, changed := StripUsageMetadataFromJSON(rawJSON)
 		if !changed {
 			outputLines = append(outputLines, line)
 			continue
 		}
 
-		// Rebuild line with cleaned JSON
 		rebuilt := make([]byte, 0, len(line))
 		rebuilt = append(rebuilt, line[:dataIdx]...)
 		rebuilt = append(rebuilt, dataPrefix...)
@@ -167,6 +166,36 @@ func FilterSSEUsageMetadata(payload []byte) []byte {
 		return payload
 	}
 	return bytes.Join(outputLines, []byte("\n"))
+}
+
+func processSSELine(rawJSON []byte) (cleaned []byte, changed bool, skip bool) {
+	if !gjson.ValidBytes(rawJSON) {
+		return rawJSON, false, false
+	}
+
+	parsed := gjson.ParseBytes(rawJSON)
+	content, prefix := unwrapEnvelopeResult(parsed)
+
+	traceID := parsed.Get("traceId").String()
+	finishReason := content.Get("candidates.0.finishReason")
+	hasFinish := finishReason.Exists() && strings.TrimSpace(finishReason.String()) != ""
+	hasUsage := content.Get("usageMetadata").Exists()
+
+	if hasFinish && !hasUsage && traceID != "" {
+		stopChunkCache.remember(traceID)
+		return nil, false, true
+	}
+
+	if traceID != "" && stopChunkCache.checkAndRemove(traceID, hasUsage) {
+		return nil, false, true
+	}
+
+	if hasFinish || !hasUsage {
+		return rawJSON, false, false
+	}
+
+	cleaned, _ = sjson.DeleteBytes(rawJSON, prefix+"usageMetadata")
+	return cleaned, true, false
 }
 
 // UnwrapEnvelope returns the inner content for gemini-cli wrapped responses.

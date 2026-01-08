@@ -28,7 +28,7 @@ type UsageReporter interface {
 
 // Constants for stream processing
 const (
-	DefaultStreamBufferSize  = 2 * 1024 * 1024 // 2MB
+	DefaultStreamBufferSize  = 512 * 1024 // 512KB - sufficient for SSE chunks
 	DefaultScannerBufferSize = 64 * 1024
 	DefaultStreamIdleTimeout = 5 * time.Minute
 )
@@ -240,7 +240,7 @@ func RunSSEStream(
 					}
 				}
 			} else if cfg.PassthroughOnEmpty {
-				if !pipeline.SendData(bytes.Clone(payload)) {
+				if !pipeline.SendData(payload) {
 					return nil
 				}
 			}
@@ -328,7 +328,7 @@ func (p *OpenAIStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, e
 	}
 	p.firstChunk = false
 
-	events, err := to_ir.ParseOpenAIChunk(bytes.Clone(payload))
+	events, err := to_ir.ParseOpenAIChunk(payload)
 	if err != nil {
 		return nil, nil, err
 	}
