@@ -7,7 +7,6 @@ import (
 	"github.com/nghyane/llm-mux/internal/bootstrap"
 	"github.com/nghyane/llm-mux/internal/cmd"
 	"github.com/nghyane/llm-mux/internal/config"
-	"github.com/nghyane/llm-mux/internal/logging"
 	log "github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/usage"
 	"github.com/spf13/cobra"
@@ -23,7 +22,7 @@ var serveCmd = &cobra.Command{
 This is the main command to run the proxy server. It loads the configuration,
 initializes the token stores, and starts the HTTP server.`,
 	Run: func(c *cobra.Command, args []string) {
-		logging.SetupBaseLogger()
+		log.SetupBaseLogger()
 
 		configPath := cfgFile
 		if configPath == "" {
@@ -48,7 +47,7 @@ initializes the token stores, and starts the HTTP server.`,
 			initUsageBackend(cfg)
 		}
 
-		if err := logging.ConfigureLogOutput(cfg.LoggingToFile); err != nil {
+		if err := log.ConfigureLogOutput(cfg.LoggingToFile); err != nil {
 			log.Fatalf("Failed to configure log output: %v", err)
 		}
 

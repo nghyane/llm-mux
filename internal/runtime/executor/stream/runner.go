@@ -34,7 +34,8 @@ const (
 
 var ScannerBufferPool = sync.Pool{
 	New: func() any {
-		return make([]byte, DefaultScannerBufferSize)
+		buf := make([]byte, DefaultScannerBufferSize)
+		return &buf
 	},
 }
 
@@ -155,15 +156,15 @@ func RunSSEStream(
 		streamReader := NewStreamReader(ctx, body, idleTimeout, cfg.ExecutorName)
 		defer streamReader.Close()
 
-		buf := ScannerBufferPool.Get().([]byte)
-		defer ScannerBufferPool.Put(buf)
+		bufPtr := ScannerBufferPool.Get().(*[]byte)
+		defer ScannerBufferPool.Put(bufPtr)
 
 		scanner := bufio.NewScanner(streamReader)
 		maxBufferSize := cfg.MaxBufferSize
 		if maxBufferSize == 0 {
 			maxBufferSize = DefaultStreamBufferSize
 		}
-		scanner.Buffer(buf, maxBufferSize)
+		scanner.Buffer(*bufPtr, maxBufferSize)
 
 		for scanner.Scan() {
 			select {

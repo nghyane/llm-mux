@@ -185,11 +185,11 @@ func hasEventStreamContentType(contentType string) bool {
 }
 
 func (e *KiroExecutor) handleEventStreamResponse(body io.ReadCloser, model string) (provider.Response, error) {
-	buf := stream.ScannerBufferPool.Get().([]byte)
-	defer stream.ScannerBufferPool.Put(buf)
+	bufPtr := stream.ScannerBufferPool.Get().(*[]byte)
+	defer stream.ScannerBufferPool.Put(bufPtr)
 
 	scanner := bufio.NewScanner(body)
-	scanner.Buffer(buf, executor.DefaultStreamBufferSize)
+	scanner.Buffer(*bufPtr, executor.DefaultStreamBufferSize)
 	scanner.Split(splitAWSEventStream)
 	state := to_ir.NewKiroStreamState()
 
@@ -266,11 +266,11 @@ func (e *KiroExecutor) processStream(ctx context.Context, resp *http.Response, m
 		}
 	}()
 
-	buf := stream.ScannerBufferPool.Get().([]byte)
-	defer stream.ScannerBufferPool.Put(buf)
+	bufPtr := stream.ScannerBufferPool.Get().(*[]byte)
+	defer stream.ScannerBufferPool.Put(bufPtr)
 
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(buf, executor.DefaultStreamBufferSize)
+	scanner.Buffer(*bufPtr, executor.DefaultStreamBufferSize)
 	scanner.Split(splitAWSEventStream)
 	state := to_ir.NewKiroStreamState()
 	messageID := "chatcmpl-" + uuid.New().String()

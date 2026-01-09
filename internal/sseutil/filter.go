@@ -263,29 +263,6 @@ func StripUsageMetadataFromJSON(rawJSON []byte) ([]byte, bool) {
 	return cleaned, true
 }
 
-func hasUsageMetadata(jsonBytes []byte) bool {
-	if len(jsonBytes) == 0 || !gjson.ValidBytes(jsonBytes) {
-		return false
-	}
-	parsed := gjson.ParseBytes(jsonBytes)
-	content, _ := unwrapEnvelopeResult(parsed)
-	return content.Get("usageMetadata").Exists()
-}
-
-func isStopChunkWithoutUsage(jsonBytes []byte) bool {
-	if len(jsonBytes) == 0 || !gjson.ValidBytes(jsonBytes) {
-		return false
-	}
-	parsed := gjson.ParseBytes(jsonBytes)
-	content, _ := unwrapEnvelopeResult(parsed)
-
-	finishReason := content.Get("candidates.0.finishReason")
-	if !finishReason.Exists() || strings.TrimSpace(finishReason.String()) == "" {
-		return false
-	}
-	return !content.Get("usageMetadata").Exists()
-}
-
 func ExtractPromptTokenCount(line []byte) int64 {
 	payload := JSONPayload(line)
 	if len(payload) == 0 {

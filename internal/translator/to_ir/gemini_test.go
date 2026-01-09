@@ -323,7 +323,7 @@ func TestParseGeminiResponseCandidates_EmptySafetyRatings(t *testing.T) {
 		t.Fatalf("Expected 1 candidate, got %d", len(candidates))
 	}
 
-	if candidates[0].SafetyRatings != nil && len(candidates[0].SafetyRatings) != 0 {
+	if len(candidates[0].SafetyRatings) != 0 {
 		t.Errorf("Expected nil or empty safety ratings, got %d", len(candidates[0].SafetyRatings))
 	}
 }

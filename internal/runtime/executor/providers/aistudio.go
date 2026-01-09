@@ -348,40 +348,6 @@ func (e *AIStudioExecutor) translateRequest(req provider.Request, opts provider.
 	return payload, translatedPayload{payload: payload, action: action, toFormat: formatGemini}, nil
 }
 
-func (e *AIStudioExecutor) translateRequestWithTokens(req provider.Request, opts provider.Options, isStreaming bool) (translatedPayload, int64, error) {
-	from := opts.SourceFormat
-	formatGemini := provider.FromString("gemini")
-
-	translation, err := stream.TranslateToGeminiWithTokens(e.Cfg, from, req.Model, req.Payload, isStreaming, req.Metadata)
-	if err != nil {
-		return translatedPayload{}, 0, fmt.Errorf("translate request: %w", err)
-	}
-
-	payload := translation.Payload
-	if budgetOverride, includeOverride, ok := util.GeminiThinkingFromMetadata(req.Metadata); ok && util.ModelSupportsThinking(req.Model) {
-		payload = util.ApplyGeminiThinkingConfig(payload, budgetOverride, includeOverride)
-	}
-	payload = util.StripThinkingConfigIfUnsupported(req.Model, payload)
-	payload = e.ApplyPayloadConfig(req.Model, payload)
-	payload, _ = sjson.DeleteBytes(payload, "generationConfig.maxOutputTokens")
-	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseMimeType")
-	payload, _ = sjson.DeleteBytes(payload, "generationConfig.responseJsonSchema")
-
-	metadataAction := "generateContent"
-	if req.Metadata != nil {
-		if action, _ := req.Metadata["action"].(string); action == "countTokens" {
-			metadataAction = action
-		}
-	}
-	action := metadataAction
-	if isStreaming && action != "countTokens" {
-		action = "streamGenerateContent"
-	}
-	payload, _ = sjson.DeleteBytes(payload, "session_id")
-
-	return translatedPayload{payload: payload, action: action, toFormat: formatGemini}, translation.EstimatedInputTokens, nil
-}
-
 func (e *AIStudioExecutor) buildEndpoint(model, action, alt string) string {
 	ub := executor.GetURLBuilder()
 	defer ub.Release()

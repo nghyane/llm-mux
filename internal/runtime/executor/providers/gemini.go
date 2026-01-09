@@ -241,10 +241,10 @@ func (e *GeminiExecutor) ExecuteStream(ctx context.Context, auth *provider.Auth,
 				log.Errorf("gemini executor: close response body error: %v", errClose)
 			}
 		}()
-		buf := stream.ScannerBufferPool.Get().([]byte)
-		defer stream.ScannerBufferPool.Put(buf)
+		bufPtr := stream.ScannerBufferPool.Get().(*[]byte)
+		defer stream.ScannerBufferPool.Put(bufPtr)
 		scanner := bufio.NewScanner(httpResp.Body)
-		scanner.Buffer(buf, executor.DefaultStreamBufferSize)
+		scanner.Buffer(*bufPtr, executor.DefaultStreamBufferSize)
 		streamCtx := stream.NewStreamContext()
 		messageID := "chatcmpl-" + req.Model
 		translator := stream.NewStreamTranslator(e.Cfg, from, from.String(), req.Model, messageID, streamCtx)

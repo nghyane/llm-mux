@@ -51,10 +51,6 @@ type (
 	// Token is a JSON token - Delim, bool, float64, Number, string, or nil.
 	Token = stdjson.Token
 
-	// InvalidUTF8Error is returned by Marshal when attempting to encode a string
-	// value that is not a valid UTF-8 sequence.
-	InvalidUTF8Error = stdjson.InvalidUTF8Error
-
 	// InvalidUnmarshalError describes an invalid argument passed to Unmarshal.
 	InvalidUnmarshalError = stdjson.InvalidUnmarshalError
 
@@ -63,9 +59,6 @@ type (
 
 	// SyntaxError is a description of a JSON syntax error.
 	SyntaxError = stdjson.SyntaxError
-
-	// UnmarshalFieldError describes a JSON object key that led to an unexported field.
-	UnmarshalFieldError = stdjson.UnmarshalFieldError
 
 	// UnmarshalTypeError describes a JSON value that was not appropriate for a value of a specific Go type.
 	UnmarshalTypeError = stdjson.UnmarshalTypeError
