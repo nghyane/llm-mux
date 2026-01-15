@@ -2,6 +2,7 @@ package stream
 
 import (
 	"github.com/nghyane/llm-mux/internal/config"
+	"github.com/nghyane/llm-mux/internal/misc"
 	"github.com/nghyane/llm-mux/internal/provider"
 	"github.com/nghyane/llm-mux/internal/registry"
 	"github.com/nghyane/llm-mux/internal/sseutil"
@@ -163,6 +164,21 @@ func TranslateToCodex(cfg *config.Config, from provider.Format, model string, pa
 	if err != nil {
 		return nil, err
 	}
+
+	// Load instructions for Codex model if not already provided
+	if irReq.Instructions == "" {
+		_, instructions := misc.CodexInstructionsForModel(model, "")
+		if instructions != "" {
+			irReq.Instructions = instructions
+		}
+	}
+
+	// Ensure store is set to false for Responses API (Codex requirement)
+	if irReq.Store == nil {
+		storeVal := false
+		irReq.Store = &storeVal
+	}
+
 	return from_ir.ToOpenAIRequestFmt(irReq, from_ir.FormatResponsesAPI)
 }
 
