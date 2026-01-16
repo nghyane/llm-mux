@@ -25,6 +25,10 @@ type GitStoreConfig struct {
 	Username  string
 	Password  string
 	LocalPath string
+	// DisableAutoPush prevents automatic git push on every change.
+	// When true, changes are committed locally but not automatically pushed to remote.
+	// Default: false (auto-push enabled for backward compatibility).
+	DisableAutoPush bool
 }
 
 // StoreConfig unifies configuration for all store backends.
@@ -79,6 +83,11 @@ func ParseFromEnv(lookupEnv LookupEnvFunc) StoreConfig {
 		}
 		if value, ok := lookupEnv("LLM_MUX_GITSTORE_TOKEN", "GITSTORE_GIT_TOKEN"); ok {
 			cfg.Git.Password = value
+		}
+		// Check if auto-push should be disabled
+		if value, ok := lookupEnv("LLM_MUX_GITSTORE_DISABLE_AUTO_PUSH", "GITSTORE_DISABLE_AUTO_PUSH"); ok {
+			disableValue := strings.ToLower(strings.TrimSpace(value))
+			cfg.Git.DisableAutoPush = disableValue == "true" || disableValue == "1" || disableValue == "yes"
 		}
 		return cfg
 	}

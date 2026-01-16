@@ -32,15 +32,16 @@ const (
 
 // GitTokenStore persists token records and auth metadata using git as the backing storage.
 type GitTokenStore struct {
-	mu         sync.Mutex
-	dirLock    sync.RWMutex
-	configPath string
-	authDir    string
-	repoDir    string
-	remote     string
-	username   string
-	password   string
-	instanceID string
+	mu              sync.Mutex
+	dirLock         sync.RWMutex
+	configPath      string
+	authDir         string
+	repoDir         string
+	remote          string
+	username        string
+	password        string
+	instanceID      string
+	disableAutoPush bool
 }
 
 // GitLock represents a distributed lock file entry.
@@ -51,7 +52,7 @@ type GitLock struct {
 
 // NewGitTokenStore creates a token store that saves credentials to disk through the
 // TokenStorage implementation embedded in the token record.
-func NewGitTokenStore(remote, username, password, configPath, authDir string) *GitTokenStore {
+func NewGitTokenStore(remote, username, password, configPath, authDir string, disableAutoPush bool) *GitTokenStore {
 	configPath = strings.TrimSpace(configPath)
 	authDir = strings.TrimSpace(authDir)
 
@@ -82,13 +83,14 @@ func NewGitTokenStore(remote, username, password, configPath, authDir string) *G
 	instanceID := fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), time.Now().UnixNano())
 
 	return &GitTokenStore{
-		remote:     remote,
-		username:   username,
-		password:   password,
-		configPath: absConfigPath,
-		authDir:    absAuthDir,
-		repoDir:    repoDir,
-		instanceID: instanceID,
+		remote:          remote,
+		username:        username,
+		password:        password,
+		configPath:      absConfigPath,
+		authDir:         absAuthDir,
+		repoDir:         repoDir,
+		instanceID:      instanceID,
+		disableAutoPush: disableAutoPush,
 	}
 }
 
@@ -745,6 +747,12 @@ func (s *GitTokenStore) commitAndPushLocked(message string, relPaths ...string) 
 	} else if errRewrite := s.rewriteHeadAsSingleCommit(repo, headRef.Name(), commitHash, message, signature); errRewrite != nil {
 		return errRewrite
 	}
+
+	// Skip push if auto-push is disabled (local commit only)
+	if s.disableAutoPush {
+		return nil
+	}
+
 	if err = s.safePush(repo); err != nil {
 		return fmt.Errorf("git token store: push: %w", err)
 	}

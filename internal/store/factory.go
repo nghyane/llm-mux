@@ -88,7 +88,7 @@ func newObjectStore(ctx context.Context, cfg ObjectStoreConfig, configPath, auth
 }
 
 func newGitStore(cfg GitStoreConfig, configPath, authDir string) (*StoreResult, error) {
-	store := NewGitTokenStore(cfg.RemoteURL, cfg.Username, cfg.Password, configPath, authDir)
+	store := NewGitTokenStore(cfg.RemoteURL, cfg.Username, cfg.Password, configPath, authDir, cfg.DisableAutoPush)
 
 	if err := store.EnsureRepository(); err != nil {
 		return nil, fmt.Errorf("store: ensure git repository: %w", err)
