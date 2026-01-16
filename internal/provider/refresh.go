@@ -14,9 +14,23 @@ const (
 	// to prevent goroutine explosion under high load with many auths.
 	maxConcurrentRefreshes = 10
 
-	refreshCheckInterval  = 5 * time.Second
+	// refreshCheckInterval defines how often we check if tokens need refresh.
+	// Changed from 5 seconds to 2 minutes to reduce unnecessary checks.
+	// Tokens are still refreshed proactively before expiry (see defaultRefreshLead).
+	refreshCheckInterval  = 2 * time.Minute
 	refreshPendingBackoff = time.Minute
 	refreshFailureBackoff = 5 * time.Minute
+
+	// defaultRefreshLead is the minimum time before token expiry to trigger refresh.
+	// Used as a fallback when percentage-based calculation results in less time.
+	// This ensures tokens are refreshed well before they expire.
+	defaultRefreshLead = 10 * time.Minute
+
+	// refreshLeadPercentage is the percentage of token lifetime at which to refresh.
+	// 0.25 means refresh when 25% of lifetime remains (industry best practice: 20-30%).
+	// For a 1-hour token: refreshes at 45 minutes (15 min before expiry).
+	// For an 8-hour token: refreshes at 6 hours (2 hours before expiry).
+	refreshLeadPercentage = 0.25
 )
 
 // newRefreshSemaphore creates a weighted semaphore for bounding concurrent refresh operations.
@@ -25,12 +39,11 @@ func newRefreshSemaphore() *semaphore.Weighted {
 }
 
 // StartAutoRefresh launches a background loop that evaluates auth freshness
-// every few seconds and triggers refresh operations when required.
+// and triggers refresh operations when required. Uses a smart timer-based approach:
+// calculates when the next token will expire and sleeps until then (with a max of 2 minutes).
 // Only one loop is kept alive; starting a new one cancels the previous run.
 func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duration) {
-	if interval <= 0 || interval > refreshCheckInterval {
-		interval = refreshCheckInterval
-	} else {
+	if interval <= 0 {
 		interval = refreshCheckInterval
 	}
 	if m.refreshCancel != nil {
@@ -40,21 +53,37 @@ func (m *Manager) StartAutoRefresh(parent context.Context, interval time.Duratio
 	ctx, cancel := context.WithCancel(parent)
 	m.refreshCancel = cancel
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
 		// Cleanup provider stats every hour to prevent memory leak
 		cleanupTicker := time.NewTicker(1 * time.Hour)
 		defer cleanupTicker.Stop()
 
-		m.checkRefreshes(ctx)
 		for {
+			// Check all tokens and get next refresh time
+			nextRefresh := m.checkRefreshes(ctx)
+
+			// Calculate sleep duration: sleep until next expiry, but max 2 minutes
+			sleepDuration := interval
+			if !nextRefresh.IsZero() {
+				untilNext := time.Until(nextRefresh)
+				if untilNext > 0 && untilNext < sleepDuration {
+					sleepDuration = untilNext
+				}
+			}
+
+			// Add small buffer to avoid waking up too early
+			sleepDuration += 5 * time.Second
+
+			// Use a timer instead of ticker for dynamic sleep duration
+			timer := time.NewTimer(sleepDuration)
+
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case <-ticker.C:
-				m.checkRefreshes(ctx)
+			case <-timer.C:
+				// Next refresh check will happen at top of loop
 			case <-cleanupTicker.C:
+				timer.Stop()
 				// Remove provider stats older than 24 hours
 				removed := m.CleanupProviderStats(24 * time.Hour)
 				if removed > 0 {
@@ -75,7 +104,8 @@ func (m *Manager) StopAutoRefresh() {
 
 // checkRefreshes evaluates all registered auths and triggers refreshes as needed.
 // Uses a semaphore to bound the number of concurrent refresh goroutines.
-func (m *Manager) checkRefreshes(ctx context.Context) {
+// Returns the time when the next token will need refresh (zero if no upcoming refreshes).
+func (m *Manager) checkRefreshes(ctx context.Context) time.Time {
 	now := time.Now()
 	var snapshot []*Auth
 	if m.registry != nil {
@@ -83,9 +113,19 @@ func (m *Manager) checkRefreshes(ctx context.Context) {
 	} else {
 		snapshot = m.snapshotAuths()
 	}
+
+	var nextRefresh time.Time
+
 	for _, a := range snapshot {
 		typ, _ := a.AccountInfo()
 		if typ != "api_key" {
+			// Calculate when this token will need refresh
+			if refreshTime := m.getNextRefreshTime(a, now); !refreshTime.IsZero() {
+				if nextRefresh.IsZero() || refreshTime.Before(nextRefresh) {
+					nextRefresh = refreshTime
+				}
+			}
+
 			if !m.shouldRefresh(a, now) {
 				continue
 			}
@@ -110,6 +150,8 @@ func (m *Manager) checkRefreshes(ctx context.Context) {
 			}
 		}
 	}
+
+	return nextRefresh
 }
 
 // snapshotAuths creates a copy of all currently registered auths.
@@ -121,6 +163,66 @@ func (m *Manager) snapshotAuths() []*Auth {
 		out = append(out, a.Clone())
 	}
 	return out
+}
+
+// getNextRefreshTime calculates when a token should be refreshed.
+// Returns zero time if the token doesn't need refresh or has no expiry.
+func (m *Manager) getNextRefreshTime(a *Auth, now time.Time) time.Time {
+	if a == nil || a.Disabled {
+		return time.Time{}
+	}
+	if !a.NextRefreshAfter.IsZero() && now.Before(a.NextRefreshAfter) {
+		return a.NextRefreshAfter
+	}
+
+	lastRefresh := a.LastRefreshedAt
+	if lastRefresh.IsZero() {
+		if ts, ok := authLastRefreshTimestamp(a); ok {
+			lastRefresh = ts
+		}
+	}
+
+	expiry, hasExpiry := a.ExpirationTime()
+	if !hasExpiry || expiry.IsZero() {
+		return time.Time{}
+	}
+
+	// Get the refresh lead time for this provider
+	provider := strings.ToLower(a.Provider)
+	lead := ProviderRefreshLead(provider, a.Runtime)
+
+	if lead == nil {
+		// Use smart calculation: percentage of token lifetime, with minimum lead time
+		if !lastRefresh.IsZero() && lastRefresh.Before(expiry) {
+			tokenLifetime := expiry.Sub(lastRefresh)
+			calculatedLead := time.Duration(float64(tokenLifetime) * refreshLeadPercentage)
+
+			// Use the larger of calculated lead or minimum lead
+			if calculatedLead > defaultRefreshLead {
+				lead = &calculatedLead
+			} else {
+				defaultLead := defaultRefreshLead
+				lead = &defaultLead
+			}
+		} else {
+			// Fallback to default if we don't have last refresh time
+			defaultLead := defaultRefreshLead
+			lead = &defaultLead
+		}
+	}
+
+	if *lead <= 0 {
+		return time.Time{}
+	}
+
+	// Calculate refresh time: expiry minus lead time
+	refreshTime := expiry.Add(-*lead)
+	if refreshTime.Before(now) {
+		// Already past refresh time, should refresh immediately
+		return now
+	}
+
+	return refreshTime
 }
 
 // shouldRefresh determines if an auth needs refresh based on expiration and refresh rules.
@@ -161,9 +263,27 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
 
 	provider := strings.ToLower(a.Provider)
 	lead := ProviderRefreshLead(provider, a.Runtime)
+
 	if lead == nil {
-		return false
+		// Use smart calculation: percentage of token lifetime, with minimum lead time
+		if hasExpiry && !expiry.IsZero() && !lastRefresh.IsZero() && lastRefresh.Before(expiry) {
+			tokenLifetime := expiry.Sub(lastRefresh)
+			calculatedLead := time.Duration(float64(tokenLifetime) * refreshLeadPercentage)
+
+			// Use the larger of calculated lead or minimum lead
+			if calculatedLead > defaultRefreshLead {
+				lead = &calculatedLead
+			} else {
+				defaultLead := defaultRefreshLead
+				lead = &defaultLead
+			}
+		} else {
+			// Fallback to default if we don't have sufficient data
+			defaultLead := defaultRefreshLead
+			lead = &defaultLead
+		}
 	}
+
 	if *lead <= 0 {
 		if hasExpiry && !expiry.IsZero() {
 			return now.After(expiry)
