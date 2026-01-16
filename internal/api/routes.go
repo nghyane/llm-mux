@@ -195,6 +195,29 @@ func (s *Server) conditionalAuthMiddleware() gin.HandlerFunc {
 	}
 }
 
+// isLocalhost checks if an IP address is localhost or a private network address.
+func isLocalhost(ip string) bool {
+	// Remove port if present
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	// Remove brackets for IPv6
+	ip = strings.Trim(ip, "[]")
+
+	// Check common localhost addresses
+	switch ip {
+	case "localhost", "127.0.0.1", "::1", "::ffff:127.0.0.1":
+		return true
+	}
+
+	// Check if it starts with 127. (any 127.x.x.x is localhost)
+	if strings.HasPrefix(ip, "127.") {
+		return true
+	}
+
+	return false
+}
+
 // AuthMiddleware returns a Gin middleware handler that authenticates requests
 // using the configured authentication providers. When no providers are available,
 // it allows all requests (legacy behaviour).
@@ -218,9 +241,16 @@ func AuthMiddleware(manager *access.Manager) gin.HandlerFunc {
 			return
 		}
 
-		// Allow requests without credentials (Ollama compatibility)
+		// Allow requests without credentials only from localhost (Ollama compatibility)
+		// External requests must provide valid authentication for security
 		if errors.Is(err, access.ErrNoCredentials) {
-			c.Next()
+			clientIP := c.ClientIP()
+			if isLocalhost(clientIP) {
+				c.Next()
+				return
+			}
+			// External request without credentials - require authentication
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "API key required"})
 			return
 		}
 
