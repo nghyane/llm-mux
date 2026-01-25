@@ -4,7 +4,7 @@ import "time"
 
 const DefaultStreamBufferSize = 2 * 1024 * 1024 // 2MB - reduced from 20MB for better memory efficiency
 
-const DefaultScannerBufferSize = 64 * 1024
+const DefaultScannerBufferSize = 256 * 1024 // 256KB - increased from 64KB for better streaming performance
 
 // DefaultStreamIdleTimeout is the maximum time to wait without receiving any data.
 // This is a safety net for detecting stalled upstream connections.

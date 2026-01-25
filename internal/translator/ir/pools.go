@@ -40,8 +40,10 @@ func (p *Pool[T]) Put(v T) {
 // -----------------------------------------------------------------------------
 
 // BytesBufferPool provides reusable bytes.Buffer instances.
+// Initial capacity increased from 1KB to 4KB for better performance
+// with streaming responses that have larger intermediate buffers.
 var BytesBufferPool = NewPool(func() *bytes.Buffer {
-	return bytes.NewBuffer(make([]byte, 0, 1024))
+	return bytes.NewBuffer(make([]byte, 0, 4096))
 })
 
 // GetBuffer retrieves a buffer from the pool.
@@ -60,9 +62,11 @@ func PutBuffer(buf *bytes.Buffer) {
 // -----------------------------------------------------------------------------
 
 // StringBuilderPool provides reusable strings.Builder instances.
+// Increased from 512B to 2KB for better handling of longer response strings
+// in streaming mode with larger context windows.
 var StringBuilderPool = NewPool(func() *strings.Builder {
 	b := &strings.Builder{}
-	b.Grow(512)
+	b.Grow(2048)
 	return b
 })
 
