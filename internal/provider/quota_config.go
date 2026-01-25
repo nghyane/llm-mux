@@ -28,6 +28,7 @@ type ProviderQuotaConfig struct {
 	GroupResolver  QuotaGroupResolver
 	StaggerBucket  time.Duration
 	StickyEnabled  bool
+	FillFirst      bool
 }
 
 var defaultProviderQuotaConfigs = map[string]*ProviderQuotaConfig{

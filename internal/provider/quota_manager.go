@@ -254,12 +254,12 @@ func (m *QuotaManager) Pick(
 	return selected, nil
 }
 
-func (m *QuotaManager) selectWithStrategy(auths []*Auth, config *ProviderQuotaConfig, strategy ProviderStrategy) *Auth {
-	type scored struct {
-		auth     *Auth
-		priority int64
-	}
+type scored struct {
+	auth     *Auth
+	priority int64
+}
 
+func (m *QuotaManager) selectWithStrategy(auths []*Auth, config *ProviderQuotaConfig, strategy ProviderStrategy) *Auth {
 	candidates := make([]scored, 0, len(auths))
 
 	for _, auth := range auths {
@@ -268,6 +268,61 @@ func (m *QuotaManager) selectWithStrategy(auths []*Auth, config *ProviderQuotaCo
 		candidates = append(candidates, scored{auth: auth, priority: priority})
 	}
 
+	// Fill-first mode: exhaust higher priority accounts before using lower priority ones
+	if config.FillFirst {
+		return m.selectWithFillFirst(candidates)
+	}
+
+	// Default: round-robin with score-based fallback
+	return m.selectWithRoundRobin(candidates)
+}
+
+func (m *QuotaManager) selectWithFillFirst(candidates []scored) *Auth {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Sort by priority (lower = better)
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].priority < candidates[j].priority
+	})
+
+	// Group by priority levels
+	type priorityGroup struct {
+		priority int64
+		auths    []*Auth
+	}
+
+	var groups []priorityGroup
+	var currentPriority int64 = -1
+
+	for _, c := range candidates {
+		// Group accounts with similar priority (within 100 points)
+		if len(groups) == 0 || c.priority-currentPriority > 100 {
+			groups = append(groups, priorityGroup{priority: c.priority, auths: []*Auth{c.auth}})
+			currentPriority = c.priority
+		} else {
+			groups[len(groups)-1].auths = append(groups[len(groups)-1].auths, c.auth)
+		}
+	}
+
+	// Find the first group that has accounts with 0 active requests
+	for _, g := range groups {
+		for _, auth := range g.auths {
+			state := m.getState(auth.ID)
+			if state == nil || state.ActiveRequests.Load() == 0 {
+				return auth
+			}
+		}
+		// All accounts in this group are busy, try next priority group
+	}
+
+	// All groups busy, pick from lowest priority group with random selection
+	lowestGroup := groups[len(groups)-1]
+	return lowestGroup.auths[rand.IntN(len(lowestGroup.auths))]
+}
+
+func (m *QuotaManager) selectWithRoundRobin(candidates []scored) *Auth {
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].priority < candidates[j].priority
 	})
@@ -361,11 +416,20 @@ func (m *QuotaManager) buildRetryError(auths []*Auth, now time.Time) error {
 			continue
 		}
 
-		if real := state.GetRealQuota(); real != nil && !real.WindowResetAt.IsZero() && real.WindowResetAt.After(now) {
-			if earliest.IsZero() || real.WindowResetAt.Before(earliest) {
-				earliest = real.WindowResetAt
+		// Check if quota has actually recovered (above exhausted threshold)
+		if real := state.GetRealQuota(); real != nil {
+			// If quota is above exhausted threshold and cooldown is clear, account is available
+			if real.RemainingFraction > quotaExhaustedThreshold && state.GetCooldownUntil().Before(now) {
+				// Account has recovered, don't include in retry error
+				continue
 			}
-			continue
+			// Account still has quota issues, calculate retry time
+			if !real.WindowResetAt.IsZero() && real.WindowResetAt.After(now) {
+				if earliest.IsZero() || real.WindowResetAt.Before(earliest) {
+					earliest = real.WindowResetAt
+				}
+				continue
+			}
 		}
 
 		cooldownUntil := state.GetCooldownUntil()
@@ -500,8 +564,11 @@ func (m *QuotaManager) cleanup() {
 	for _, shard := range m.shards {
 		shard.mu.Lock()
 		for authID, state := range shard.states {
+			// Clean up if: no active requests AND cooldown is expired AND state is old
+			// Also clean up if cooldown is very stale (>1 hour) even if LastExhaustedAt is recent
 			if state.ActiveRequests.Load() == 0 &&
-				now.After(state.GetCooldownUntil()) &&
+				(now.After(state.GetCooldownUntil()) ||
+					now.Sub(state.GetCooldownUntil()) > time.Hour) &&
 				now.Sub(state.GetLastExhaustedAt()) > maxAge {
 				delete(shard.states, authID)
 			}
@@ -567,7 +634,9 @@ func (m *QuotaManager) handleQuotaSnapshotUpdate(state *AuthQuotaState, snapshot
 
 		for {
 			currentNs := state.CooldownUntil.Load()
-			if currentNs >= newCooldownNs {
+			// Allow shortening cooldown if new window reset is earlier
+			// This ensures we don't block longer than necessary
+			if currentNs != 0 && currentNs < newCooldownNs {
 				break
 			}
 			if state.CooldownUntil.CompareAndSwap(currentNs, newCooldownNs) {
@@ -578,7 +647,9 @@ func (m *QuotaManager) handleQuotaSnapshotUpdate(state *AuthQuotaState, snapshot
 		return
 	}
 
-	if snapshot.RemainingFraction >= quotaRecoveredThreshold {
+	// Clear cooldown if quota has recovered above exhausted threshold
+	// This ensures accounts aren't stuck in "twilight zone" between 2-5%
+	if snapshot.RemainingFraction > quotaExhaustedThreshold {
 		for {
 			currentNs := state.CooldownUntil.Load()
 			if currentNs == 0 {

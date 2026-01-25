@@ -8,7 +8,7 @@ import (
 )
 
 func TestAuthRegistry_RegisterAndGet(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 
 	auth := &Auth{
 		ID:       "test-id-1",
@@ -49,7 +49,7 @@ func TestAuthRegistry_RegisterAndGet(t *testing.T) {
 }
 
 func TestAuthRegistry_Update(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	auth := &Auth{
@@ -78,7 +78,7 @@ func TestAuthRegistry_Update(t *testing.T) {
 }
 
 func TestAuthRegistry_Delete(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	auth := &Auth{ID: "delete-test", Provider: "copilot"}
@@ -103,7 +103,7 @@ func TestAuthRegistry_Delete(t *testing.T) {
 }
 
 func TestAuthRegistry_List(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	for i := 0; i < 10; i++ {
@@ -334,7 +334,7 @@ func TestAuthEntry_ToAuth(t *testing.T) {
 }
 
 func TestAuthRegistry_Pick(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	for i := 0; i < 3; i++ {
@@ -365,7 +365,7 @@ func TestAuthRegistry_Pick(t *testing.T) {
 }
 
 func TestAuthRegistry_PickAllCooldown(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	now := time.Now()
@@ -395,7 +395,7 @@ func TestAuthRegistry_PickAllCooldown(t *testing.T) {
 }
 
 func TestAuthRegistry_MarkResultSuccess(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	auth := &Auth{
@@ -427,7 +427,7 @@ func TestAuthRegistry_MarkResultSuccess(t *testing.T) {
 }
 
 func TestAuthRegistry_MarkResultFailure(t *testing.T) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	auth := &Auth{
@@ -512,7 +512,7 @@ func TestModelStatesSnapshot_With(t *testing.T) {
 }
 
 func BenchmarkAuthRegistry_GetEntry(b *testing.B) {
-	registry := NewAuthRegistry(nil, nil)
+	registry := NewAuthRegistry(nil, nil, nil)
 	ctx := context.Background()
 
 	for i := 0; i < 1000; i++ {

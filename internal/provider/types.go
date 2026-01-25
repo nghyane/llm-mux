@@ -25,6 +25,7 @@ type Auth struct {
 	Unavailable      bool                   `json:"unavailable"`
 	ProxyURL         string                 `json:"proxy_url,omitempty"`
 	Attributes       map[string]string      `json:"attributes,omitempty"`
+	Priority         int                    `json:"priority,omitempty"`
 	Metadata         map[string]any         `json:"metadata,omitempty"`
 	Quota            QuotaState             `json:"quota"`
 	LastError        *Error                 `json:"last_error,omitempty"`

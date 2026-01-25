@@ -106,16 +106,20 @@ type Manager struct {
 	breakers          map[string]*resilience.CircuitBreaker
 	streamingBreakers map[string]*resilience.StreamingCircuitBreaker
 
-	retryBudget *resilience.RetryBudget
-
-	registry *AuthRegistry
+	retryBudget  *resilience.RetryBudget
+	registry     *AuthRegistry
+	quotaManager *QuotaManager
 }
 
 // NewManager constructs a manager with optional custom selector and hook.
 // If no selector is provided, uses QuotaManager with provider-aware quota tracking.
 func NewManager(store Store, selector Selector, hook Hook) *Manager {
+	var quotaManager *QuotaManager
 	if selector == nil {
-		selector = NewQuotaManager()
+		quotaManager = NewQuotaManager()
+		selector = quotaManager
+	} else if qm, ok := selector.(*QuotaManager); ok {
+		quotaManager = qm
 	}
 	if hook == nil {
 		hook = NoopHook{}
@@ -131,8 +135,9 @@ func NewManager(store Store, selector Selector, hook Hook) *Manager {
 		streamingBreakers: make(map[string]*resilience.StreamingCircuitBreaker),
 		retryBudget:       resilience.NewRetryBudget(100),
 		refreshSem:        newRefreshSemaphore(),
+		quotaManager:      quotaManager,
 	}
-	m.registry = NewAuthRegistry(store, hook)
+	m.registry = NewAuthRegistry(store, hook, m.quotaManager)
 	m.registry.SetExecutorProvider(m.executorFor)
 	m.registry.Start()
 	if lc, ok := selector.(SelectorLifecycle); ok {

@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"math/rand/v2"
+	"strconv"
 	"time"
 )
 
@@ -13,7 +14,16 @@ func (s *AntigravityStrategy) Score(auth *Auth, state *AuthQuotaState, config *P
 		return 0
 	}
 
+	// Factor in auth priority (lower number = higher priority)
 	var priority int64
+	if authPriority, ok := auth.Attributes["priority"]; ok {
+		if p, err := strconv.Atoi(authPriority); err == nil {
+			priority += int64(p) * 10 // Scale down to avoid dominating other factors
+		}
+	} else if auth.Priority > 0 {
+		priority += int64(auth.Priority) * 10
+	}
+
 	priority += state.ActiveRequests.Load() * 1000
 
 	if real := state.GetRealQuota(); real != nil && time.Since(real.FetchedAt) < 5*time.Minute {

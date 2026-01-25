@@ -261,7 +261,11 @@ func (idx *quotaGroupIndex) isGroupBlocked(group string, now time.Time) (bool, t
 	idx.mu.Lock()
 	// Double-check after acquiring write lock
 	if state, ok := idx.blockedGroups[group]; ok && state != nil && !state.NextRetryAfter.After(now) {
-		delete(idx.blockedGroups, group)
+		// Check if quota has actually recovered before removing
+		// This prevents premature removal if quota still exhausted
+		if state.NextRecoverAt.IsZero() || now.After(state.NextRecoverAt) {
+			delete(idx.blockedGroups, group)
+		}
 	}
 	idx.mu.Unlock()
 

@@ -76,15 +76,18 @@ type AuthRegistry struct {
 
 	indexCounter uint64
 	indexMu      sync.Mutex
+
+	quotaManager *QuotaManager
 }
 
-func NewAuthRegistry(store Store, hook Hook) *AuthRegistry {
+func NewAuthRegistry(store Store, hook Hook, quotaManager *QuotaManager) *AuthRegistry {
 	if hook == nil {
 		hook = NoopHook{}
 	}
 	r := &AuthRegistry{
 		store:          store,
 		hook:           hook,
+		quotaManager:   quotaManager,
 		refreshHeap:    make(refreshHeap, 0, refreshHeapInitialCap),
 		refreshEntries: make(map[string]*refreshHeapEntry),
 		refreshSignal:  make(chan struct{}, 1),
@@ -680,6 +683,10 @@ func (r *AuthRegistry) handleSuccessResult(ctx context.Context, entry *AuthEntry
 		})
 		entry.SetUnavailable(false)
 		entry.ClearCooldown()
+		// Also clear QuotaManager cooldown to avoid false "all accounts exhausted" errors
+		if r.quotaManager != nil {
+			r.quotaManager.RecordRequestEnd(entry.ID(), entry.Provider(), 0, false)
+		}
 		return
 	}
 
