@@ -30,6 +30,19 @@ type ClaudeExecutor struct {
 	executor.BaseExecutor
 }
 
+// claudeThinkingUpstreamMap maps thinking model variants to their upstream names.
+// Uses O(1) map lookup instead of O(n) switch statement.
+var claudeThinkingUpstreamMap = map[string]string{
+	"claude-opus-4-5-thinking":          "claude-opus-4-5-20251101",
+	"claude-opus-4-5-thinking-low":      "claude-opus-4-5-20251101",
+	"claude-opus-4-5-thinking-medium":   "claude-opus-4-5-20251101",
+	"claude-opus-4-5-thinking-high":     "claude-opus-4-5-20251101",
+	"claude-sonnet-4-5-thinking":        "claude-sonnet-4-5-20250929",
+	"claude-sonnet-4-5-thinking-low":    "claude-sonnet-4-5-20250929",
+	"claude-sonnet-4-5-thinking-medium": "claude-sonnet-4-5-20250929",
+	"claude-sonnet-4-5-thinking-high":   "claude-sonnet-4-5-20250929",
+}
+
 type claudeStreamProcessor struct {
 	translator *stream.StreamTranslator
 }
@@ -407,11 +420,9 @@ func (e *ClaudeExecutor) resolveUpstreamModel(alias string, auth *provider.Auth)
 	if alias == "" {
 		return ""
 	}
-	switch alias {
-	case "claude-opus-4-5-thinking", "claude-opus-4-5-thinking-low", "claude-opus-4-5-thinking-medium", "claude-opus-4-5-thinking-high":
-		return "claude-opus-4-5-20251101"
-	case "claude-sonnet-4-5-thinking":
-		return "claude-sonnet-4-5-20250929"
+	// O(1) map lookup for thinking model variants
+	if upstream, ok := claudeThinkingUpstreamMap[alias]; ok {
+		return upstream
 	}
 	entry := e.resolveClaudeConfig(auth)
 	if entry == nil {

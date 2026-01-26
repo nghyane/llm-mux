@@ -17,21 +17,25 @@ type ThinkingConfig struct {
 }
 
 // ThinkingBudgetLevels defines token budgets for different thinking intensity levels.
+// Reference: opencode-antigravity-auth npm package
 var ThinkingBudgetLevels = struct {
 	Low    int
 	Medium int
 	High   int
+	Max    int
 }{
-	Low:    1024,
-	Medium: 8192,
-	High:   24576,
+	Low:    8192,  // Matches npm: low = 8192
+	Medium: 16384, // Matches npm: medium tier
+	High:   24576, // Matches npm: high tier
+	Max:    32768, // Matches npm: max = 32768
 }
 
 // ParseClaudeThinkingFromModel extracts thinking configuration from a Claude model name suffix.
 // Returns a ThinkingConfig based on the model suffix:
-//   - "-thinking-low": 1024 tokens
-//   - "-thinking-medium" or "-thinking": 8192 tokens
+//   - "-thinking-low": 8192 tokens
+//     "-thinking-medium": 16384 tokens
 //   - "-thinking-high": 24576 tokens
+//   - "-thinking" or "-thinking-max": 32768 tokens (max)
 //
 // Returns nil if the model doesn't have a thinking suffix.
 func ParseClaudeThinkingFromModel(modelName string) *ThinkingConfig {
@@ -43,8 +47,10 @@ func ParseClaudeThinkingFromModel(modelName string) *ThinkingConfig {
 		budgetTokens = ThinkingBudgetLevels.Medium
 	case strings.HasSuffix(modelName, "-thinking-high"):
 		budgetTokens = ThinkingBudgetLevels.High
+	case strings.HasSuffix(modelName, "-thinking-max"):
+		budgetTokens = ThinkingBudgetLevels.Max
 	case strings.HasSuffix(modelName, "-thinking"):
-		budgetTokens = ThinkingBudgetLevels.Medium
+		budgetTokens = ThinkingBudgetLevels.Max // Default to max (matches npm package)
 	default:
 		return nil
 	}

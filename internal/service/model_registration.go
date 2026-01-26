@@ -106,7 +106,9 @@ func registerModelsForAuth(a *provider.Auth, cfg *config.Config, wsGateway *wsre
 		models = providers.FetchAntigravityModels(ctx, a, cfg)
 		cancel()
 		if len(models) == 0 {
-			models = registry.GetGeminiModelsForProvider("gemini-cli")
+			// Use single source of truth: GetAntigravityFallbackModels
+			// This preserves "antigravity" type and applies hidden filter
+			models = registry.GetAntigravityFallbackModels()
 		}
 		models = applyExcludedModels(models, excluded)
 	case "claude":

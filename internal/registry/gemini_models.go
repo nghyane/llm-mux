@@ -40,9 +40,9 @@ var claudeViaAntigravityModels = []*ModelInfo{
 	ClaudeVia("claude-sonnet-4-5", "antigravity").Display("Claude Sonnet 4.5").
 		Desc("Claude Sonnet 4.5 via google antigravity").Version("4.5").Created(1759104000).B(),
 	ClaudeVia("claude-sonnet-4-5-thinking", "antigravity").Display("Claude Sonnet 4.5 Thinking").
-		Desc("Claude Sonnet 4.5 with extended thinking via google antigravity").Version("4.5").Created(1759104000).Thinking(1024, 100000).B(),
+		Desc("Claude Sonnet 4.5 with extended thinking via google antigravity").Version("4.5").Created(1759104000).Thinking(8192, 32768).B(),
 	ClaudeVia("claude-opus-4-5-thinking", "antigravity").Display("Claude Opus 4.5 Thinking").
-		Desc("Claude Opus 4.5 with extended thinking via google antigravity").Version("4.5").Created(1761955200).Thinking(1024, 100000).B(),
+		Desc("Claude Opus 4.5 with extended thinking via google antigravity").Version("4.5").Created(1761955200).Thinking(8192, 32768).B(),
 }
 
 // =============================================================================
@@ -65,12 +65,16 @@ var (
 )
 
 func init() {
-	n := len(geminiModels)
+	// Consolidate model slices for single-pass initialization
+	allModels := append(append([]*ModelInfo{}, geminiModels...), claudeViaAntigravityModels...)
+
+	n := len(allModels)
 	geminiMetaByID = make(map[string]*ModelInfo, n)
 	geminiUpstreamToID = make(map[string]string, n)
 	geminiIDToUpstream = make(map[string]string, n)
 
-	for _, m := range geminiModels {
+	// Single pass through all models (Gemini + Claude via Antigravity)
+	for _, m := range allModels {
 		geminiMetaByID[m.ID] = m
 		upstream := m.UpstreamName
 		if upstream == "" {
@@ -80,6 +84,7 @@ func init() {
 		geminiIDToUpstream[m.ID] = upstream
 	}
 
+	// Pre-allocate and populate hidden set
 	antigravityHiddenSet = make(map[string]bool, len(antigravityHiddenModels))
 	for _, name := range antigravityHiddenModels {
 		antigravityHiddenSet[name] = true
@@ -108,6 +113,33 @@ func GetGeminiModelsForProvider(providerType string) []*ModelInfo {
 			clone := cloneModelWithType(m, providerType)
 			models = append(models, clone)
 		}
+	}
+
+	return models
+}
+
+// GetAntigravityFallbackModels returns static fallback models for antigravity provider.
+// Unlike GetGeminiModelsForProvider("gemini-cli"), this function:
+// 1. Preserves "antigravity" as the provider Type
+// 2. Applies antigravityHiddenSet filter to exclude hidden models
+// This is used when dynamic fetch from Antigravity API fails.
+func GetAntigravityFallbackModels() []*ModelInfo {
+	var models []*ModelInfo
+
+	// Clone geminiModels with antigravity type
+	for _, m := range geminiModels {
+		// Skip hidden models for antigravity
+		if antigravityHiddenSet[m.ID] {
+			continue
+		}
+		clone := cloneModelWithType(m, "antigravity")
+		models = append(models, clone)
+	}
+
+	// Add Claude via Antigravity models (these are not hidden)
+	for _, m := range claudeViaAntigravityModels {
+		clone := cloneModelWithType(m, "antigravity")
+		models = append(models, clone)
 	}
 
 	return models
