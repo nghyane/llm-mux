@@ -10,8 +10,10 @@ package registry
 // Models not in this list will use upstream values directly (passthrough).
 var geminiModels = []*ModelInfo{
 	// Gemini 3.x
-	Gemini("gemini-3-pro-preview").Upstream("gemini-3-pro-high").Display("Gemini 3 Pro Preview").
-		Desc("Gemini 3 Pro Preview").Version("3.0").Created(1731888000).Thinking(128, 32768).B(),
+	Gemini("gemini-3-pro-high").Display("Gemini 3 Pro").
+		Desc("Gemini 3 Pro").Version("3.0").Created(1731888000).Thinking(128, 32768).B(),
+	Gemini("gemini-3-pro-low").Display("Gemini 3 Pro Low").
+		Desc("Gemini 3 Pro Low").Version("3.0").Created(1731888000).B(),
 	Gemini("gemini-3-flash").Display("Gemini 3 Flash").
 		Desc("Gemini 3 Flash").Version("3.0").Created(1737158400).Thinking(128, 32768).B(),
 	Gemini("gemini-3-flash-preview").Display("Gemini 3 Flash Preview").
@@ -50,7 +52,7 @@ var claudeViaAntigravityModels = []*ModelInfo{
 // =============================================================================
 
 var antigravityHiddenModels = []string{
-	"chat_20706", "chat_23310", "gemini-2.5-flash-thinking", "gemini-3-pro-low", "gemini-2.5-pro",
+	"chat_20706", "chat_23310", "gemini-2.5-flash-thinking", "gemini-2.5-pro",
 }
 
 // =============================================================================
