@@ -335,17 +335,22 @@ func (e *GeminiCLIExecutor) ExecuteStream(ctx context.Context, auth *provider.Au
 
 		geminiPreprocessFn := stream.GeminiPreprocessor()
 		preprocessor := func(line []byte) ([]byte, bool) {
-			if streamCtx.GeminiState.ActualInputTokens == 0 {
-				if tokens := sseutil.ExtractPromptTokenCount(line); tokens > 0 {
-					streamCtx.GeminiState.ActualInputTokens = tokens
-					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
-				}
-			}
-			payload, skip := geminiPreprocessFn(line)
-			if skip || payload == nil {
+			// Extract JSON payload from SSE line first
+			payload := sseutil.JSONPayload(line)
+			if payload == nil {
+				// Skip non-JSON lines (empty, [DONE], event:, etc.)
 				return nil, true
 			}
-			return cloudcode.ResponseUnwrap(payload), false
+
+			// Only extract tokens from valid JSON payloads
+			if streamCtx.GeminiState.ActualInputTokens == 0 {
+				if tokens := sseutil.ExtractPromptTokenCount(payload); tokens > 0 {
+					streamCtx.GeminiState.ActualInputTokens = tokens
+					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(payload)
+				}
+			}
+			payload = cloudcode.ResponseUnwrap(payload)
+			return geminiPreprocessFn(payload)
 		}
 
 		streamChan = stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
