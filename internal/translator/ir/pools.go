@@ -109,21 +109,29 @@ const (
 )
 
 func BuildSSEChunk(jsonData []byte) []byte {
-	size := 6 + len(jsonData) + 2 // "data: " + json + "\n\n"
-	buf := make([]byte, 0, size)
-	buf = append(buf, "data: "...)
-	buf = append(buf, jsonData...)
-	buf = append(buf, "\n\n"...)
-	return buf
+	buf := GetBuffer()
+	defer PutBuffer(buf)
+
+	buf.WriteString("data: ")
+	buf.Write(jsonData)
+	buf.WriteString("\n\n")
+
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	return result
 }
 
 func BuildSSEEvent(eventType string, jsonData []byte) []byte {
-	size := 7 + len(eventType) + 7 + len(jsonData) + 2
-	buf := make([]byte, 0, size)
-	buf = append(buf, "event: "...)
-	buf = append(buf, eventType...)
-	buf = append(buf, "\ndata: "...)
-	buf = append(buf, jsonData...)
-	buf = append(buf, "\n\n"...)
-	return buf
+	buf := GetBuffer()
+	defer PutBuffer(buf)
+
+	buf.WriteString("event: ")
+	buf.WriteString(eventType)
+	buf.WriteString("\ndata: ")
+	buf.Write(jsonData)
+	buf.WriteString("\n\n")
+
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	return result
 }

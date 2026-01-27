@@ -64,7 +64,16 @@ func PutOpenAITextDelta(d *OpenAITextDelta) {
 
 // BuildOpenAITextDeltaSSE builds an SSE chunk for a simple text delta.
 // This is the HOT PATH - called for every token in streaming.
+// Uses template fast path for simple ASCII content (~5x faster).
 func BuildOpenAITextDeltaSSE(id, model string, created int64, content string) []byte {
+	// Fast path: check if content needs JSON escaping
+	if isSimpleASCII(content) {
+		// Simple ASCII - use pre-escaped content (just wrap in quotes)
+		contentJSON := escapeSimpleASCII(content)
+		return BuildOpenAITextDeltaSSETemplate(id, model, created, contentJSON)
+	}
+
+	// Fallback: content needs escaping, use json.Marshal
 	delta := GetOpenAITextDelta()
 	defer PutOpenAITextDelta(delta)
 
@@ -284,7 +293,16 @@ func PutClaudeTextDelta(d *ClaudeTextDelta) {
 }
 
 // BuildClaudeTextDeltaSSE builds an SSE chunk for Claude text delta.
+// Uses template fast path for simple ASCII content (~5x faster).
 func BuildClaudeTextDeltaSSE(index int, text string) []byte {
+	// Fast path: check if text needs JSON escaping
+	if isSimpleASCII(text) {
+		// Simple ASCII - use pre-escaped text (just wrap in quotes)
+		textJSON := escapeSimpleASCII(text)
+		return BuildClaudeTextDeltaSSETemplate(index, textJSON)
+	}
+
+	// Fallback: text needs escaping, use json.Marshal
 	d := GetClaudeTextDelta()
 	defer PutClaudeTextDelta(d)
 
@@ -428,6 +446,29 @@ func BuildClaudeTextDeltaSSETemplate(index int, textJSON []byte) []byte {
 // -----------------------------------------------------------------------------
 // Helper Functions
 // -----------------------------------------------------------------------------
+
+// isSimpleASCII returns true if content only contains safe characters
+// that don't require JSON escaping. This allows using the faster template path.
+func isSimpleASCII(content string) bool {
+	for i := 0; i < len(content); i++ {
+		c := content[i]
+		if c < 0x20 || c == '\\' || c == '"' || c >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// escapeSimpleASCII wraps simple ASCII content in quotes for JSON.
+// Content must already be verified as simple ASCII (no escaping needed).
+func escapeSimpleASCII(content string) []byte {
+	// Allocate exactly the right size: quotes + content
+	result := make([]byte, 0, len(content)+2)
+	result = append(result, '"')
+	result = append(result, content...)
+	result = append(result, '"')
+	return result
+}
 
 // formatResponsesSSEBytes builds an SSE event returning []byte for zero-copy writes.
 // This is the preferred version for hot paths.

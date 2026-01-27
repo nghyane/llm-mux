@@ -3,6 +3,7 @@ package executor
 import (
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,7 +19,7 @@ const (
 // cachedTransport wraps a transport with usage tracking for LRU eviction
 type cachedTransport struct {
 	transport *http.Transport
-	lastUsed  time.Time
+	lastUsed  atomic.Int64 // Store as UnixNano for thread-safe access
 }
 
 // httpClientPool pools http.Client instances keyed by transport.
@@ -68,12 +69,13 @@ func getCachedTransport(proxyURL string) *http.Transport {
 
 	// Fast path: read lock
 	transportCacheMu.RLock()
-	if cached, ok := transportCache[proxyURL]; ok {
-		cached.lastUsed = time.Now()
-		transportCacheMu.RUnlock()
+	cached, ok := transportCache[proxyURL]
+	transportCacheMu.RUnlock()
+
+	if ok {
+		cached.lastUsed.Store(time.Now().UnixNano())
 		return cached.transport
 	}
-	transportCacheMu.RUnlock()
 
 	// Slow path: write lock
 	transportCacheMu.Lock()
@@ -81,7 +83,7 @@ func getCachedTransport(proxyURL string) *http.Transport {
 
 	// Double-check after acquiring write lock
 	if cached, ok := transportCache[proxyURL]; ok {
-		cached.lastUsed = time.Now()
+		cached.lastUsed.Store(time.Now().UnixNano())
 		return cached.transport
 	}
 
@@ -93,10 +95,11 @@ func getCachedTransport(proxyURL string) *http.Transport {
 	// Build and cache the transport
 	t := buildProxyTransport(proxyURL)
 	if t != nil {
-		transportCache[proxyURL] = &cachedTransport{
+		newCached := &cachedTransport{
 			transport: t,
-			lastUsed:  time.Now(),
 		}
+		newCached.lastUsed.Store(time.Now().UnixNano())
+		transportCache[proxyURL] = newCached
 	}
 	return t
 }
@@ -129,7 +132,8 @@ func cleanupExpiredTransports() {
 
 	now := time.Now()
 	for key, cached := range transportCache {
-		if now.Sub(cached.lastUsed) > transportCacheExpiry {
+		lastUsed := time.Unix(0, cached.lastUsed.Load())
+		if now.Sub(lastUsed) > transportCacheExpiry {
 			cached.transport.CloseIdleConnections()
 			delete(transportCache, key)
 		}
@@ -141,9 +145,10 @@ func evictLRUTransport() {
 	var oldestTime time.Time
 
 	for key, cached := range transportCache {
-		if oldestKey == "" || cached.lastUsed.Before(oldestTime) {
+		lastUsed := time.Unix(0, cached.lastUsed.Load())
+		if oldestKey == "" || lastUsed.Before(oldestTime) {
 			oldestKey = key
-			oldestTime = cached.lastUsed
+			oldestTime = lastUsed
 		}
 	}
 
