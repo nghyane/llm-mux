@@ -321,13 +321,21 @@ func (e *AntigravityExecutor) ExecuteStream(ctx context.Context, auth *provider.
 
 		geminiPreprocessFn := stream.GeminiPreprocessor()
 		preprocessor := func(line []byte) ([]byte, bool) {
+			// Extract JSON payload from SSE line first
+			payload := sseutil.JSONPayload(line)
+			if payload == nil {
+				// Skip non-JSON lines (empty, [DONE], event:, etc.)
+				return nil, true
+			}
+
+			// Only extract tokens from valid JSON payloads
 			if streamCtx.GeminiState.ActualInputTokens == 0 {
-				if tokens := sseutil.ExtractPromptTokenCount(line); tokens > 0 {
+				if tokens := sseutil.ExtractPromptTokenCount(payload); tokens > 0 {
 					streamCtx.GeminiState.ActualInputTokens = tokens
-					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(line)
+					streamCtx.GeminiState.ActualCacheTokens = sseutil.ExtractCacheTokenCount(payload)
 				}
 			}
-			return geminiPreprocessFn(line)
+			return geminiPreprocessFn(payload)
 		}
 
 		streamChan = stream.RunSSEStream(ctx, httpResp.Body, reporter, processor, stream.StreamConfig{
