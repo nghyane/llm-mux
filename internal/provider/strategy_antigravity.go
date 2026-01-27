@@ -4,8 +4,16 @@ import (
 	"context"
 	"math/rand/v2"
 	"strconv"
+	"sync"
 	"time"
 )
+
+// tokenExpiryCache stores parsed expiresAt time for each auth ID to avoid
+// repeated RFC3339 parsing on every Score() call.
+var tokenExpiryCache struct {
+	sync.RWMutex
+	data map[string]time.Time
+}
 
 type AntigravityStrategy struct{}
 
@@ -216,6 +224,88 @@ func extractAccessToken(auth *Auth) string {
 	return ""
 }
 
+// getCachedExpiresAt retrieves the parsed expiresAt from cache or parses and caches it.
+func getCachedExpiresAt(auth *Auth) (time.Time, bool) {
+	if auth == nil {
+		return time.Time{}, false
+	}
+
+	// If no ID, parse directly without caching (for tests/edge cases)
+	if auth.ID == "" {
+		return parseExpiresAt(auth), !parseExpiresAt(auth).IsZero()
+	}
+
+	tokenExpiryCache.RLock()
+	expiresAt, ok := tokenExpiryCache.data[auth.ID]
+	tokenExpiryCache.RUnlock()
+
+	if ok {
+		return expiresAt, true
+	}
+
+	// Cache miss - parse and store
+	expiresAt = parseExpiresAt(auth)
+	if !expiresAt.IsZero() {
+		tokenExpiryCache.Lock()
+		if tokenExpiryCache.data == nil {
+			tokenExpiryCache.data = make(map[string]time.Time)
+		}
+		tokenExpiryCache.data[auth.ID] = expiresAt
+		tokenExpiryCache.Unlock()
+		return expiresAt, true
+	}
+
+	return time.Time{}, false
+}
+
+// parseExpiresAt extracts and parses the expiresAt time from auth metadata.
+func parseExpiresAt(auth *Auth) time.Time {
+	if auth == nil || auth.Metadata == nil {
+		return time.Time{}
+	}
+
+	// Try RFC3339 "expired" field first
+	if expiredStr, ok := auth.Metadata["expired"].(string); ok && expiredStr != "" {
+		if t, err := time.Parse(time.RFC3339, expiredStr); err == nil {
+			return t
+		}
+	}
+
+	// Fall back to timestamp + expires_in
+	var ts int64
+	switch v := auth.Metadata["timestamp"].(type) {
+	case int64:
+		ts = v
+	case float64:
+		ts = int64(v)
+	}
+	if ts > 0 {
+		var expiresIn int64
+		switch v := auth.Metadata["expires_in"].(type) {
+		case int64:
+			expiresIn = v
+		case float64:
+			expiresIn = int64(v)
+		}
+		if expiresIn > 0 {
+			return time.UnixMilli(ts).Add(time.Duration(expiresIn) * time.Second)
+		}
+	}
+
+	return time.Time{}
+}
+
+// InvalidateTokenCache removes the cached expiresAt for the given auth ID.
+// Call this when auth metadata is refreshed to ensure fresh parsing.
+func InvalidateTokenCache(authID string) {
+	if authID == "" {
+		return
+	}
+	tokenExpiryCache.Lock()
+	delete(tokenExpiryCache.data, authID)
+	tokenExpiryCache.Unlock()
+}
+
 func checkTokenFromAuth(auth *Auth, buffer time.Duration) (valid bool, needsRefresh bool) {
 	if auth == nil || auth.Metadata == nil {
 		return false, false
@@ -226,36 +316,10 @@ func checkTokenFromAuth(auth *Auth, buffer time.Duration) (valid bool, needsRefr
 		return false, false
 	}
 
-	var expiresAt time.Time
-	if expiredStr, ok := auth.Metadata["expired"].(string); ok && expiredStr != "" {
-		if t, err := time.Parse(time.RFC3339, expiredStr); err == nil {
-			expiresAt = t
-		}
-	}
-
-	if expiresAt.IsZero() {
-		var ts int64
-		switch v := auth.Metadata["timestamp"].(type) {
-		case int64:
-			ts = v
-		case float64:
-			ts = int64(v)
-		}
-		if ts > 0 {
-			var expiresIn int64
-			switch v := auth.Metadata["expires_in"].(type) {
-			case int64:
-				expiresIn = v
-			case float64:
-				expiresIn = int64(v)
-			}
-			if expiresIn > 0 {
-				expiresAt = time.UnixMilli(ts).Add(time.Duration(expiresIn) * time.Second)
-			}
-		}
-	}
-
-	if expiresAt.IsZero() {
+	// Use cached expiresAt parsing for efficiency
+	expiresAt, hasExpiry := getCachedExpiresAt(auth)
+	if !hasExpiry {
+		// No expiry information available
 		return true, false
 	}
 

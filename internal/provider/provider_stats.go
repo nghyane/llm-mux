@@ -1,16 +1,21 @@
 package provider
 
 import (
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// ProviderStats tracks performance metrics for intelligent load balancing.
-// Uses lock-free atomic operations for high-concurrency scenarios.
-type ProviderStats struct {
+const numShards = 32
+
+type statShard struct {
 	mu    sync.RWMutex
-	stats map[string]*providerMetrics // key: "provider:model"
+	stats map[string]*providerMetrics
+}
+
+type ProviderStats struct {
+	shards [numShards]*statShard
 }
 
 type providerMetrics struct {
@@ -21,31 +26,60 @@ type providerMetrics struct {
 	lastSuccess    atomic.Int64 // unix nano timestamp
 }
 
+// fnv32 computes FNV-1a 32-bit hash of a string.
+func fnv32(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
+
+// shardIdx returns the shard index for a key.
+func shardIdx(key string) int {
+	return int(fnv32(key)) % numShards
+}
+
 // NewProviderStats creates a new stats tracker.
 func NewProviderStats() *ProviderStats {
-	return &ProviderStats{
-		stats: make(map[string]*providerMetrics),
+	ps := &ProviderStats{}
+	for i := 0; i < numShards; i++ {
+		ps.shards[i] = &statShard{
+			stats: make(map[string]*providerMetrics),
+		}
 	}
+	return ps
 }
 
 // getOrCreate returns existing metrics or creates new ones.
 func (ps *ProviderStats) getOrCreate(key string) *providerMetrics {
-	ps.mu.RLock()
-	m := ps.stats[key]
-	ps.mu.RUnlock()
+	idx := shardIdx(key)
+	shard := ps.shards[idx]
+
+	shard.mu.RLock()
+	m := shard.stats[key]
+	shard.mu.RUnlock()
 	if m != nil {
 		return m
 	}
 
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 	// Double-check after acquiring write lock
-	if m = ps.stats[key]; m != nil {
+	if m = shard.stats[key]; m != nil {
 		return m
 	}
 	m = &providerMetrics{}
-	ps.stats[key] = m
+	shard.stats[key] = m
 	return m
+}
+
+// getShard returns the shard for a key and acquires the read lock.
+func (ps *ProviderStats) getShard(key string) (*statShard, *providerMetrics) {
+	idx := shardIdx(key)
+	shard := ps.shards[idx]
+
+	shard.mu.RLock()
+	m := shard.stats[key]
+	return shard, m
 }
 
 // RecordSuccess records a successful request with latency.
@@ -71,9 +105,7 @@ func (ps *ProviderStats) RecordFailure(provider, model string) {
 // Higher score = better provider. Range: 0.0 to 1.0
 func (ps *ProviderStats) GetScore(provider, model string) float64 {
 	key := provider + ":" + model
-	ps.mu.RLock()
-	m := ps.stats[key]
-	ps.mu.RUnlock()
+	_, m := ps.getShard(key)
 
 	if m == nil {
 		return 0.5 // Default score for unknown providers
@@ -108,9 +140,7 @@ func (ps *ProviderStats) GetScore(provider, model string) float64 {
 // GetAvgLatency returns average latency for a provider:model.
 func (ps *ProviderStats) GetAvgLatency(provider, model string) time.Duration {
 	key := provider + ":" + model
-	ps.mu.RLock()
-	m := ps.stats[key]
-	ps.mu.RUnlock()
+	_, m := ps.getShard(key)
 
 	if m == nil {
 		return 0
@@ -165,17 +195,19 @@ func (ps *ProviderStats) SortByScore(providers []string, model string) []string 
 
 // Cleanup removes stale entries older than maxAge.
 func (ps *ProviderStats) Cleanup(maxAge time.Duration) int {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-
 	cutoff := time.Now().Add(-maxAge).UnixNano()
 	removed := 0
 
-	for key, m := range ps.stats {
-		if m.lastUsed.Load() < cutoff {
-			delete(ps.stats, key)
-			removed++
+	for i := 0; i < numShards; i++ {
+		shard := ps.shards[i]
+		shard.mu.Lock()
+		for key, m := range shard.stats {
+			if m.lastUsed.Load() < cutoff {
+				delete(shard.stats, key)
+				removed++
+			}
 		}
+		shard.mu.Unlock()
 	}
 
 	return removed
@@ -183,17 +215,21 @@ func (ps *ProviderStats) Cleanup(maxAge time.Duration) int {
 
 // Stats returns current stats for debugging/monitoring.
 func (ps *ProviderStats) Stats() map[string]map[string]int64 {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
+	result := make(map[string]map[string]int64)
 
-	result := make(map[string]map[string]int64, len(ps.stats))
-	for key, m := range ps.stats {
-		result[key] = map[string]int64{
-			"success":    m.successCount.Load(),
-			"failure":    m.failureCount.Load(),
-			"avg_lat_ms": m.totalLatencyNs.Load() / max(m.successCount.Load(), 1) / 1e6,
+	for i := 0; i < numShards; i++ {
+		shard := ps.shards[i]
+		shard.mu.RLock()
+		for key, m := range shard.stats {
+			result[key] = map[string]int64{
+				"success":    m.successCount.Load(),
+				"failure":    m.failureCount.Load(),
+				"avg_lat_ms": m.totalLatencyNs.Load() / max(m.successCount.Load(), 1) / 1e6,
+			}
 		}
+		shard.mu.RUnlock()
 	}
+
 	return result
 }
 

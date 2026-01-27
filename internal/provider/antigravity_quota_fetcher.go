@@ -11,6 +11,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/json"
 	"github.com/nghyane/llm-mux/internal/logging"
 	"github.com/nghyane/llm-mux/internal/transport"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -30,6 +31,7 @@ var (
 	quotaCacheMu    sync.RWMutex
 	quotaFetchCount int64
 	quotaCacheHit   int64
+	quotaFetchGroup singleflight.Group
 )
 
 func fetchAntigravityQuota(ctx context.Context, accessToken string) *RealQuotaSnapshot {
@@ -37,21 +39,30 @@ func fetchAntigravityQuota(ctx context.Context, accessToken string) *RealQuotaSn
 		return nil
 	}
 
-	// Check cache first
-	cached := getCachedQuota(accessToken)
-	if cached != nil {
+	// Check cache first (fast path)
+	if cached := getCachedQuota(accessToken); cached != nil {
 		atomic.AddInt64(&quotaCacheHit, 1)
 		return cached
 	}
 
-	// Fetch fresh quota
-	snapshot := doFetchAntigravityQuota(ctx, accessToken)
-	if snapshot != nil {
-		setCachedQuota(accessToken, snapshot)
+	// Use singleflight to deduplicate concurrent fetches
+	type result struct {
+		snapshot *RealQuotaSnapshot
 	}
-
-	atomic.AddInt64(&quotaFetchCount, 1)
-	return snapshot
+	ch, _, _ := quotaFetchGroup.Do(accessToken, func() (interface{}, error) {
+		// Check cache again inside singleflight to avoid race and ensure freshness
+		if cached := getCachedQuota(accessToken); cached != nil {
+			atomic.AddInt64(&quotaCacheHit, 1)
+			return result{snapshot: cached}, nil
+		}
+		return result{snapshot: doFetchAntigravityQuota(ctx, accessToken)}, nil
+	})
+	r := ch.(result)
+	if r.snapshot != nil {
+		setCachedQuota(accessToken, r.snapshot)
+		atomic.AddInt64(&quotaFetchCount, 1)
+	}
+	return r.snapshot
 }
 
 func doFetchAntigravityQuota(ctx context.Context, accessToken string) *RealQuotaSnapshot {
