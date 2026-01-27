@@ -79,6 +79,7 @@ func (ps *ProviderStats) getShard(key string) (*statShard, *providerMetrics) {
 
 	shard.mu.RLock()
 	m := shard.stats[key]
+	shard.mu.RUnlock()
 	return shard, m
 }
 
