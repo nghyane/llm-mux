@@ -9,6 +9,21 @@
 [![Docs](https://img.shields.io/badge/docs-online-blue)](https://nghyane.github.io/llm-mux/)
 [![Discord](https://img.shields.io/discord/1326216179697410129?color=5865F2&logo=discord&logoColor=white)](https://discord.gg/86nFZUh4a9)
 
+---
+
+## 🎁 MiniMax Coding Plan New Year Mega Offer!
+
+**Invite friends and earn rewards for both!**
+
+- 🎉 **Exclusive 10% OFF** for friends
+- 🎁 **Ready-to-use API vouchers** for you!
+
+👉 **Get your referral link:** https://platform.minimax.io/subscribe/coding-plan?code=EljrpDLxkH&source=link
+
+> 💡 **Why MiniMax?** Google Antigravity Claude quotas have been heavily throttled. MiniMax offers nearly identical quality at a lower cost with faster response times!
+
+---
+
 Turn your Claude Pro, GitHub Copilot, and Gemini subscriptions into standard LLM APIs. No API keys needed.
 
 ## Features
