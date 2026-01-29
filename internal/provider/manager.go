@@ -16,11 +16,28 @@ import (
 	"golang.org/x/sync/semaphore"
 )
 
+// CategoryProvider allows errors to expose their pre-computed category.
+// This avoids re-parsing error messages and ensures accurate categorization
+// since the original HTTP status code is preserved.
+type CategoryProvider interface {
+	Category() ErrorCategory
+}
+
 func init() {
 	resilience.DefaultIsSuccessful = func(err error) bool {
 		if err == nil {
 			return true
 		}
+
+		// First, check if the error already has a pre-computed category.
+		// StatusError from executor package implements this interface and
+		// computes category at creation time with the actual HTTP status code.
+		if cp, ok := err.(CategoryProvider); ok {
+			return cp.Category().IsUserFault()
+		}
+
+		// Fallback: categorize by message only (status code unknown).
+		// This path is less accurate but handles wrapped/generic errors.
 		cat := CategorizeError(0, err.Error())
 		return cat.IsUserFault()
 	}
