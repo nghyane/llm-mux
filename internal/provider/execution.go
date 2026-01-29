@@ -73,6 +73,10 @@ func (m *Manager) executeWithProvider(ctx context.Context, provider string, req 
 			if errors.As(errBreaker, &se) && se != nil {
 				markResult.Error.HTTPStatus = se.StatusCode()
 			}
+			var cp CategoryProvider
+			if errors.As(errBreaker, &cp) && cp != nil {
+				markResult.Error.ErrCategory = cp.Category()
+			}
 			if ra := retryAfterFromError(errBreaker); ra != nil {
 				markResult.RetryAfter = ra
 			}
@@ -141,6 +145,10 @@ func (m *Manager) executeCountWithProvider(ctx context.Context, provider string,
 			if errors.As(errBreaker, &se) && se != nil {
 				markResult.Error.HTTPStatus = se.StatusCode()
 			}
+			var cp CategoryProvider
+			if errors.As(errBreaker, &cp) && cp != nil {
+				markResult.Error.ErrCategory = cp.Category()
+			}
 			if ra := retryAfterFromError(errBreaker); ra != nil {
 				markResult.RetryAfter = ra
 			}
@@ -206,6 +214,10 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 			if errors.As(errStream, &se) && se != nil {
 				rerr.HTTPStatus = se.StatusCode()
 			}
+			var cp CategoryProvider
+			if errors.As(errStream, &cp) && cp != nil {
+				rerr.ErrCategory = cp.Category()
+			}
 			result := Result{AuthID: auth.ID, Provider: provider, Model: req.Model, Success: false, Error: rerr}
 			result.RetryAfter = retryAfterFromError(errStream)
 			m.MarkResult(execCtx, result)
@@ -252,6 +264,10 @@ func (m *Manager) executeStreamWithProvider(ctx context.Context, provider string
 						var se StatusCodeError
 						if errors.As(chunk.Err, &se) && se != nil {
 							rerr.HTTPStatus = se.StatusCode()
+						}
+						var cp CategoryProvider
+						if errors.As(chunk.Err, &cp) && cp != nil {
+							rerr.ErrCategory = cp.Category()
 						}
 						result := Result{AuthID: streamAuth.ID, Provider: streamProvider, Model: streamModel, Success: false, Error: rerr}
 						result.RetryAfter = retryAfterFromError(chunk.Err)

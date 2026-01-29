@@ -157,18 +157,14 @@ func (m *Manager) hasAvailableAuth(providers []string, model string) bool {
 }
 
 // categoryFromError extracts ErrorCategory from error.
-// Uses errors.As to properly unwrap wrapped errors.
+// First checks for CategoryProvider interface, then falls back to status code parsing.
 func categoryFromError(err error) ErrorCategory {
 	if err == nil {
 		return CategoryUnknown
 	}
-	// Check if error has Category() method using errors.As to unwrap
-	type categorizer interface {
-		Category() ErrorCategory
-	}
-	var c categorizer
-	if errors.As(err, &c) && c != nil {
-		return c.Category()
+	// Check if error implements CategoryProvider interface
+	if cp, ok := err.(CategoryProvider); ok {
+		return cp.Category()
 	}
 	// Fallback to status code classification
 	status := statusCodeFromError(err)
