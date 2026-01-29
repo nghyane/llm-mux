@@ -245,11 +245,11 @@ func (p *ClaudeProvider) ParseResponse(rj []byte) ([]ir.Message, *ir.Usage, erro
 	return []ir.Message{msg}, ir.ParseClaudeUsage(root.Get("usage")), nil
 }
 
-func (p *ClaudeProvider) ParseStreamChunk(cj []byte) ([]ir.UnifiedEvent, error) {
+func (p *ClaudeProvider) ParseStreamChunk(cj []byte) ([]*ir.UnifiedEvent, error) {
 	return p.ParseStreamChunkWithState(cj, nil)
 }
 
-func (p *ClaudeProvider) ParseStreamChunkWithState(cj []byte, state *ir.ClaudeStreamParserState) ([]ir.UnifiedEvent, error) {
+func (p *ClaudeProvider) ParseStreamChunkWithState(cj []byte, state *ir.ClaudeStreamParserState) ([]*ir.UnifiedEvent, error) {
 	d := ir.ExtractSSEData(cj)
 	if len(d) == 0 {
 		return nil, nil
@@ -257,20 +257,20 @@ func (p *ClaudeProvider) ParseStreamChunkWithState(cj []byte, state *ir.ClaudeSt
 	pjd, _ := ir.ParseAndValidateJSON(d)
 	switch pjd.Get("type").String() {
 	case ir.ClaudeSSEContentBlockStart:
-		return ir.ParseClaudeContentBlockStart(pjd, state), nil
+		return []*ir.UnifiedEvent(ir.ParseClaudeContentBlockStart(pjd, state)), nil
 	case ir.ClaudeSSEContentBlockDelta:
 		if state != nil {
-			return ir.ParseClaudeStreamDeltaWithState(pjd, state), nil
+			return []*ir.UnifiedEvent(ir.ParseClaudeStreamDeltaWithState(pjd, state)), nil
 		}
-		return ir.ParseClaudeStreamDelta(pjd), nil
+		return []*ir.UnifiedEvent(ir.ParseClaudeStreamDelta(pjd)), nil
 	case ir.ClaudeSSEContentBlockStop:
-		return ir.ParseClaudeContentBlockStop(pjd, state), nil
+		return []*ir.UnifiedEvent(ir.ParseClaudeContentBlockStop(pjd, state)), nil
 	case ir.ClaudeSSEMessageDelta:
-		return ir.ParseClaudeMessageDelta(pjd), nil
+		return []*ir.UnifiedEvent(ir.ParseClaudeMessageDelta(pjd)), nil
 	case ir.ClaudeSSEMessageStop:
-		return []ir.UnifiedEvent{{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}}, nil
 	case ir.ClaudeSSEError:
-		return []ir.UnifiedEvent{{Type: ir.EventTypeError, Error: fmt.Errorf("%s", pjd.Get("error.message").String())}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeError, Error: fmt.Errorf("%s", pjd.Get("error.message").String())}}, nil
 	}
 	return nil, nil
 }

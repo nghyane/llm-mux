@@ -401,7 +401,7 @@ func OpenAIChunkToOllamaChat(rj []byte, m string) ([]byte, error) {
 	if err != nil || len(evs) == 0 {
 		return nil, err
 	}
-	return ToOllamaChatChunk(evs[0], m)
+	return ToOllamaChatChunk(*evs[0], m)
 }
 
 func OpenAIChunkToOllamaGenerate(rj []byte, m string) ([]byte, error) {
@@ -409,7 +409,7 @@ func OpenAIChunkToOllamaGenerate(rj []byte, m string) ([]byte, error) {
 	if err != nil || len(evs) == 0 {
 		return nil, err
 	}
-	return ToOllamaGenerateChunk(evs[0], m)
+	return ToOllamaGenerateChunk(*evs[0], m)
 }
 
 func mapFinishReasonToOllama(r ir.FinishReason) string {

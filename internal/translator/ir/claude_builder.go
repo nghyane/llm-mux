@@ -285,51 +285,54 @@ func ExtractSSEData(raw []byte) []byte {
 }
 
 // ParseClaudeStreamDelta parses Claude content_block_delta into IR events.
-func ParseClaudeStreamDelta(parsed gjson.Result) []UnifiedEvent {
+func ParseClaudeStreamDelta(parsed gjson.Result) []*UnifiedEvent {
 	return ParseClaudeStreamDeltaWithState(parsed, nil)
 }
 
 // ParseClaudeStreamDeltaWithState parses content_block_delta with state tracking for tool calls.
-func ParseClaudeStreamDeltaWithState(parsed gjson.Result, state *ClaudeStreamParserState) []UnifiedEvent {
+func ParseClaudeStreamDeltaWithState(parsed gjson.Result, state *ClaudeStreamParserState) []*UnifiedEvent {
 	delta := parsed.Get("delta")
 	switch delta.Get("type").String() {
 	case ClaudeDeltaText:
 		if text := delta.Get("text").String(); text != "" {
 			if state != nil {
 				if pending := state.FlushPending(); pending != nil {
-					return []UnifiedEvent{*pending, {Type: EventTypeToken, Content: text}}
+					return []*UnifiedEvent{pending, {Type: EventTypeToken, Content: text}}
 				}
 			}
-			return []UnifiedEvent{{Type: EventTypeToken, Content: text}}
+			return []*UnifiedEvent{{Type: EventTypeToken, Content: text}}
 		}
 	case ClaudeDeltaThinking:
 		if thinking := delta.Get("thinking").String(); thinking != "" {
 			thinkingEvent := &UnifiedEvent{Type: EventTypeReasoning, Reasoning: thinking}
+			events := []*UnifiedEvent{thinkingEvent}
 			if state != nil {
-				if prev := state.BufferThinkingEvent(thinkingEvent); prev != nil {
-					return []UnifiedEvent{*prev}
+				// Flush any previous thinking event first
+				if prev := state.FlushPending(); prev != nil && prev != thinkingEvent {
+					events = append([]*UnifiedEvent{prev}, events...)
 				}
-				return nil
+				// Store reference for signature attachment if needed
+				state.BufferThinkingEvent(thinkingEvent)
 			}
-			return []UnifiedEvent{*thinkingEvent}
+			return events
 		}
 	case "signature_delta":
 		if sig := delta.Get("signature").String(); sig != "" {
 			if state != nil {
-				if completed := state.AttachSignature([]byte(sig)); completed != nil {
-					return []UnifiedEvent{*completed}
-				}
+				state.AttachSignature([]byte(sig))
 			}
 		}
 		return nil
 	case ClaudeDeltaRedactedThinking:
 		if data := delta.Get("data").String(); data != "" {
+			events := []*UnifiedEvent{{Type: EventTypeReasoning, RedactedData: data}}
+			// Flush any previous thinking event first
 			if state != nil {
-				if pending := state.FlushPending(); pending != nil {
-					return []UnifiedEvent{*pending, {Type: EventTypeReasoning, RedactedData: data}}
+				if prev := state.FlushPending(); prev != nil {
+					events = append([]*UnifiedEvent{prev}, events...)
 				}
 			}
-			return []UnifiedEvent{{Type: EventTypeReasoning, RedactedData: data}}
+			return events
 		}
 	case ClaudeDeltaInputJSON:
 		if state != nil {
@@ -346,7 +349,7 @@ func ParseClaudeStreamDeltaWithState(parsed gjson.Result, state *ClaudeStreamPar
 }
 
 // ParseClaudeContentBlockStart parses content_block_start event and updates state.
-func ParseClaudeContentBlockStart(parsed gjson.Result, state *ClaudeStreamParserState) []UnifiedEvent {
+func ParseClaudeContentBlockStart(parsed gjson.Result, state *ClaudeStreamParserState) []*UnifiedEvent {
 	if state == nil {
 		return nil
 	}
@@ -368,7 +371,7 @@ func ParseClaudeContentBlockStart(parsed gjson.Result, state *ClaudeStreamParser
 }
 
 // ParseClaudeContentBlockStop parses content_block_stop event and emits tool call if applicable.
-func ParseClaudeContentBlockStop(parsed gjson.Result, state *ClaudeStreamParserState) []UnifiedEvent {
+func ParseClaudeContentBlockStop(parsed gjson.Result, state *ClaudeStreamParserState) []*UnifiedEvent {
 	if state == nil {
 		return nil
 	}
@@ -382,9 +385,9 @@ func ParseClaudeContentBlockStop(parsed gjson.Result, state *ClaudeStreamParserS
 		return nil
 	}
 
-	var events []UnifiedEvent
+	var events []*UnifiedEvent
 	if pending := state.FlushPending(); pending != nil {
-		events = append(events, *pending)
+		events = append(events, pending)
 	}
 
 	args := "{}"
@@ -400,7 +403,7 @@ func ParseClaudeContentBlockStop(parsed gjson.Result, state *ClaudeStreamParserS
 	delete(state.ToolUseArgs, idx)
 	delete(state.BlockTypes, idx)
 
-	events = append(events, UnifiedEvent{
+	events = append(events, &UnifiedEvent{
 		Type:     EventTypeToolCall,
 		ToolCall: &ToolCall{ID: id, Name: name, Args: args},
 	})
@@ -408,7 +411,7 @@ func ParseClaudeContentBlockStop(parsed gjson.Result, state *ClaudeStreamParserS
 }
 
 // ParseClaudeMessageDelta parses Claude message_delta into IR events.
-func ParseClaudeMessageDelta(parsed gjson.Result) []UnifiedEvent {
+func ParseClaudeMessageDelta(parsed gjson.Result) []*UnifiedEvent {
 	finishReason := FinishReasonUnknown
 	if delta := parsed.Get("delta"); delta.Exists() {
 		if sr := delta.Get("stop_reason"); sr.Exists() {
@@ -419,5 +422,5 @@ func ParseClaudeMessageDelta(parsed gjson.Result) []UnifiedEvent {
 	if u := parsed.Get("usage"); u.Exists() {
 		usage = ParseClaudeUsage(u)
 	}
-	return []UnifiedEvent{{Type: EventTypeFinish, Usage: usage, FinishReason: finishReason}}
+	return []*UnifiedEvent{{Type: EventTypeFinish, Usage: usage, FinishReason: finishReason}}
 }

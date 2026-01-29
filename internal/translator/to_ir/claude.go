@@ -308,11 +308,11 @@ func ParseClaudeResponse(rawJSON []byte) ([]ir.Message, *ir.Usage, error) {
 	return nil, usage, nil
 }
 
-func ParseClaudeChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
+func ParseClaudeChunk(rawJSON []byte) ([]*ir.UnifiedEvent, error) {
 	return ParseClaudeChunkWithState(rawJSON, nil)
 }
 
-func ParseClaudeChunkWithState(rawJSON []byte, state *ir.ClaudeStreamParserState) ([]ir.UnifiedEvent, error) {
+func ParseClaudeChunkWithState(rawJSON []byte, state *ir.ClaudeStreamParserState) ([]*ir.UnifiedEvent, error) {
 	data := ir.ExtractSSEData(rawJSON)
 	if len(data) == 0 {
 		return nil, nil
@@ -328,9 +328,9 @@ func ParseClaudeChunkWithState(rawJSON []byte, state *ir.ClaudeStreamParserState
 	case "message_delta":
 		return ir.ParseClaudeMessageDelta(parsed), nil
 	case "message_stop":
-		return []ir.UnifiedEvent{{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}}, nil
 	case "error":
-		return []ir.UnifiedEvent{{Type: ir.EventTypeError, Error: &ClaudeAPIError{Message: parsed.Get("error.message").String()}}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeError, Error: &ClaudeAPIError{Message: parsed.Get("error.message").String()}}}, nil
 	}
 	return nil, nil
 }

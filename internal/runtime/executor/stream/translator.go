@@ -115,7 +115,7 @@ func NewStreamTranslator(cfg *config.Config, from provider.Format, to, model, me
 }
 
 // Translate converts IR events to target format with buffering
-func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslationResult, error) {
+func (t *StreamTranslator) Translate(events []*ir.UnifiedEvent) (*StreamTranslationResult, error) {
 	var allChunks [][]byte
 
 	if !t.streamMetaSent && len(events) > 0 {
@@ -143,9 +143,7 @@ func (t *StreamTranslator) Translate(events []ir.UnifiedEvent) (*StreamTranslati
 		}
 	}
 
-	for i := range events {
-		event := &events[i]
-
+	for _, event := range events {
 		if t.preprocess(event) {
 			continue
 		}
@@ -199,14 +197,10 @@ func (t *StreamTranslator) Flush() ([][]byte, error) {
 		}
 	}
 
+	// Gemini state events are already emitted during parsing
+	// Finalize just clears the state reference
 	if t.Ctx != nil && t.Ctx.GeminiState != nil {
-		if finalEvent := t.Ctx.GeminiState.Finalize(); finalEvent != nil {
-			chunks, err := t.convertAndBuffer(finalEvent)
-			if err != nil {
-				return nil, err
-			}
-			allChunks = append(allChunks, chunks...)
-		}
+		t.Ctx.GeminiState.Finalize()
 	}
 
 	flushedEvents := t.eventBuffer.Flush()

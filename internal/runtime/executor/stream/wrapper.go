@@ -12,11 +12,11 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/preprocess"
 )
 
-func ExtractUsageFromEvents(events []ir.UnifiedEvent) *ir.Usage {
+func ExtractUsageFromEvents(events []*ir.UnifiedEvent) *ir.Usage {
 	var lastUsage *ir.Usage
-	for i := range events {
-		if events[i].Usage != nil {
-			lastUsage = events[i].Usage
+	for _, event := range events {
+		if event.Usage != nil {
+			lastUsage = event.Usage
 		}
 	}
 	return lastUsage

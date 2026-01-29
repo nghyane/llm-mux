@@ -918,39 +918,52 @@ func TestMergeConsecutiveModelThinking_MultipleToolCalls(t *testing.T) {
 func TestParseGeminiChunkWithState_OrphanSignatureMerge(t *testing.T) {
 	state := ir.NewGeminiStreamParserState()
 
-	// Chunk 1: thinking text without signature - gets buffered
+	// Chunk 1: thinking text without signature - emitted immediately, reference stored
 	chunk1 := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"text":"I am thinking..."}]}}]}`
 	events1, err := ParseGeminiChunkWithState([]byte(chunk1), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(events1) != 0 {
-		t.Errorf("thinking without signature should be buffered, got %d events", len(events1))
+	// NEW: thinking emitted immediately for streaming
+	if len(events1) != 1 {
+		t.Fatalf("thinking should be emitted immediately, got %d events", len(events1))
+	}
+	if events1[0].Type != ir.EventTypeReasoning {
+		t.Errorf("expected reasoning event, got %v", events1[0].Type)
+	}
+	if events1[0].Reasoning != "I am thinking..." {
+		t.Errorf("reasoning = %q, want %q", events1[0].Reasoning, "I am thinking...")
+	}
+	// Initially no signature
+	if len(events1[0].ThoughtSignature) != 0 {
+		t.Error("signature should not be present yet")
 	}
 	if !state.HasPendingEvent() {
-		t.Error("state should have pending thinking event")
+		t.Error("state should have pending event reference for signature attachment")
 	}
 
-	// Chunk 2: orphan signature - attaches to buffered event and emits
+	// Chunk 2: orphan signature - emits signature-only event for multi-turn, also attaches retroactively
 	chunk2 := `data: {"candidates":[{"content":{"role":"model","parts":[{"thought":true,"thoughtSignature":"c2lnMTIz"}]}}]}`
 	events2, err := ParseGeminiChunkWithState([]byte(chunk2), state)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	// Signature-only event IS emitted for client to receive for multi-turn
 	if len(events2) != 1 {
-		t.Fatalf("expected 1 event after signature attachment, got %d", len(events2))
+		t.Fatalf("orphan signature should emit 1 event for multi-turn, got %d events", len(events2))
 	}
-	if events2[0].Type != ir.EventTypeReasoning {
-		t.Errorf("expected reasoning event, got %v", events2[0].Type)
-	}
-	if events2[0].Reasoning != "I am thinking..." {
-		t.Errorf("reasoning = %q, want %q", events2[0].Reasoning, "I am thinking...")
+	if events2[0].Reasoning != "" {
+		t.Errorf("signature-only event should have empty reasoning, got %q", events2[0].Reasoning)
 	}
 	if len(events2[0].ThoughtSignature) == 0 {
-		t.Error("signature should be attached to thinking event")
+		t.Error("signature-only event should have signature")
+	}
+	// The original event (events1[0]) should now have the signature attached
+	if len(events1[0].ThoughtSignature) == 0 {
+		t.Error("signature should be attached to the original thinking event")
 	}
 	if state.HasPendingEvent() {
-		t.Error("pending event should be cleared after emission")
+		t.Error("pending event should be cleared after signature attachment")
 	}
 }
 
@@ -960,8 +973,12 @@ func TestParseGeminiChunkWithState_NilStateDropsOrphan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(events) != 0 {
-		t.Errorf("with nil state, orphan signature should be dropped, got %d events", len(events))
+	// Even with nil state, orphan signature is emitted (valid data from API)
+	if len(events) != 1 {
+		t.Fatalf("orphan signature should be emitted even with nil state, got %d events", len(events))
+	}
+	if len(events[0].ThoughtSignature) == 0 {
+		t.Error("signature-only event should have signature")
 	}
 }
 
@@ -992,25 +1009,25 @@ func TestGeminiStreamParserState_Finalize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(events) != 0 {
-		t.Errorf("thinking without signature should be buffered, got %d", len(events))
+	// NEW: thinking emitted immediately for streaming
+	if len(events) != 1 {
+		t.Errorf("thinking should be emitted immediately, got %d", len(events))
+	}
+	if events[0].Type != ir.EventTypeReasoning {
+		t.Errorf("expected reasoning event, got %v", events[0].Type)
+	}
+	if events[0].Reasoning != "thinking without sig" {
+		t.Errorf("reasoning = %q, want %q", events[0].Reasoning, "thinking without sig")
 	}
 
-	finalEvent := state.Finalize()
-	if finalEvent == nil {
-		t.Fatal("expected final event with buffered thinking")
-	}
-	if finalEvent.Type != ir.EventTypeReasoning {
-		t.Errorf("expected reasoning event, got %v", finalEvent.Type)
-	}
-	if finalEvent.Reasoning != "thinking without sig" {
-		t.Errorf("reasoning = %q, want %q", finalEvent.Reasoning, "thinking without sig")
+	// State should have pending reference for signature attachment
+	if !state.HasPendingEvent() {
+		t.Error("pending event reference expected for signature attachment")
 	}
 
+	// Finalize clears state - no event to return (already emitted)
+	state.Finalize()
 	if state.HasPendingEvent() {
 		t.Error("pending event should be cleared after finalize")
-	}
-	if state.Finalize() != nil {
-		t.Error("second finalize should return nil")
 	}
 }

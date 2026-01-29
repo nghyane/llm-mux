@@ -322,7 +322,7 @@ func parseResponsesAPIOutput(output gjson.Result, usage *ir.Usage) ([]ir.Message
 	return res, usage, nil
 }
 
-func ParseOpenAIChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
+func ParseOpenAIChunk(rawJSON []byte) ([]*ir.UnifiedEvent, error) {
 	raw := bytes.TrimSpace(rawJSON)
 	if len(raw) == 0 {
 		return nil, nil
@@ -341,7 +341,7 @@ func ParseOpenAIChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 		return nil, nil
 	}
 	if bytes.Equal(data, []byte("[DONE]")) {
-		return []ir.UnifiedEvent{{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}}, nil
 	}
 	root := gjson.ParseBytes(data)
 	if et == "" {
@@ -355,31 +355,31 @@ func ParseOpenAIChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 	if !choice.Exists() {
 		if u := root.Get("usage"); u.Exists() {
 			usage := ir.ParseOpenAIUsage(u)
-			return []ir.UnifiedEvent{{Type: ir.EventTypeFinish, Usage: usage, SystemFingerprint: root.Get("system_fingerprint").String()}}, nil
+			return []*ir.UnifiedEvent{{Type: ir.EventTypeFinish, Usage: usage, SystemFingerprint: root.Get("system_fingerprint").String()}}, nil
 		}
 		return nil, nil
 	}
 
-	var evs []ir.UnifiedEvent
+	var evs []*ir.UnifiedEvent
 	d := choice.Get("delta")
 	if v := d.Get("content").String(); v != "" {
-		evs = append(evs, ir.UnifiedEvent{Type: ir.EventTypeToken, Content: v})
+		evs = append(evs, &ir.UnifiedEvent{Type: ir.EventTypeToken, Content: v})
 	}
 	if v := d.Get("refusal").String(); v != "" {
-		evs = append(evs, ir.UnifiedEvent{Type: ir.EventTypeToken, Refusal: v})
+		evs = append(evs, &ir.UnifiedEvent{Type: ir.EventTypeToken, Refusal: v})
 	}
 	if v := d.Get("audio"); v.IsObject() {
-		evs = append(evs, ir.UnifiedEvent{Type: ir.EventTypeAudio, Audio: &ir.AudioPart{ID: v.Get("id").String(), Data: v.Get("data").String(), Transcript: v.Get("transcript").String(), ExpiresAt: v.Get("expires_at").Int()}})
+		evs = append(evs, &ir.UnifiedEvent{Type: ir.EventTypeAudio, Audio: &ir.AudioPart{ID: v.Get("id").String(), Data: v.Get("data").String(), Transcript: v.Get("transcript").String(), ExpiresAt: v.Get("expires_at").Int()}})
 	}
 	if rf := ir.ParseReasoningFromJSON(d); rf.Text != "" {
-		evs = append(evs, ir.UnifiedEvent{Type: ir.EventTypeReasoning, Reasoning: rf.Text, ThoughtSignature: []byte(rf.Signature)})
+		evs = append(evs, &ir.UnifiedEvent{Type: ir.EventTypeReasoning, Reasoning: rf.Text, ThoughtSignature: []byte(rf.Signature)})
 	}
 	for _, tc := range d.Get("tool_calls").Array() {
-		evs = append(evs, ir.UnifiedEvent{Type: ir.EventTypeToolCall, ToolCall: &ir.ToolCall{ID: tc.Get("id").String(), Name: tc.Get("function.name").String(), Args: tc.Get("function.arguments").String()}, ToolCallIndex: int(tc.Get("index").Int())})
+		evs = append(evs, &ir.UnifiedEvent{Type: ir.EventTypeToolCall, ToolCall: &ir.ToolCall{ID: tc.Get("id").String(), Name: tc.Get("function.name").String(), Args: tc.Get("function.arguments").String()}, ToolCallIndex: int(tc.Get("index").Int())})
 	}
 
 	if fr := choice.Get("finish_reason").String(); fr != "" {
-		ev := ir.UnifiedEvent{Type: ir.EventTypeFinish, FinishReason: ir.MapOpenAIFinishReason(fr), SystemFingerprint: root.Get("system_fingerprint").String()}
+		ev := &ir.UnifiedEvent{Type: ir.EventTypeFinish, FinishReason: ir.MapOpenAIFinishReason(fr), SystemFingerprint: root.Get("system_fingerprint").String()}
 		if v := choice.Get("logprobs"); v.Exists() {
 			ev.Logprobs = v.Value()
 		}
@@ -396,42 +396,42 @@ func ParseOpenAIChunk(rawJSON []byte) ([]ir.UnifiedEvent, error) {
 	return evs, nil
 }
 
-func parseResponsesStreamEvent(et string, root gjson.Result) ([]ir.UnifiedEvent, error) {
+func parseResponsesStreamEvent(et string, root gjson.Result) ([]*ir.UnifiedEvent, error) {
 	switch et {
 	case "response.output_text.delta":
 		if v := root.Get("delta").String(); v != "" {
-			return []ir.UnifiedEvent{{Type: ir.EventTypeToken, Content: v}}, nil
+			return []*ir.UnifiedEvent{{Type: ir.EventTypeToken, Content: v}}, nil
 		}
 	case "response.reasoning_summary_text.delta":
 		if v := root.Get("text").String(); v != "" {
-			return []ir.UnifiedEvent{{Type: ir.EventTypeReasoningSummary, ReasoningSummary: v}}, nil
+			return []*ir.UnifiedEvent{{Type: ir.EventTypeReasoningSummary, ReasoningSummary: v}}, nil
 		}
 	case "response.function_call_arguments.delta":
-		return []ir.UnifiedEvent{{Type: ir.EventTypeToolCallDelta, ToolCall: &ir.ToolCall{ID: root.Get("item_id").String(), Args: root.Get("delta").String()}, ToolCallIndex: int(root.Get("output_index").Int())}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeToolCallDelta, ToolCall: &ir.ToolCall{ID: root.Get("item_id").String(), Args: root.Get("delta").String()}, ToolCallIndex: int(root.Get("output_index").Int())}}, nil
 	case "response.function_call_arguments.done":
-		return []ir.UnifiedEvent{{Type: ir.EventTypeToolCall, ToolCall: &ir.ToolCall{ID: root.Get("item_id").String(), Name: root.Get("name").String(), Args: root.Get("arguments").String()}, ToolCallIndex: int(root.Get("output_index").Int())}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeToolCall, ToolCall: &ir.ToolCall{ID: root.Get("item_id").String(), Name: root.Get("name").String(), Args: root.Get("arguments").String()}, ToolCallIndex: int(root.Get("output_index").Int())}}, nil
 	case "response.web_search_call.in_progress":
-		return []ir.UnifiedEvent{{Type: ir.EventTypeToolCall, ToolCall: &ir.ToolCall{ID: root.Get("item_id").String(), Name: "web_search", Args: "{}"}}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeToolCall, ToolCall: &ir.ToolCall{ID: root.Get("item_id").String(), Name: "web_search", Args: "{}"}}}, nil
 	case "response.refusal.delta":
 		if v := root.Get("delta").String(); v != "" {
-			return []ir.UnifiedEvent{{Type: ir.EventTypeToken, Refusal: v}}, nil
+			return []*ir.UnifiedEvent{{Type: ir.EventTypeToken, Refusal: v}}, nil
 		}
 	case "response.audio_transcript.delta":
 		if v := root.Get("delta").String(); v != "" {
-			return []ir.UnifiedEvent{{Type: ir.EventTypeAudio, Audio: &ir.AudioPart{Transcript: v}}}, nil
+			return []*ir.UnifiedEvent{{Type: ir.EventTypeAudio, Audio: &ir.AudioPart{Transcript: v}}}, nil
 		}
 	case "response.completed":
-		ev := ir.UnifiedEvent{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}
+		ev := &ir.UnifiedEvent{Type: ir.EventTypeFinish, FinishReason: ir.FinishReasonStop}
 		if u := root.Get("response.usage"); u.Exists() {
 			ev.Usage = ir.ParseOpenAIUsage(u)
 		}
-		return []ir.UnifiedEvent{ev}, nil
+		return []*ir.UnifiedEvent{ev}, nil
 	case "error":
 		errMsg := root.Get("error.message").String()
 		if errMsg == "" {
 			errMsg = "unknown error"
 		}
-		return []ir.UnifiedEvent{{Type: ir.EventTypeError, FinishReason: ir.FinishReasonError, Error: errors.New(errMsg)}}, nil
+		return []*ir.UnifiedEvent{{Type: ir.EventTypeError, FinishReason: ir.FinishReasonError, Error: errors.New(errMsg)}}, nil
 	}
 	return nil, nil
 }

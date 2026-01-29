@@ -370,7 +370,7 @@ type vertexStreamProcessor struct {
 
 func (p *vertexStreamProcessor) ProcessLine(line []byte) ([][]byte, *ir.Usage, error) {
 	state := p.translator.Ctx.GeminiState
-	var events []ir.UnifiedEvent
+	var events []*ir.UnifiedEvent
 	var err error
 	if p.translator.Ctx.ToolSchemaCtx != nil {
 		events, err = to_ir.ParseGeminiChunkWithStateContext(line, state, p.translator.Ctx.ToolSchemaCtx)

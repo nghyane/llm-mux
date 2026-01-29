@@ -4,7 +4,7 @@ import (
 	"github.com/nghyane/llm-mux/internal/translator/ir"
 )
 
-type ChunkParser func(line []byte) ([]ir.UnifiedEvent, error)
+type ChunkParser func(line []byte) ([]*ir.UnifiedEvent, error)
 
 type BaseStreamProcessor struct {
 	Translator *StreamTranslator

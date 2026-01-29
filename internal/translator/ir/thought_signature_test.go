@@ -123,41 +123,45 @@ func TestBuildGeminiContentParts_ToolCallWithSignature(t *testing.T) {
 func TestParseClaudeSignatureDelta(t *testing.T) {
 	state := NewClaudeStreamParserState()
 
-	// Step 1: Send thinking_delta first (gets buffered)
+	// Step 1: Send thinking_delta first - emitted immediately, reference stored
 	thinkingInput := `{"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": "Let me analyze..."}}`
 	thinkingParsed := gjson.Parse(thinkingInput)
 	events := ParseClaudeStreamDeltaWithState(thinkingParsed, state)
 
-	// Thinking should be buffered, not emitted yet
-	if len(events) != 0 {
-		t.Fatalf("thinking should be buffered, got %d events", len(events))
+	// NEW: thinking emitted immediately for streaming
+	if len(events) != 1 {
+		t.Fatalf("thinking should be emitted immediately, got %d events", len(events))
+	}
+	if events[0].Type != EventTypeReasoning {
+		t.Errorf("expected EventTypeReasoning, got %s", events[0].Type)
+	}
+	if events[0].Reasoning != "Let me analyze..." {
+		t.Errorf("expected 'Let me analyze...', got '%s'", events[0].Reasoning)
+	}
+	// Initially no signature
+	if len(events[0].ThoughtSignature) != 0 {
+		t.Error("signature should not be present yet")
 	}
 	if !state.HasPendingEvent() {
-		t.Fatal("expected pending thinking event in state")
+		t.Fatal("expected pending thinking event in state for signature attachment")
 	}
 
-	// Step 2: Send signature_delta (attaches to buffered thinking and emits)
+	// Track the thinking event to verify signature attachment
+	thinkingEvent := events[0]
+
+	// Step 2: Send signature_delta - attaches to already emitted event, no new event
 	sigInput := `{"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "claude_extended_sig"}}`
 	sigParsed := gjson.Parse(sigInput)
 	events = ParseClaudeStreamDeltaWithState(sigParsed, state)
 
-	if len(events) != 1 {
-		t.Fatalf("expected 1 completed event, got %d", len(events))
+	// NEW: no new event emitted - signature attached retroactively
+	if len(events) != 0 {
+		t.Fatalf("signature delta should not emit new event, got %d", len(events))
 	}
-
-	ev := events[0]
-	if ev.Type != EventTypeReasoning {
-		t.Errorf("expected EventTypeReasoning, got %s", ev.Type)
+	// The original thinking event should now have the signature attached
+	if string(thinkingEvent.ThoughtSignature) != "claude_extended_sig" {
+		t.Errorf("signature should be attached to original event, got '%s'", string(thinkingEvent.ThoughtSignature))
 	}
-
-	if ev.Reasoning != "Let me analyze..." {
-		t.Errorf("expected 'Let me analyze...', got '%s'", ev.Reasoning)
-	}
-
-	if string(ev.ThoughtSignature) != "claude_extended_sig" {
-		t.Errorf("expected 'claude_extended_sig', got '%s'", string(ev.ThoughtSignature))
-	}
-
 	// State should be cleared
 	if state.HasPendingEvent() {
 		t.Error("expected no pending event after signature attached")
